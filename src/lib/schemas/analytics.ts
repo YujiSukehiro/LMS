@@ -36,6 +36,9 @@ export const EnrollmentDocSchema = z.object({
   xpEarned: z.number().int().nonnegative(),
   progressPct: z.number().min(0).max(100),
   certifiedAt: z.number().nullable(),
+  /** Additive audit labels; legacy enrollment assertions never satisfy versioned certification gates. */
+  certificationEvidenceLabel: z.enum(['current_verified', 'historical_verified', 'historical_unverified', 'replay_excluded']).optional(),
+  certificationProvenance: z.enum(['certification_register', 'legacy_enrollment']).optional(),
   lastActivityAt: z.number(),
 });
 export type EnrollmentDoc = z.infer<typeof EnrollmentDocSchema>;

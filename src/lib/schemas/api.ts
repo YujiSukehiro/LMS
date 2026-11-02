@@ -14,6 +14,13 @@ import {
 import { EnrollmentDocSchema, SimEvaluationSchema, SimSessionDocSchema } from './analytics';
 import { ClaimEvidenceSchema } from './source-truth';
 import {
+  AttemptKindSchema,
+  DrillAnswerSchema,
+  CertificationDocSchema,
+  DrillAttemptDocSchema,
+  ReviewScheduleDocSchema,
+} from './learning';
+import {
   ScenarioQAFixtureSchema,
   ScenarioStateSchema,
   SimulationActionSchema,
@@ -166,12 +173,48 @@ export const DrillResultSchema = z.object({
 });
 export type DrillResult = z.infer<typeof DrillResultSchema>;
 
-export const CompleteUnitRequestSchema = z.object({
-  trackId: z.string(),
-  versionId: z.string(),
-  unitId: z.string(),
-  drillResults: z.array(DrillResultSchema).min(1),
+export const DrillStartRequestSchema = z.object({
+  trackId: z.string().min(1),
+  versionId: z.string().min(1),
+  unitId: z.string().min(1),
+  drillId: z.string().min(1),
+}).strict();
+export type DrillStartRequest = z.infer<typeof DrillStartRequestSchema>;
+export const DrillStartResponseSchema = z.object({
+  startId: z.string().min(1),
+  startedAt: z.string().datetime(),
 });
+export type DrillStartResponse = z.infer<typeof DrillStartResponseSchema>;
+
+export const DrillAnswerRequestSchema = z.object({
+  trackId: z.string().min(1),
+  versionId: z.string().min(1),
+  unitId: z.string().min(1),
+  drillId: z.string().min(1),
+  startId: z.string().min(1),
+  idempotencyKey: z.string().min(8).max(200),
+  answer: DrillAnswerSchema,
+}).strict();
+export type DrillAnswerRequest = z.infer<typeof DrillAnswerRequestSchema>;
+export const DrillAnswerResponseSchema = z.object({
+  attempt: DrillAttemptDocSchema.nullable(),
+  correct: z.boolean(),
+  score: z.number().min(0).max(100),
+  firstIndependent: z.boolean(),
+  attemptKind: AttemptKindSchema,
+  correctAnswer: DrillAnswerSchema.nullable(),
+  explanation: z.string().max(350).nullable(),
+  sourcePages: z.array(z.number().int().positive()),
+  schedule: ReviewScheduleDocSchema.nullable(),
+}).strict();
+export type DrillAnswerResponse = z.infer<typeof DrillAnswerResponseSchema>;
+
+export const CompleteUnitRequestSchema = z.object({
+  trackId: z.string().min(1),
+  versionId: z.string().min(1),
+  unitId: z.string().min(1),
+  idempotencyKey: z.string().min(8).max(200),
+}).strict();
 export type CompleteUnitRequest = z.infer<typeof CompleteUnitRequestSchema>;
 export const CompleteUnitResponseSchema = z.object({
   xpAwarded: z.number().int().nonnegative(),
@@ -271,6 +314,24 @@ export const EvaluateSimResponseSchema = z.object({
   demoReplay: z.boolean().optional(),
 });
 export type EvaluateSimResponse = z.infer<typeof EvaluateSimResponseSchema>;
+
+// ---------- Certification administration (server-derived transitions only) ----------
+export const RevokeCertificationRequestSchema = z.object({
+  learnerId: z.string().min(1),
+  trackId: z.string().min(1),
+  reason: z.string().trim().min(1).max(1_000),
+}).strict();
+export const RevokeCertificationResponseSchema = z.object({ certification: CertificationDocSchema }).strict();
+
+export const ReconcileCertificationRequestSchema = z.object({
+  learnerId: z.string().min(1),
+  trackId: z.string().min(1),
+  reason: z.string().trim().min(1).max(1_000),
+}).strict();
+export const ReconcileCertificationResponseSchema = z.object({
+  certification: CertificationDocSchema.nullable(),
+  blockers: z.array(z.string()),
+}).strict();
 
 // ---------- Roster ----------
 export const RosterImportRowSchema = z

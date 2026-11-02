@@ -13,11 +13,13 @@
  * Simulation rule: every evaluated published Simulation adds one rollup attempt (and a pass when passed),
  * pillar samples and missed criteria. XP and `simulationsPassedCount` are given only on the first pass of a scenario.
  */
+import { createHash } from 'node:crypto';
 import { FieldValue, type DocumentSnapshot, type Transaction } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import {
   EnrollmentDocSchema,
+  SimSessionDocSchema,
   enrollmentIdFor,
   rollupIdForCohort,
   rollupIdForDivision,
@@ -38,6 +40,13 @@ import type {
   TrackVersionDoc,
 } from '@/lib/schemas/curriculum';
 import {
+  ScenarioAttemptEvidenceSchema,
+  ScenarioCoverageDocSchema,
+  type CertificationDoc,
+  type ScenarioAttemptEvidence,
+  type ScenarioCoverageDoc,
+} from '@/lib/schemas/learning';
+import {
   PillarStatSchema,
   UserStatsSchema,
   type DivisionId,
@@ -45,7 +54,18 @@ import {
   type SessionUser,
   type UserStats,
 } from '@/lib/schemas/domain';
+import {
+  evaluateCertificationEligibility,
+  evaluateScenarioCoverage,
+  evaluateScenarioSessionEvidence,
+  expireCertification,
+  grantCertification,
+} from './certification';
 import { ServiceError } from './errors';
+import {
+  loadCurrentLearningEvidenceData,
+  scenarioCoverageRef,
+} from './learning-evidence';
 import { appendEvaluationEvent } from './scenario-state';
 import {
   computeFirstTryAccuracyPct,
@@ -74,6 +94,19 @@ function rollupRef(rollupId: string) {
 function simSessionRef(sessionId: string) {
   return adminDb.collection('simSessions').doc(sessionId);
 }
+function unitCompletionCommandRef(uid: string, idempotencyKey: string) {
+  const digest = createHash('sha256').update(`${uid}:${idempotencyKey}`).digest('hex');
+  return adminDb.collection('unitCompletionCommands').doc(`completion_${digest}`);
+}
+const UnitCompletionCommandSchema = z.object({
+  learnerId: z.string(),
+  trackId: z.string(),
+  versionId: z.string(),
+  unitId: z.string(),
+  idempotencyKey: z.string(),
+  xpAwarded: z.number().int().nonnegative(),
+  createdAt: z.number(),
+});
 
 // ---------------------------------------------------------------------------
 // CompetencyPillar lookup (pillar ID -> canonical key + label)
@@ -186,6 +219,16 @@ function blankEnrollment(user: SessionUser, track: TrackDoc, version: TrackVersi
   };
 }
 
+/** Non-destructive migration labeling for pre-register enrollment certification assertions. */
+export function labelLegacyEnrollmentCertification(enrollment: EnrollmentDoc): EnrollmentDoc {
+  if (enrollment.certifiedAt === null || enrollment.certificationEvidenceLabel) return enrollment;
+  return {
+    ...enrollment,
+    certificationEvidenceLabel: 'historical_unverified',
+    certificationProvenance: 'legacy_enrollment',
+  };
+}
+
 function readEnrollment(
   snap: DocumentSnapshot,
   user: SessionUser,
@@ -199,7 +242,7 @@ function readEnrollment(
     console.error(`[analytics-rollup] Enrollment ${snap.id} has an invalid shape`, parsed.error.flatten());
     throw new ServiceError(500, 'ENROLLMENT_DATA_INVALID', 'Your progress record is not valid. Contact a Trainer.');
   }
-  return { enrollment: parsed.data, existed: true };
+  return { enrollment: labelLegacyEnrollmentCertification(parsed.data), existed: true };
 }
 
 function enrollmentStatus(e: Pick<EnrollmentDoc, 'certifiedAt' | 'completedUnitIds' | 'passedScenarioIds'>) {
@@ -224,11 +267,14 @@ function reconcileEnrollment(
   track: TrackDoc,
   version: TrackVersionDoc,
 ): EnrollmentDoc {
+  const sameVersion = enrollment.versionId === version.versionId;
   const unitOrder = [...version.units].sort((a, b) => a.orderIndex - b.orderIndex).map((u) => u.id);
-  const done = new Set(enrollment.completedUnitIds);
+  const done = new Set(sameVersion ? enrollment.completedUnitIds : []);
   const completedUnitIds = unitOrder.filter((id) => done.has(id));
   const scenarioIds = new Set(version.simScenarios.map((s) => s.id));
-  const passedScenarioIds = enrollment.passedScenarioIds.filter((id, i, arr) => scenarioIds.has(id) && arr.indexOf(id) === i);
+  const passedScenarioIds = sameVersion
+    ? enrollment.passedScenarioIds.filter((id, i, arr) => scenarioIds.has(id) && arr.indexOf(id) === i)
+    : [];
 
   const next: EnrollmentDoc = {
     ...enrollment,
@@ -261,7 +307,10 @@ interface RollupScope {
   trackId: string | null;
 }
 
-function rollupScopesFor(user: SessionUser, track: TrackDoc): RollupScope[] {
+function rollupScopesFor(
+  user: Pick<SessionUser, 'partnerCohortId'>,
+  track: Pick<TrackDoc, 'id' | 'divisionId'>,
+): RollupScope[] {
   return [
     { id: rollupIdForGlobal(), scopeType: 'GLOBAL', divisionId: null, partnerCohortId: null, trackId: null },
     {
@@ -374,7 +423,7 @@ function writeRollups(
         divisionId: scope.divisionId,
         partnerCohortId: scope.partnerCohortId,
         trackId: scope.trackId,
-        totalCertifications: delta.certifications,
+        totalCertifications: Math.max(0, delta.certifications),
         totalUnitCompletions: delta.unitCompletions,
         totalSimAttempts: delta.simAttempts,
         totalSimPasses: delta.simPasses,
@@ -423,6 +472,53 @@ function writeRollups(
       update.missedItemCounts = missedItemCounts;
     }
     tx.set(ref, update, { merge: true });
+  });
+}
+
+export interface CertificationAggregateTarget {
+  partnerCohortId: string;
+}
+
+export interface CertificationAggregateState {
+  track: Pick<TrackDoc, 'id' | 'divisionId'>;
+  scopes: RollupScope[];
+  snapshots: DocumentSnapshot[];
+  deltas: Map<string, number>;
+}
+
+/** Read shared rollup scopes once and aggregate multi-learner certification transitions. */
+export async function readCertificationAggregateState(
+  tx: Transaction,
+  track: Pick<TrackDoc, 'id' | 'divisionId'>,
+  targets: readonly CertificationAggregateTarget[],
+): Promise<CertificationAggregateState> {
+  const scopes = new Map<string, RollupScope>();
+  for (const target of targets) {
+    for (const scope of rollupScopesFor(target, track)) scopes.set(scope.id, scope);
+  }
+  const uniqueScopes = [...scopes.values()];
+  const snapshots = uniqueScopes.length > 0 ? await readRollups(tx, uniqueScopes) : [];
+  return { track, scopes: uniqueScopes, snapshots, deltas: new Map() };
+}
+
+export function stageCertificationAggregateDelta(
+  state: CertificationAggregateState,
+  target: CertificationAggregateTarget,
+  delta: number,
+): void {
+  if (delta === 0) return;
+  for (const scope of rollupScopesFor(target, state.track)) {
+    state.deltas.set(scope.id, (state.deltas.get(scope.id) ?? 0) + delta);
+  }
+}
+
+export function writeCertificationAggregateState(tx: Transaction, state: CertificationAggregateState, now: number): void {
+  state.scopes.forEach((scope, index) => {
+    const certifications = state.deltas.get(scope.id) ?? 0;
+    if (certifications === 0) return;
+    const delta = emptyDelta();
+    delta.certifications = certifications;
+    writeRollups(tx, [scope], [state.snapshots[index]], delta, now);
   });
 }
 
@@ -485,8 +581,9 @@ export async function recordUnitCompletion(args: {
   version: TrackVersionDoc;
   unitId: string;
   drillResults: DrillResult[];
+  idempotencyKey: string;
 }): Promise<{ xpAwarded: number; enrollment: EnrollmentDoc }> {
-  const { user, track, version, unitId, drillResults } = args;
+  const { user, track, version, unitId, drillResults, idempotencyKey } = args;
   const orderedUnits = [...version.units].sort((a, b) => a.orderIndex - b.orderIndex);
   const unitIndex = orderedUnits.findIndex((u) => u.id === unitId);
   if (unitIndex === -1) throw new ServiceError(404, 'UNIT_NOT_FOUND', 'This Unit does not exist in the Track.');
@@ -496,13 +593,25 @@ export async function recordUnitCompletion(args: {
   const scopes = rollupScopesFor(user, track);
   const uRef = userRef(user.uid);
   const eRef = enrollmentRef(user.uid, track.id);
+  const commandRef = unitCompletionCommandRef(user.uid, idempotencyKey);
 
   return adminDb.runTransaction(async (tx) => {
     const now = Date.now();
-    const [userSnap, enrollmentSnap] = await tx.getAll(uRef, eRef);
+    const [userSnap, enrollmentSnap, commandSnap] = await tx.getAll(uRef, eRef, commandRef);
     const userState = readUserProgress(userSnap);
     const { enrollment: stored } = readEnrollment(enrollmentSnap, user, track, version, now);
     const enrollment = reconcileEnrollment(stored, user, track, version);
+
+    if (commandSnap.exists) {
+      const command = UnitCompletionCommandSchema.parse(commandSnap.data());
+      if (
+        command.learnerId !== user.uid || command.trackId !== track.id || command.versionId !== version.versionId ||
+        command.unitId !== unitId || command.idempotencyKey !== idempotencyKey
+      ) {
+        throw new ServiceError(409, 'IDEMPOTENCY_CONFLICT', 'This completion key was already used for another Unit.');
+      }
+      return { xpAwarded: command.xpAwarded, enrollment };
+    }
 
     const completed = new Set(enrollment.completedUnitIds);
     const locked = orderedUnits.slice(0, unitIndex).some((u) => !completed.has(u.id));
@@ -515,9 +624,8 @@ export async function recordUnitCompletion(args: {
     const accuracy = computeFirstTryAccuracyPct(drillResults);
     const prevScore = enrollment.unitScores[unitId];
 
-    // Enrollment
     completed.add(unitId);
-    let next: EnrollmentDoc = {
+    const next: EnrollmentDoc = {
       ...enrollment,
       completedUnitIds: orderedUnits.filter((u) => completed.has(u.id)).map((u) => u.id),
       unitScores: {
@@ -531,15 +639,8 @@ export async function recordUnitCompletion(args: {
       xpEarned: enrollment.xpEarned + xpAwarded,
       lastActivityAt: now,
     };
-    let newlyCertified = false;
-    if (next.certifiedAt === null && allUnitsComplete(next, version) && next.passedScenarioIds.length > 0) {
-      next.certifiedAt = now;
-      newlyCertified = true;
-    }
-    next = reconcileEnrollment(next, user, track, version);
-    const enrollmentToWrite = EnrollmentDocSchema.parse(next);
+    const enrollmentToWrite = EnrollmentDocSchema.parse(reconcileEnrollment(next, user, track, version));
 
-    // User
     const samples = drillResults.map((r) => ({
       competencyPillarId: r.competencyPillarId,
       score: r.passedFirstTry ? 100 : 0,
@@ -552,11 +653,9 @@ export async function recordUnitCompletion(args: {
       totalXp: userState.stats.totalXp + xpAwarded,
       currentStreakDays: streak.currentStreakDays,
       lastActiveDateUtc: streak.lastActiveDateUtc,
-      tracksCertifiedCount: userState.stats.tracksCertifiedCount + (newlyCertified ? 1 : 0),
       overallReadinessScore: computeOverallReadiness(skillScoresByPillar),
     };
 
-    // Rollups (first completion only, plus a certification if it happens now)
     const delta = emptyDelta();
     if (isFirstCompletion) {
       delta.unitCompletions = 1;
@@ -568,12 +667,18 @@ export async function recordUnitCompletion(args: {
         addMissedItem(delta, track.id, result.drillId, drill?.prompt ?? result.drillId);
       }
     }
-    if (newlyCertified) delta.certifications = 1;
 
     const rollupSnaps = isDeltaEmpty(delta) ? [] : await readRollups(tx, scopes);
-
-    // Writes (after all reads)
     tx.set(eRef, enrollmentToWrite);
+    tx.set(commandRef, UnitCompletionCommandSchema.parse({
+      learnerId: user.uid,
+      trackId: track.id,
+      versionId: version.versionId,
+      unitId,
+      idempotencyKey,
+      xpAwarded,
+      createdAt: now,
+    }));
     writeUserProgress(tx, user.uid, stats, skillScoresByPillar, now);
     writeRollups(tx, scopes, rollupSnaps, delta, now);
 
@@ -629,13 +734,32 @@ function assertSessionEvaluable(snap: DocumentSnapshot) {
   }
 }
 
+function isActiveCertification(certification: CertificationDoc | null, now: number): boolean {
+  return certification?.status === 'certified' &&
+    certification.certifiedAt !== null &&
+    (!certification.expiresAt || Date.parse(certification.expiresAt) > now);
+}
+
+function scenarioAttemptEvidence(session: SimSessionDoc): ScenarioAttemptEvidence {
+  const source = session.provenance?.source;
+  const gates = session.evaluation?.gateResults ?? session.gateResults ?? [];
+  return ScenarioAttemptEvidenceSchema.parse({
+    sessionId: session.id,
+    passed: session.evaluation?.passed ?? false,
+    evaluatedAt: new Date(session.evaluation?.evaluatedAt ?? session.updatedAt).toISOString(),
+    criticalFailureRuleIds: [...new Set(gates
+      .filter((gate) => gate.severity === 'critical' && gate.status === 'fail')
+      .map((gate) => gate.ruleId))],
+    workflowComplete: session.scenarioState?.wrapUpComplete === true && !gates.some((gate) => gate.status === 'fail'),
+    dispositionValid: session.evaluation?.dispositionCorrect === true && session.evaluation.dispositionValidation?.valid === true,
+    // The stored compatibility schema has no hosted_ai value; those attempts remain ineligible in the pure cross-check.
+    provenance: source === 'local_ai' || source === 'manual_chat' ? source : 'imported_legacy',
+  });
+}
+
 /**
- * Save a Simulation evaluation on a published TrackVersion and record progress (one transaction):
- * session -> EVALUATED, enrollment (passed scenarios, best score, certification, XP), user stats + skill scores,
- * and rollups (attempts, passes, certifications, pillar samples, missed criteria).
- *
- * `version` must be the Track's CURRENT published TrackVersion (enrollment progress is measured against it).
- * `scenario` is the scenario that was played (it can come from an earlier TrackVersion).
+ * Save an evaluated session, append exact-version scenario evidence, and grant only when the full
+ * current assessment blueprint passes. A later failed attempt never revokes an active certification.
  */
 export async function recordSimulationEvaluation(args: {
   user: SessionUser;
@@ -647,23 +771,17 @@ export async function recordSimulationEvaluation(args: {
   pillars: CompetencyPillar[];
   selectedDisposition: string;
 }): Promise<{ certified: boolean; enrollment: EnrollmentDoc }> {
-  const { session, evaluation } = args;
+  const { user, track, version, scenario, pillars, selectedDisposition, evaluation } = args;
   if (
-    session.provenance?.source === 'replay' ||
-    evaluation.provenance?.source === 'replay' ||
-    session.messages.some((message) => message.provenance?.source === 'replay')
+    args.session.provenance?.source === 'replay' || evaluation.provenance?.source === 'replay' ||
+    args.session.messages?.some((message) => message.provenance?.source === 'replay') ||
+    args.session.simulationEvents?.some((event) => event.provenance === 'replay' || event.runtimeProvenance?.source === 'replay')
   ) {
-    throw new ServiceError(
-      409,
-      'REPLAY_NOT_ELIGIBLE',
-      'Demo replay is for inspection only and cannot change progress, readiness, or certification.',
-    );
+    throw new ServiceError(409, 'REPLAY_NOT_ELIGIBLE', 'Demo replay cannot change progress, readiness, XP, or certification.');
   }
-
-  const { user, track, version, scenario, pillars, selectedDisposition } = args;
   const pillarIndex = buildPillarIndex(pillars, version.competencyPillars, track.competencyPillars);
   const scopes = rollupScopesFor(user, track);
-  const sRef = simSessionRef(session.id);
+  const sRef = simSessionRef(args.session.id);
   const uRef = userRef(user.uid);
   const eRef = enrollmentRef(user.uid, track.id);
 
@@ -671,34 +789,171 @@ export async function recordSimulationEvaluation(args: {
     const now = Date.now();
     const [sessionSnap, userSnap, enrollmentSnap] = await tx.getAll(sRef, uRef, eRef);
     assertSessionEvaluable(sessionSnap);
+    const freshSession = SimSessionDocSchema.parse({ ...sessionSnap.data(), id: sessionSnap.id });
+    if (
+      freshSession.userId !== user.uid || freshSession.trackId !== track.id ||
+      freshSession.scenarioId !== scenario.id || freshSession.versionId !== args.session.versionId
+    ) {
+      throw new ServiceError(409, 'SESSION_MISMATCH', 'The Simulation session no longer matches this evaluation.');
+    }
+    if (
+      freshSession.provenance?.source === 'replay' || evaluation.provenance?.source === 'replay' ||
+      freshSession.messages.some((message) => message.provenance?.source === 'replay') ||
+      freshSession.simulationEvents?.some((event) => event.provenance === 'replay' || event.runtimeProvenance?.source === 'replay')
+    ) {
+      throw new ServiceError(409, 'REPLAY_NOT_ELIGIBLE', 'Demo replay cannot change progress, readiness, XP, or certification.');
+    }
+
     const userState = readUserProgress(userSnap);
     const { enrollment: stored } = readEnrollment(enrollmentSnap, user, track, version, now);
     const enrollment = reconcileEnrollment(stored, user, track, version);
+    const evaluationEvent = freshSession.scenarioState && freshSession.simulationEvents
+      ? appendEvaluationEvent({
+          sessionId: freshSession.id,
+          state: freshSession.scenarioState,
+          events: freshSession.simulationEvents,
+          evaluation,
+          now: new Date(now),
+        })
+      : null;
+    // Certification evaluates this freshly evaluated state, including the appended evaluation event.
+    const evaluatedSession: SimSessionDoc = {
+      ...freshSession,
+      status: 'EVALUATED',
+      evaluation,
+      selectedDisposition,
+      ...(evaluationEvent ? {
+        scenarioState: evaluationEvent.state,
+        simulationEvents: [...freshSession.simulationEvents!, evaluationEvent.event],
+        nextEventSequence: evaluationEvent.event.sequence + 1,
+      } : {}),
+      updatedAt: now,
+    };
 
-    const scenarioInVersion = version.simScenarios.some((s) => s.id === scenario.id);
-    // A scenario that is not in the current TrackVersion (the Track was published again) gives no XP or pass credit.
-    const isFirstPass =
-      evaluation.passed && scenarioInVersion && !enrollment.passedScenarioIds.includes(scenario.id);
+    // All certification, coverage, session, attempt and schedule reads complete before any write.
+    const evidence = await loadCurrentLearningEvidenceData({ learnerId: user.uid, version, tx });
+    const sessionsById = new Map(evidence.simSessions.map((item) => [item.id, item]));
+    sessionsById.set(evaluatedSession.id, evaluatedSession);
+    const allSessions = [...sessionsById.values()];
+    const isCurrentScenario = freshSession.versionId === version.versionId &&
+      evidence.blueprint.requiredScenarioIds.includes(freshSession.scenarioId);
+    const existingCoverage = evidence.scenarioCoverage.find((coverage) => coverage.scenarioId === freshSession.scenarioId) ?? null;
+
+    const before = evaluateScenarioCoverage({
+      learnerId: user.uid,
+      blueprint: evidence.blueprint,
+      scenarioCoverage: evidence.scenarioCoverage,
+      simSessions: allSessions,
+    });
+    const hadEligiblePass = before.scenarios.find((item) => item.scenarioId === freshSession.scenarioId)?.passed ?? false;
+
+    let nextCoverage: ScenarioCoverageDoc | null = null;
+    if (isCurrentScenario) {
+      const currentEvidence = scenarioAttemptEvidence(evaluatedSession);
+      const attemptHistory = [...(existingCoverage?.attemptHistory ?? [])];
+      if (!attemptHistory.some((item) => item.sessionId === currentEvidence.sessionId)) attemptHistory.push(currentEvidence);
+      const attemptLimit = evidence.blueprint.allowedAttemptsPerScenario ?? Number.POSITIVE_INFINITY;
+      const passingSessionIds = attemptHistory.flatMap((item, index) => {
+        const session = sessionsById.get(item.sessionId);
+        if (!session || index >= attemptLimit) return [];
+        const assessment = evaluateScenarioSessionEvidence({
+          learnerId: user.uid,
+          blueprint: evidence.blueprint,
+          session,
+          evidence: item,
+          expectedScenarioId: freshSession.scenarioId,
+        });
+        return assessment.certificationPass ? [item.sessionId] : [];
+      });
+      nextCoverage = ScenarioCoverageDocSchema.parse({
+        schemaVersion: 1,
+        id: scenarioCoverageRef(user.uid, track.id, version.versionId, freshSession.scenarioId).id,
+        learnerId: user.uid,
+        partnerCohortId: user.partnerCohortId,
+        trackId: track.id,
+        curriculumVersion: version.versionId,
+        scenarioId: freshSession.scenarioId,
+        requiredGateIds: evidence.blueprint.requiredScenarioGates[freshSession.scenarioId] ?? [],
+        status: passingSessionIds.length > 0 ? 'passed' : attemptHistory.length > 0 ? 'remediation_required' : 'in_progress',
+        attemptHistory,
+        passingSessionIds: [...new Set(passingSessionIds)],
+        lastSessionId: freshSession.id,
+        updatedAt: new Date(now).toISOString(),
+      });
+    }
+
+    const currentCoverage = nextCoverage
+      ? [...evidence.scenarioCoverage.filter((item) => item.scenarioId !== nextCoverage!.scenarioId), nextCoverage]
+      : evidence.scenarioCoverage;
+    const eligibility = evaluateCertificationEligibility({
+      learnerId: user.uid,
+      blueprint: evidence.blueprint,
+      enrollment: enrollmentSnap.exists ? enrollment : null,
+      drillAttempts: evidence.drillAttempts,
+      scenarioCoverage: currentCoverage,
+      simSessions: allSessions,
+      ruleIdsByDrillId: evidence.ruleIdsByDrillId,
+    });
+    const scenarios = evaluateScenarioCoverage({
+      learnerId: user.uid,
+      blueprint: evidence.blueprint,
+      scenarioCoverage: currentCoverage,
+      simSessions: allSessions,
+    });
+    const currentAssessment = scenarios.scenarios
+      .flatMap((item) => item.assessments)
+      .find((assessment) => assessment.sessionId === freshSession.id);
+    const isFirstPass = currentAssessment?.certificationPass === true && !hadEligiblePass;
     const xpAwarded = isFirstPass ? XP_RULES.simulationPass : 0;
+
+    const initialCertification = evidence.certification;
+    let certification = initialCertification;
+    if (certification?.status === 'certified' && certification.expiresAt && Date.parse(certification.expiresAt) <= now) {
+      certification = expireCertification(certification, {
+        now: new Date(now),
+        actorUid: 'system',
+        reason: 'Certification expiry reached during evaluation.',
+      }).certification;
+    }
+    if (!isActiveCertification(certification, now) && certification?.status !== 'revoked' && eligibility.eligible) {
+      certification = grantCertification({
+        learnerId: user.uid,
+        partnerCohortId: user.partnerCohortId,
+        blueprint: evidence.blueprint,
+        eligibility,
+        actorUid: user.uid,
+        now: new Date(now),
+        reason: 'All current-version assessment requirements passed.',
+        existing: certification,
+      }).certification;
+    }
+    const wasCertified = isActiveCertification(initialCertification, now);
+    const certified = isActiveCertification(certification, now);
+    const certificationDelta = Number(certified) - Number(wasCertified);
 
     let next: EnrollmentDoc = {
       ...enrollment,
-      passedScenarioIds: isFirstPass ? [...enrollment.passedScenarioIds, scenario.id] : enrollment.passedScenarioIds,
-      bestSimScorePct: Math.max(enrollment.bestSimScorePct ?? 0, evaluation.overallScorePct),
+      passedScenarioIds: isCurrentScenario ? scenarios.passedScenarioIds : enrollment.passedScenarioIds,
+      bestSimScorePct: isCurrentScenario
+        ? Math.max(enrollment.bestSimScorePct ?? 0, evaluation.overallScorePct)
+        : enrollment.bestSimScorePct,
       xpEarned: enrollment.xpEarned + xpAwarded,
       lastActivityAt: now,
     };
-    let newlyCertified = false;
-    if (next.certifiedAt === null && allUnitsComplete(next, version) && next.passedScenarioIds.length > 0) {
-      next.certifiedAt = now;
-      newlyCertified = true;
+    if (certified && certification?.certifiedAt) {
+      next.certifiedAt = Date.parse(certification.certifiedAt);
+      next.certificationEvidenceLabel = 'current_verified';
+      next.certificationProvenance = 'certification_register';
+    } else if (certification && enrollment.certificationProvenance === 'certification_register') {
+      next.certifiedAt = null;
+      next.certificationEvidenceLabel = 'historical_verified';
     }
     next = reconcileEnrollment(next, user, track, version);
     const enrollmentToWrite = EnrollmentDocSchema.parse(next);
 
-    const samples = evaluation.criterionResults.map((c) => ({
-      competencyPillarId: c.competencyPillarId,
-      score: c.score,
+    const samples = evaluation.criterionResults.map((criterion) => ({
+      competencyPillarId: criterion.competencyPillarId,
+      score: criterion.score,
     }));
     const grouped = groupSamplesByPillar(samples, pillarIndex);
     const skillScoresByPillar = mergeSkillScores(userState.skillScoresByPillar, grouped);
@@ -708,51 +963,43 @@ export async function recordSimulationEvaluation(args: {
       totalXp: userState.stats.totalXp + xpAwarded,
       currentStreakDays: streak.currentStreakDays,
       lastActiveDateUtc: streak.lastActiveDateUtc,
-      tracksCertifiedCount: userState.stats.tracksCertifiedCount + (newlyCertified ? 1 : 0),
+      tracksCertifiedCount: Math.max(0, userState.stats.tracksCertifiedCount + certificationDelta),
       simulationsPassedCount: userState.stats.simulationsPassedCount + (isFirstPass ? 1 : 0),
       overallReadinessScore: computeOverallReadiness(skillScoresByPillar),
     };
 
     const delta = emptyDelta();
     delta.simAttempts = 1;
-    delta.simPasses = evaluation.passed ? 1 : 0;
-    delta.certifications = newlyCertified ? 1 : 0;
+    delta.simPasses = currentAssessment?.certificationPass ? 1 : 0;
+    delta.certifications = certificationDelta;
     delta.pillarSamples = grouped;
     for (const criterion of evaluation.criterionResults) {
-      if (criterion.score !== 0) continue;
-      addMissedItem(delta, track.id, `sim-${scenario.id}-${criterion.criterionId}`, criterion.criterionLabel);
+      if (criterion.score === 0) addMissedItem(delta, track.id, `sim-${scenario.id}-${criterion.criterionId}`, criterion.criterionLabel);
     }
     const rollupSnaps = await readRollups(tx, scopes);
-    const evidence = session.scenarioState && session.simulationEvents
-      ? appendEvaluationEvent({
-          sessionId: session.id,
-          state: session.scenarioState,
-          events: session.simulationEvents,
-          evaluation,
-          now: new Date(now),
-        })
-      : null;
 
     tx.update(sRef, {
-      status: 'EVALUATED',
-      evaluation,
-      selectedDisposition,
-      ...(evidence ? {
-        scenarioState: evidence.state,
-        simulationEvents: [...session.simulationEvents!, evidence.event],
-        nextEventSequence: evidence.event.sequence + 1,
+      status: evaluatedSession.status,
+      evaluation: evaluatedSession.evaluation,
+      selectedDisposition: evaluatedSession.selectedDisposition,
+      ...(evaluationEvent ? {
+        scenarioState: evaluatedSession.scenarioState,
+        simulationEvents: evaluatedSession.simulationEvents,
+        nextEventSequence: evaluatedSession.nextEventSequence,
       } : {}),
       updatedAt: now,
     });
-    if (evidence) tx.set(sRef.collection('events').doc(evidence.event.id), evidence.event);
+    if (evaluationEvent) tx.set(sRef.collection('events').doc(evaluationEvent.event.id), evaluationEvent.event);
+    if (nextCoverage) {
+      tx.set(scenarioCoverageRef(user.uid, track.id, version.versionId, nextCoverage.scenarioId), nextCoverage);
+    }
+    if (certification !== initialCertification && certification) {
+      tx.set(adminDb.collection('certifications').doc(certification.id), certification);
+    }
     tx.set(eRef, enrollmentToWrite);
     writeUserProgress(tx, user.uid, stats, skillScoresByPillar, now);
     writeRollups(tx, scopes, rollupSnaps, delta, now);
-
-    return {
-      certified: evaluation.passed && enrollmentToWrite.status === 'CERTIFIED',
-      enrollment: enrollmentToWrite,
-    };
+    return { certified, enrollment: enrollmentToWrite };
   });
 }
 

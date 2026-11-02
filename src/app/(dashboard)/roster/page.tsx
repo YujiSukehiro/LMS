@@ -201,7 +201,7 @@ export default async function RosterPage({
                 <th scope="col" className="pulse-label px-4 py-3">Role</th>
                 <th scope="col" className="pulse-label px-4 py-3">Cohort</th>
                 <th scope="col" className="pulse-label px-4 py-3">Divisions</th>
-                <th scope="col" className="pulse-label px-4 py-3 text-right">Readiness</th>
+                <th scope="col" className="pulse-label px-4 py-3 text-right" title="Blended Drill and Simulation score; not certification readiness">Training score</th>
                 <th scope="col" className="pulse-label px-4 py-3">Status</th>
                 <th scope="col" className="pulse-label px-4 py-3 text-right">Action</th>
               </tr>

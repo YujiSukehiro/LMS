@@ -1,16 +1,20 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, BookOpen, Eye, Headset, LoaderCircle, Map as MapIcon, RotateCcw, Swords, Trophy, TriangleAlert, X } from 'lucide-react';
 import { BriefingDeck } from '@/components/learn/BriefingDeck';
 import { DrillRunner, type DrillRunnerProgress } from '@/components/learn/DrillRunner';
+import { createIdempotencyKey } from '@/components/learn/drill-shared';
 import { SegmentedProgress, type SegmentState } from '@/components/learn/SegmentedProgress';
 import { CompleteUnitResponseSchema, type CompleteUnitRequest, type DrillResult } from '@/lib/schemas/api';
 import type { CompetencyPillar, TrackUnit } from '@/lib/schemas/curriculum';
+import type { LearnerDrill } from '@/lib/schemas/learning';
 import { XP_RULES } from '@/lib/schemas/constants';
 import { cn } from '@/lib/utils';
 import { describeApiError, describeNetworkError } from '../_lib/api-errors';
+
+export type LearnerUnit = Omit<TrackUnit, 'drills'> & { drills: LearnerDrill[] };
 
 export interface UnitRunnerProps {
   trackId: string;
@@ -18,7 +22,7 @@ export interface UnitRunnerProps {
   campaignCode: string;
   versionId: string;
   isPreview: boolean;
-  unit: TrackUnit;
+  unit: LearnerUnit;
   unitNumber: number;
   unitCount: number;
   pillars: CompetencyPillar[];
@@ -76,6 +80,8 @@ export function UnitRunner({
   const [results, setResults] = useState<DrillResult[] | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const completionKeyRef = useRef<string | null>(null);
+  if (completionKeyRef.current === null) completionKeyRef.current = createIdempotencyKey();
 
   const segments = useMemo<SegmentState[]>(() => {
     const cards: SegmentState[] = unit.briefingCards.map((_, index) => {
@@ -100,7 +106,12 @@ export function UnitRunner({
       }
       setPhase('saving');
       setSaveError(null);
-      const body: CompleteUnitRequest = { trackId, versionId, unitId: unit.id, drillResults };
+      const body: CompleteUnitRequest = {
+        trackId,
+        versionId,
+        unitId: unit.id,
+        idempotencyKey: completionKeyRef.current ?? createIdempotencyKey(),
+      };
       try {
         const response = await fetch('/api/progress/complete-unit', {
           method: 'POST',
@@ -122,7 +133,8 @@ export function UnitRunner({
           ...local,
           xpAwarded: parsed.data.xpAwarded,
           masteryPct: parsed.data.enrollment.progressPct,
-          certified: parsed.data.enrollment.status === 'CERTIFIED',
+          certified: parsed.data.enrollment.status === 'CERTIFIED' &&
+            parsed.data.enrollment.certificationEvidenceLabel === 'current_verified',
         });
         setPhase('complete');
       } catch (error) {
@@ -210,6 +222,9 @@ export function UnitRunner({
           drills={unit.drills}
           pillars={pillars}
           seed={seed}
+          trackId={trackId}
+          versionId={versionId}
+          unitId={unit.id}
           onComplete={onDrillsComplete}
           onProgress={setDrillProgress}
           hideProgress
@@ -306,7 +321,7 @@ function CompletionPanel({
             +{isPreview ? estimatedXp : (outcome.xpAwarded ?? 0)}
           </dd>
           {outcome.masteryPct !== null ? (
-            <dd className="pulse-metric text-xs text-pulse-muted">Track mastery {Math.round(outcome.masteryPct)}%</dd>
+            <dd className="pulse-metric text-xs text-pulse-muted">Track completion {Math.round(outcome.masteryPct)}%</dd>
           ) : null}
         </div>
       </dl>

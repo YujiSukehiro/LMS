@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { UnitRunner } from '../../../_components/UnitRunner';
 import { loadLearnContext, readVersionParam } from '../../../_lib/learn-context';
 import { allUnitsComplete, computeUnitStates, previewSuffix, sortUnits } from '../../../_lib/unit-states';
+import { sanitizeDrillForLearner } from '@/lib/services/drill-grader';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +24,7 @@ export default async function UnitPage({ params, searchParams }: PageProps) {
   const index = units.findIndex((unit) => unit.id === unitId);
   if (index === -1) notFound();
   const unit = units[index];
+  const learnerUnit = { ...unit, drills: unit.drills.map(sanitizeDrillForLearner) };
 
   const suffix = previewSuffix(isPreview);
   const encodedTrack = encodeURIComponent(trackId);
@@ -52,7 +54,7 @@ export default async function UnitPage({ params, searchParams }: PageProps) {
       campaignCode={track.campaignCode}
       versionId={versionId}
       isPreview={isPreview}
-      unit={unit}
+      unit={learnerUnit}
       unitNumber={index + 1}
       unitCount={units.length}
       pillars={version.competencyPillars}

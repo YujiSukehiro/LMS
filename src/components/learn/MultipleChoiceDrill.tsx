@@ -1,19 +1,29 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { MultipleChoiceDrill as MultipleChoiceDrillItem } from '@/lib/schemas/curriculum';
+import type { LearnerDrill } from '@/lib/schemas/learning';
 import { seededShuffle } from '@/lib/utils';
 import { DrillCheckButton, TileKey, tileClass, type DrillViewProps, type TileState } from './drill-shared';
 import { digitKeyIndex, useHotkeys } from './useHotkeys';
 
+type MultipleChoiceLearnerDrill = Extract<LearnerDrill, { kind: 'MULTIPLE_CHOICE' }>;
+type MultipleChoiceAnswer = { kind: 'MULTIPLE_CHOICE'; optionId: string };
+
 /** MULTIPLE_CHOICE: scenario + 4 keyboard-numbered option tiles. */
-export function MultipleChoiceDrill({ drill, seed, locked, onAnswer }: DrillViewProps<MultipleChoiceDrillItem>) {
+export function MultipleChoiceDrill({
+  drill,
+  seed,
+  locked,
+  busy,
+  result,
+  onAnswer,
+}: DrillViewProps<MultipleChoiceLearnerDrill, MultipleChoiceAnswer>) {
   const options = useMemo(() => seededShuffle(drill.options, seed), [drill.options, seed]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const check = () => {
-    if (locked || !selectedId) return;
-    onAnswer(selectedId === drill.correctOptionId);
+    if (locked || busy || !selectedId) return;
+    onAnswer({ kind: 'MULTIPLE_CHOICE', optionId: selectedId });
   };
 
   useHotkeys((event) => {
@@ -30,10 +40,12 @@ export function MultipleChoiceDrill({ drill, seed, locked, onAnswer }: DrillView
   }, !locked);
 
   const stateFor = (optionId: string): TileState => {
-    if (!locked) return optionId === selectedId ? 'selected' : 'idle';
-    if (optionId === drill.correctOptionId) return 'correct';
-    if (optionId === selectedId) return 'wrong';
-    return 'muted';
+    if (result?.correctAnswer?.kind === 'MULTIPLE_CHOICE') {
+      if (optionId === result.correctAnswer.optionId) return 'correct';
+      if (optionId === selectedId) return 'wrong';
+      return 'muted';
+    }
+    return optionId === selectedId ? 'selected' : 'idle';
   };
 
   return (
@@ -58,10 +70,11 @@ export function MultipleChoiceDrill({ drill, seed, locked, onAnswer }: DrillView
           );
         })}
       </div>
-      {!locked ? (
+      {!result ? (
         <DrillCheckButton
           onCheck={check}
           disabled={!selectedId}
+          busy={busy}
           hint="Press 1–4 to pick an option, then Enter to check."
         />
       ) : null}

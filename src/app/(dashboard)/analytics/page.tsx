@@ -1,6 +1,9 @@
 import type { Metadata } from 'next';
 import { Award, BookOpen, Headset, Target } from 'lucide-react';
+import { adminDb } from '@/lib/firebase/admin';
 import { isInternalOps, requirePageUser } from '@/lib/firebase/auth-guard';
+import { CertificationDocSchema, type CertificationDoc } from '@/lib/schemas/learning';
+import { selectCurrentCertification } from '@/lib/services/learning-evidence';
 import { ANALYTICS_ROLES, CANONICAL_PILLARS, DIVISION_LABELS } from '@/lib/schemas/constants';
 import { DivisionIdSchema, type DivisionId } from '@/lib/schemas/domain';
 import {
@@ -80,9 +83,35 @@ function agentRow(agent: UserSummary): HeatmapRow {
   };
 }
 
-function certificationCell(track: TrackDoc, agent: UserSummary, enrollment: EnrollmentDoc | undefined): CertificationCell {
+function certificationCell(
+  track: TrackDoc,
+  agent: UserSummary,
+  enrollment: EnrollmentDoc | undefined,
+  certification: CertificationDoc | null,
+): CertificationCell {
+  if (certification) {
+    if (
+      certification.status === 'certified' && certification.expiresAt &&
+      Date.parse(certification.expiresAt) <= Date.now()
+    ) {
+      return { status: 'EXPIRED', pct: enrollment?.progressPct ?? null };
+    }
+    const status = {
+      certified: 'CERTIFIED',
+      in_progress: 'IN_PROGRESS',
+      ready_for_trainer_review: 'READY_FOR_TRAINER_REVIEW',
+      recertification_required: 'RECERTIFICATION_REQUIRED',
+      expired: 'EXPIRED',
+      revoked: 'REVOKED',
+      not_started: 'NOT_STARTED',
+    } as const;
+    return { status: status[certification.status], pct: enrollment?.progressPct ?? null };
+  }
   if (enrollment) {
-    if (enrollment.status === 'CERTIFIED') return { status: 'CERTIFIED', pct: enrollment.bestSimScorePct };
+    if (enrollment.status === 'CERTIFIED' && enrollment.certificationEvidenceLabel === 'current_verified') {
+      return { status: 'CERTIFIED', pct: enrollment.bestSimScorePct };
+    }
+    if (enrollment.status === 'CERTIFIED') return { status: 'HISTORICAL_UNVERIFIED', pct: null };
     if (enrollment.status === 'IN_PROGRESS') return { status: 'IN_PROGRESS', pct: enrollment.progressPct };
     return { status: 'NOT_STARTED', pct: null };
   }
@@ -162,14 +191,30 @@ export default async function AnalyticsPage({
   if (cohort) heatmapRows.push(...agents.map(agentRow));
 
   // ---------- Widget 2: certification matrix ----------
+  const certificationSnaps = await Promise.all(matrixTracks.map((track) =>
+    adminDb.collection('certifications').where('trackId', '==', track.id).get()));
+  const visibleAgentIds = new Set(agents.map((agent) => agent.uid));
+  const certificationsByKey = new Map<string, CertificationDoc[]>();
+  for (const doc of certificationSnaps.flatMap((snap) => snap.docs)) {
+    const certification = CertificationDocSchema.parse({ ...doc.data(), id: doc.id });
+    if (!visibleAgentIds.has(certification.learnerId) || (!internal && certification.partnerCohortId !== user.partnerCohortId)) continue;
+    const key = `${certification.learnerId}::${certification.trackId}`;
+    certificationsByKey.set(key, [...(certificationsByKey.get(key) ?? []), certification]);
+  }
   const matrixAgents: CertificationMatrixAgent[] = agents.slice(0, MAX_MATRIX_AGENTS).map((agent) => ({
     uid: agent.uid,
     displayName: agent.displayName,
     lcNumber: agent.lcNumber,
     cohortLabel: cohortLabel(agent.partnerCohortId),
-    cells: Object.fromEntries(
-      matrixTracks.map((track) => [track.id, certificationCell(track, agent, enrollmentByKey.get(`${agent.uid}::${track.id}`))]),
-    ),
+    cells: Object.fromEntries(matrixTracks.map((track) => {
+      const key = `${agent.uid}::${track.id}`;
+      return [track.id, certificationCell(
+        track,
+        agent,
+        enrollmentByKey.get(key),
+        selectCurrentCertification(certificationsByKey.get(key) ?? []),
+      )];
+    })),
   }));
 
   // ---------- Widget 3: Playbook Gap Detector ----------
@@ -254,7 +299,7 @@ export default async function AnalyticsPage({
       <section className="pulse-card flex flex-col gap-4 p-4 md:p-5">
         <SectionHeader
           title="Campaign Certification Matrix"
-          description="Who is verified to take live calls on which campaign."
+          description="Current versioned training certification. Live-call authorization is a separate operational decision."
         />
         <CertificationMatrix
           agents={matrixAgents}

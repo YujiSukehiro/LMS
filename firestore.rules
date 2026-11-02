@@ -60,8 +60,8 @@ rules_version = '2';
 // 4. Subcollection: /tracks/{trackId}/versions/{versionId}
 //    Document ID: Version ID
 //    Fields:
-//      - Bundled learner-visible checkpoints/units, briefing cards, mastery drills,
-//        and public simulation context tickets (40–120 KB single-doc read bundle).
+//      - Internal-ops-only curriculum bundles, including correct drill answers and hidden rationales.
+//      - Learners receive sanitized drill props through firebase-admin SSR/API routes.
 //
 // 5. Subcollection: /tracks/{trackId}/versions/{versionId}/secrets/{secretId}
 //    Document ID: Secret / scenario ID
@@ -188,6 +188,19 @@ service cloud.firestore {
         canReadPublishedTrackData(get(/databases/$(database)/documents/tracks/$(trackId)).data);
     }
 
+    // Resolve session-owned subordinate data without exposing another learner's session or cohort.
+    function canReadSimSessionById(sessionId) {
+      return isActiveUser() && (
+        isInternalOps() ||
+        (exists(/databases/$(database)/documents/simSessions/$(sessionId)) && (
+          get(/databases/$(database)/documents/simSessions/$(sessionId)).data.userId == request.auth.uid ||
+          (isPartnerSupervisor() &&
+           hasPartnerCohort() &&
+           get(/databases/$(database)/documents/simSessions/$(sessionId)).data.partnerCohortId == request.auth.token.partnerCohortId)
+        ))
+      );
+    }
+
     // ===============================================================
     // Domain Validators
     // ===============================================================
@@ -281,12 +294,10 @@ service cloud.firestore {
 
       allow write: if false;
 
-      // 4. Compiled Learner Track Versions (`/tracks/{trackId}/versions/{versionId}`)
+      // 4. Compiled Track Versions (`/tracks/{trackId}/versions/{versionId}`)
+      // Contains correct answers and hidden rationales; learners receive sanitized data via server APIs.
       match /versions/{versionId} {
-        allow read: if isActiveUser() && (
-          isInternalOps() ||
-          canReadPublishedTrackById(trackId)
-        );
+        allow read: if isInternalOps();
 
         allow write: if false;
 
@@ -329,6 +340,11 @@ service cloud.firestore {
       );
 
       allow write: if false;
+
+      match /events/{eventId} {
+        allow read: if canReadSimSessionById(sessionId);
+        allow write: if false;
+      }
     }
 
     // 9. Pre-Aggregated Analytics Rollups (`/analyticsRollups/{rollupId}`)
@@ -356,7 +372,85 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // 11. Default Deny Catch-All for Any Unmatched Path
+    // 11. Drill Attempt Starts (`/drillAttemptStarts/{startId}`)
+    // No partnerCohortId exists on this schema, so partner supervisors cannot be safely scoped.
+    match /drillAttemptStarts/{startId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        resource.data.learnerId == request.auth.uid
+      );
+
+      allow write: if false;
+    }
+
+    // 12. Drill Attempts (`/drillAttempts/{attemptId}`)
+    match /drillAttempts/{attemptId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        resource.data.learnerId == request.auth.uid ||
+        (isPartnerSupervisor() &&
+         hasPartnerCohort() &&
+         resource.data.partnerCohortId == request.auth.token.partnerCohortId)
+      );
+
+      allow write: if false;
+    }
+
+    // 13. Review Schedules (`/reviewSchedules/{scheduleId}`)
+    // No partnerCohortId exists on this schema, so partner supervisors cannot be safely scoped.
+    match /reviewSchedules/{scheduleId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        resource.data.learnerId == request.auth.uid
+      );
+
+      allow write: if false;
+    }
+
+    // 14. Assessment Blueprints (`/assessmentBlueprints/{blueprintId}`)
+    // Blueprints contain assessment requirements, not correct answers or hidden rationales.
+    match /assessmentBlueprints/{blueprintId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        canReadPublishedTrackById(resource.data.trackId)
+      );
+
+      allow write: if false;
+    }
+
+    // 15. Scenario Coverage (`/scenarioCoverage/{coverageId}`)
+    match /scenarioCoverage/{coverageId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        resource.data.learnerId == request.auth.uid ||
+        (isPartnerSupervisor() &&
+         hasPartnerCohort() &&
+         resource.data.partnerCohortId == request.auth.token.partnerCohortId)
+      );
+
+      allow write: if false;
+    }
+
+    // 16. Certifications (`/certifications/{certificationId}`)
+    match /certifications/{certificationId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        resource.data.learnerId == request.auth.uid ||
+        (isPartnerSupervisor() &&
+         hasPartnerCohort() &&
+         resource.data.partnerCohortId == request.auth.token.partnerCohortId)
+      );
+
+      allow write: if false;
+    }
+
+    // 17. Synthetic Simulation Outbox (`/simSyntheticOutbox/{outboxId}`)
+    match /simSyntheticOutbox/{outboxId} {
+      allow read: if canReadSimSessionById(resource.data.sessionId);
+      allow write: if false;
+    }
+
+    // 18. Default Deny Catch-All for Any Unmatched Path
     match /{document=**} {
       allow read, write: if false;
     }

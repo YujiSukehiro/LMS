@@ -6,7 +6,7 @@ import { DIVISION_PILL_CLASS } from '@/components/simulation/labels';
 
 export interface TrackHeaderProps {
   track: TrackDoc;
-  masteryPct: number;
+  masteryPct: number | null;
   xpEarned: number;
   certified: boolean;
   isPreview: boolean;
@@ -15,7 +15,7 @@ export interface TrackHeaderProps {
 
 /** Track header on the Checkpoint map: Division, campaign code, mastery, XP and Playbook size. */
 export function TrackHeader({ track, masteryPct, xpEarned, certified, isPreview, versionNumber }: TrackHeaderProps) {
-  const pct = Math.round(Math.max(0, Math.min(100, masteryPct)));
+  const pct = masteryPct === null ? null : Math.round(Math.max(0, Math.min(100, masteryPct)));
   return (
     <header className="pulse-card-elevated overflow-hidden">
       <div className="p-5 sm:p-6">
@@ -47,7 +47,7 @@ export function TrackHeader({ track, masteryPct, xpEarned, certified, isPreview,
             <dt className="pulse-label flex items-center gap-1.5">
               <Target aria-hidden className="size-3.5" /> Mastery
             </dt>
-            <dd className="pulse-metric mt-1 text-xl font-bold text-pulse-primary">{pct}%</dd>
+            <dd className="pulse-metric mt-1 text-xl font-bold text-pulse-primary">{pct === null ? '—' : `${pct}%`}</dd>
           </div>
           <div className="rounded-pulse-md border border-pulse-border-subtle bg-pulse-surface-1 p-3">
             <dt className="pulse-label flex items-center gap-1.5">
@@ -71,10 +71,10 @@ export function TrackHeader({ track, masteryPct, xpEarned, certified, isPreview,
         aria-label="Track mastery"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={pct}
+        aria-valuenow={pct ?? undefined}
         className="h-1.5 bg-pulse-surface-1"
       >
-        <div className={cn('h-full', certified ? 'bg-pulse-emerald' : 'bg-pulse-indigo')} style={{ width: `${pct}%` }} />
+        <div className={cn('h-full', certified ? 'bg-pulse-emerald' : 'bg-pulse-indigo')} style={{ width: `${pct ?? 0}%` }} />
       </div>
     </header>
   );

@@ -2,21 +2,28 @@
 
 import { useState } from 'react';
 import { Check, MessageSquareQuote, X } from 'lucide-react';
-import type { TrueFalseSpotDrill as TrueFalseSpotDrillItem } from '@/lib/schemas/curriculum';
+import type { LearnerDrill } from '@/lib/schemas/learning';
 import { cn } from '@/lib/utils';
 import { DrillCheckButton, TileKey, tileClass, type DrillViewProps, type TileState } from './drill-shared';
 import { useHotkeys } from './useHotkeys';
 
+type TrueFalseLearnerDrill = Extract<LearnerDrill, { kind: 'TRUE_FALSE_SPOT' }>;
+type TrueFalseAnswer = { kind: 'TRUE_FALSE_SPOT'; isCompliant: boolean };
 type Verdict = 'compliant' | 'violation';
 
 /** TRUE_FALSE_SPOT: an agent quote or action + two verdict buttons. */
-export function TrueFalseSpotDrill({ drill, locked, onAnswer }: DrillViewProps<TrueFalseSpotDrillItem>) {
+export function TrueFalseSpotDrill({
+  drill,
+  locked,
+  busy,
+  result,
+  onAnswer,
+}: DrillViewProps<TrueFalseLearnerDrill, TrueFalseAnswer>) {
   const [verdict, setVerdict] = useState<Verdict | null>(null);
-  const correctVerdict: Verdict = drill.isCompliant ? 'compliant' : 'violation';
 
   const check = () => {
-    if (locked || !verdict) return;
-    onAnswer(verdict === correctVerdict);
+    if (locked || busy || !verdict) return;
+    onAnswer({ kind: 'TRUE_FALSE_SPOT', isCompliant: verdict === 'compliant' });
   };
 
   useHotkeys((event) => {
@@ -36,10 +43,13 @@ export function TrueFalseSpotDrill({ drill, locked, onAnswer }: DrillViewProps<T
   }, !locked);
 
   const stateFor = (value: Verdict): TileState => {
-    if (!locked) return value === verdict ? 'selected' : 'idle';
-    if (value === correctVerdict) return 'correct';
-    if (value === verdict) return 'wrong';
-    return 'muted';
+    if (result?.correctAnswer?.kind === 'TRUE_FALSE_SPOT') {
+      const correctVerdict: Verdict = result.correctAnswer.isCompliant ? 'compliant' : 'violation';
+      if (value === correctVerdict) return 'correct';
+      if (value === verdict) return 'wrong';
+      return 'muted';
+    }
+    return value === verdict ? 'selected' : 'idle';
   };
 
   const verdicts: Array<{ value: Verdict; label: string; key: string }> = [
@@ -84,8 +94,13 @@ export function TrueFalseSpotDrill({ drill, locked, onAnswer }: DrillViewProps<T
         })}
       </div>
 
-      {!locked ? (
-        <DrillCheckButton onCheck={check} disabled={!verdict} hint="Press 1 or 2 to pick a verdict, then Enter." />
+      {!result ? (
+        <DrillCheckButton
+          onCheck={check}
+          disabled={!verdict}
+          busy={busy}
+          hint="Press 1 or 2 to pick a verdict, then Enter."
+        />
       ) : null}
     </div>
   );

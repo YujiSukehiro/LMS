@@ -1,17 +1,23 @@
 'use client';
 
-import { CornerDownLeft } from 'lucide-react';
+import { CornerDownLeft, LoaderCircle } from 'lucide-react';
+import type { DrillAnswerResponse } from '@/lib/schemas/api';
+import type { DrillAnswer } from '@/lib/schemas/learning';
 import { cn } from '@/lib/utils';
 
 /** Common props of every per-kind Drill component. */
-export interface DrillViewProps<D> {
+export interface DrillViewProps<D, A extends DrillAnswer = DrillAnswer> {
   drill: D;
   /** Seed for deterministic option shuffles. */
   seed: string;
-  /** true once the answer is checked: the Drill shows the result and stops taking input. */
+  /** Stops input while the server grades and after feedback arrives. */
   locked: boolean;
-  /** Called once with the result of this attempt. */
-  onAnswer: (correct: boolean) => void;
+  /** True while either the start or answer request is in flight. */
+  busy: boolean;
+  /** Server grading for the current answer, or null while answering/retrying. */
+  result: DrillAnswerResponse | null;
+  /** Sends a learner answer to the runner; correctness is never decided here. */
+  onAnswer: (answer: A) => void;
 }
 
 export type TileState = 'idle' | 'selected' | 'correct' | 'wrong' | 'muted';
@@ -48,34 +54,46 @@ export function TileKey({ label, state }: { label: string; state: TileState }) {
   );
 }
 
-/** "Check" submit row shown under a Drill until the answer is checked. */
+/** "Check" submit row shown under a Drill until server feedback arrives. */
 export function DrillCheckButton({
   onCheck,
   disabled,
+  busy = false,
   hint,
 }: {
   onCheck: () => void;
   disabled: boolean;
+  busy?: boolean;
   hint?: string;
 }) {
   return (
     <div className="mt-5 flex flex-col-reverse items-stretch gap-3 @md:flex-row @md:items-center @md:justify-between">
-      <p className="text-xs text-pulse-muted">{hint}</p>
+      <p className="text-xs text-pulse-muted">{busy ? 'Waiting for the server to grade your answer…' : hint}</p>
       <button
         type="button"
         onClick={onCheck}
-        disabled={disabled}
+        disabled={disabled || busy}
+        aria-busy={busy}
         data-pulse-hotkeys=""
         className="pulse-btn pulse-btn-primary px-8 py-3 text-base"
       >
-        Check
-        <CornerDownLeft aria-hidden className="size-4" />
+        {busy ? 'Checking…' : 'Check'}
+        {busy ? (
+          <LoaderCircle aria-hidden className="size-4 animate-spin" />
+        ) : (
+          <CornerDownLeft aria-hidden className="size-4" />
+        )}
       </button>
     </div>
   );
 }
 
-/** Normalizes a word for FILL_BLANK_CHOICE comparison. */
-export function normalizeWord(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+/** Stable key generated in the browser; retained by the caller across retries. */
+export function createIdempotencyKey(): string {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 }

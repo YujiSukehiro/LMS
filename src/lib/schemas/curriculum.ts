@@ -46,6 +46,9 @@ const BaseDrillFields = {
   explanation: z.string().max(350), // Displayed immediately after answering
   sourcePages: z.array(z.number().int().positive()),
   evidence: z.array(ClaimEvidenceSchema).optional(),
+  /** Stable rule mapping for server-scored mastery and approved varied-retrieval items. */
+  ruleIds: z.array(z.string().min(1)).optional(),
+  variationOfDrillId: z.string().nullable().optional(),
 };
 
 export const MultipleChoiceDrillSchema = z.object({

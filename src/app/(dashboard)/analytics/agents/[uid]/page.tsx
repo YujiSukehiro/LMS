@@ -10,7 +10,10 @@ import {
   loadUser,
 } from '@/components/analytics/server-data';
 import { SkillRadarSvg } from '@/components/analytics/SkillRadarSvg';
+import { LearningAnalyticsPanel } from '@/components/analytics/LearningAnalyticsPanel';
 import { SimTranscriptDetails } from '@/components/analytics/SimTranscriptDetails';
+import { ServiceError } from '@/lib/services/errors';
+import { loadLearningEvidenceForUser, type LearningEvidenceView } from '@/lib/services/learning-evidence';
 import { EmptyState, KpiStrip, SectionHeader } from '@/components/analytics/KpiStrip';
 import { BAND_TEXT_CLASS, bandFor, formatPct } from '@/components/analytics/strength';
 import { DivisionPill } from '@/components/layout/DivisionPill';
@@ -18,7 +21,7 @@ import { CohortBadge } from '@/components/layout/CohortBadge';
 import { formatDate, pillarLabel } from '@/components/layout/labels';
 import { cn } from '@/lib/utils';
 
-export const metadata: Metadata = { title: 'Agent Readiness Passport' };
+export const metadata: Metadata = { title: 'Agent Learning Evidence' };
 export const dynamic = 'force-dynamic';
 
 function mean(values: number[]): number | null {
@@ -44,10 +47,19 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
     loadEvaluatedSimSessionsForUser(agent.uid, 25),
   ]);
   const learnerSessions = isInternalOps(viewer) ? sessions : sessions.filter((s) => s.versionId !== 'draft');
-  const certified = enrollments.filter((e) => e.status === 'CERTIFIED').sort((a, b) => (b.certifiedAt ?? 0) - (a.certifiedAt ?? 0));
+  const learningEvidence = (await Promise.all(enrollments.map(async (enrollment): Promise<LearningEvidenceView | null> => {
+    try {
+      return await loadLearningEvidenceForUser({ user: viewer, learnerId: agent.uid, trackId: enrollment.trackId });
+    } catch (error) {
+      if (error instanceof ServiceError && error.code === 'ASSESSMENT_BLUEPRINT_MISSING') return null;
+      throw error;
+    }
+  }))).filter((view): view is LearningEvidenceView => view !== null);
+  const certified = enrollments
+    .filter((e) => e.status === 'CERTIFIED' && e.certificationEvidenceLabel === 'current_verified')
+    .sort((a, b) => (b.certifiedAt ?? 0) - (a.certifiedAt ?? 0));
+  const legacyCertifiedCount = enrollments.filter((e) => e.status === 'CERTIFIED' && e.certificationEvidenceLabel !== 'current_verified').length;
   const trackTitles = new Map(enrollments.map((e) => [e.trackId, e.trackTitle]));
-  const readiness = agent.stats.overallReadinessScore;
-  const readinessBand = bandFor(Object.keys(agent.skillScoresByPillar).length > 0 ? readiness : null);
 
   const radarValues = RADAR_PILLAR_KEYS.map((key) => {
     const stat = agent.skillScoresByPillar[key];
@@ -82,7 +94,7 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
 
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="pulse-label">Agent Readiness Passport</p>
+          <p className="pulse-label">Agent Learning Evidence</p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight">{agent.displayName}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {agent.lcNumber ? <span className="pulse-pill pulse-metric">{agent.lcNumber}</span> : null}
@@ -97,7 +109,7 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
 
       <KpiStrip
         items={[
-          { label: 'Readiness', value: readinessBand === 'none' ? '—' : formatPct(readiness), icon: <Gauge aria-hidden className="size-3.5" />, tone: readinessBand === 'strong' ? 'emerald' : readinessBand === 'borderline' ? 'amber' : readinessBand === 'weak' ? 'crimson' : 'default' },
+          { label: 'Current evidence', value: `${learningEvidence.length} Track${learningEvidence.length === 1 ? '' : 's'}`, icon: <Gauge aria-hidden className="size-3.5" />, tone: 'indigo' },
           { label: 'Total XP', value: agent.stats.totalXp.toLocaleString('en-US'), icon: <Zap aria-hidden className="size-3.5" />, tone: 'indigo' },
           {
             label: 'Streak',
@@ -112,6 +124,20 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
           },
         ]}
       />
+
+      {legacyCertifiedCount > 0 ? (
+        <p role="note" className="rounded-pulse-md border border-pulse-amber/40 bg-pulse-amber/10 px-4 py-3 text-sm text-pulse-secondary">
+          {legacyCertifiedCount} legacy certification assertion{legacyCertifiedCount === 1 ? ' is' : 's are'} labeled
+          <strong> historical_unverified</strong> and does not count as current certification.
+        </p>
+      ) : null}
+      {learningEvidence.map((view) => (
+        <LearningAnalyticsPanel
+          key={view.analytics.trackId}
+          analytics={view.analytics}
+          title={`${trackTitles.get(view.analytics.trackId) ?? view.analytics.trackId} · current evidence`}
+        />
+      ))}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
         <section className="pulse-card flex flex-col gap-3 p-4 md:p-5">

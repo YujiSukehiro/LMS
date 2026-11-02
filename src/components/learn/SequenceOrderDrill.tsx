@@ -2,26 +2,28 @@
 
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import type { SequenceOrderDrill as SequenceOrderDrillItem } from '@/lib/schemas/curriculum';
+import type { LearnerDrill } from '@/lib/schemas/learning';
 import { cn, seededShuffle } from '@/lib/utils';
 import { DrillCheckButton, TileKey, type DrillViewProps, type TileState, tileClass } from './drill-shared';
 import { digitKeyIndex, useHotkeys } from './useHotkeys';
 
-/** Shuffles step IDs deterministically and never starts in the solved order. */
-function initialOrder(stepIds: string[], seed: string): string[] {
-  const shuffled = seededShuffle(stepIds, seed);
-  const solved = shuffled.every((id, index) => id === stepIds[index]);
-  if (!solved || shuffled.length < 2) return shuffled;
-  return [...shuffled.slice(1), shuffled[0]];
-}
+type SequenceLearnerDrill = Extract<LearnerDrill, { kind: 'SEQUENCE_ORDER' }>;
+type SequenceAnswer = { kind: 'SEQUENCE_ORDER'; orderedStepIds: string[] };
 
 /** SEQUENCE_ORDER: reorder shuffled step tiles with up/down buttons or the keyboard. */
-export function SequenceOrderDrill({ drill, seed, locked, onAnswer }: DrillViewProps<SequenceOrderDrillItem>) {
-  const correctIds = useMemo(() => drill.orderedSteps.map((step) => step.id), [drill.orderedSteps]);
-  const stepById = useMemo(() => new Map(drill.orderedSteps.map((step) => [step.id, step])), [drill.orderedSteps]);
-  const [order, setOrder] = useState<string[]>(() => initialOrder(correctIds, seed));
+export function SequenceOrderDrill({
+  drill,
+  seed,
+  locked,
+  busy,
+  result,
+  onAnswer,
+}: DrillViewProps<SequenceLearnerDrill, SequenceAnswer>) {
+  const stepById = useMemo(() => new Map(drill.steps.map((step) => [step.id, step])), [drill.steps]);
+  const [order, setOrder] = useState<string[]>(() => seededShuffle(drill.steps.map((step) => step.id), seed));
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState('');
+  const correctIds = result?.correctAnswer?.kind === 'SEQUENCE_ORDER' ? result.correctAnswer.orderedStepIds : null;
 
   const move = (from: number, to: number) => {
     if (locked || to < 0 || to >= order.length || from === to) return;
@@ -35,8 +37,8 @@ export function SequenceOrderDrill({ drill, seed, locked, onAnswer }: DrillViewP
   };
 
   const check = () => {
-    if (locked) return;
-    onAnswer(order.every((id, index) => id === correctIds[index]));
+    if (locked || busy) return;
+    onAnswer({ kind: 'SEQUENCE_ORDER', orderedStepIds: order });
   };
 
   useHotkeys((event) => {
@@ -70,7 +72,8 @@ export function SequenceOrderDrill({ drill, seed, locked, onAnswer }: DrillViewP
           const step = stepById.get(id);
           if (!step) return null;
           const isActive = activeIndex === index;
-          const state: TileState = locked
+          const correctPosition = correctIds?.indexOf(id) ?? -1;
+          const state: TileState = correctIds
             ? correctIds[index] === id
               ? 'correct'
               : 'wrong'
@@ -90,19 +93,19 @@ export function SequenceOrderDrill({ drill, seed, locked, onAnswer }: DrillViewP
               >
                 <TileKey label={String(index + 1)} state={state} />
                 <span className="min-w-0 flex-1">{step.text}</span>
-                {locked && correctIds[index] !== id ? (
+                {correctPosition >= 0 && correctIds?.[index] !== id ? (
                   <span className="pulse-metric shrink-0 text-xs text-pulse-crimson">
-                    belongs at #{correctIds.indexOf(id) + 1}
+                    belongs at #{correctPosition + 1}
                   </span>
                 ) : null}
               </button>
-              {!locked ? (
+              {!result ? (
                 <div className="flex flex-col gap-1">
                   <button
                     type="button"
                     className="pulse-btn h-full min-h-0 flex-1 px-2 py-0"
                     onClick={() => move(index, index - 1)}
-                    disabled={index === 0}
+                    disabled={locked || index === 0}
                     aria-label={`Move "${step.text}" up`}
                   >
                     <ChevronUp aria-hidden className="size-4" />
@@ -111,7 +114,7 @@ export function SequenceOrderDrill({ drill, seed, locked, onAnswer }: DrillViewP
                     type="button"
                     className="pulse-btn h-full min-h-0 flex-1 px-2 py-0"
                     onClick={() => move(index, index + 1)}
-                    disabled={index === order.length - 1}
+                    disabled={locked || index === order.length - 1}
                     aria-label={`Move "${step.text}" down`}
                   >
                     <ChevronDown aria-hidden className="size-4" />
@@ -122,10 +125,11 @@ export function SequenceOrderDrill({ drill, seed, locked, onAnswer }: DrillViewP
           );
         })}
       </ol>
-      {!locked ? (
+      {!result ? (
         <DrillCheckButton
           onCheck={check}
           disabled={false}
+          busy={busy}
           hint="Press a number to pick a step, ↑ / ↓ to move it, Enter to check."
         />
       ) : null}

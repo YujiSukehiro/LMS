@@ -89,11 +89,11 @@ describe('inactive users (active: false)', () => {
 });
 
 describe('AGENT role', () => {
-  it('can read its own profile, the published Track, and its TrackVersion', async () => {
+  it('can read its own profile, the published Track, and enrollment but not its TrackVersion', async () => {
     const agent = db('agent-ths', 'AGENT', 'THS');
     await assertSucceeds(getDoc(doc(agent, 'users/agent-ths')));
     await assertSucceeds(getDoc(doc(agent, 'tracks/t1')));
-    await assertSucceeds(getDoc(doc(agent, 'tracks/t1/versions/v1')));
+    await assertFails(getDoc(doc(agent, 'tracks/t1/versions/v1')));
     await assertSucceeds(getDoc(doc(agent, 'enrollments/agent-ths_t1')));
   });
 
@@ -115,8 +115,9 @@ describe('AGENT role', () => {
     await assertFails(getDocs(collection(agent, 'users')));
   });
 
-  it('trainers can read secrets/evalRubrics', async () => {
+  it('trainers can read TrackVersion and secrets/evalRubrics', async () => {
     const trainer = db('trainer-1', 'TRAINER', 'INTERNAL');
+    await assertSucceeds(getDoc(doc(trainer, 'tracks/t1/versions/v1')));
     await assertSucceeds(getDoc(doc(trainer, 'tracks/t1/versions/v1/secrets/evalRubrics')));
   });
 });

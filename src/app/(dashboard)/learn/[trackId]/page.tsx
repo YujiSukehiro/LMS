@@ -2,12 +2,14 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowLeft, Eye } from 'lucide-react';
 import { CheckpointMap, type CheckpointMapScenario, type CheckpointMapUnit } from '@/components/learn/CheckpointMap';
+import { LearningEvidencePanel } from '@/components/learn/LearningEvidencePanel';
+import { ServiceError } from '@/lib/services/errors';
+import { loadLearningEvidenceForUser, type LearningEvidenceView } from '@/lib/services/learning-evidence';
 import { TrackHeader } from '../_components/TrackHeader';
 import { loadBestScenarioScores, loadLearnContext, readVersionParam } from '../_lib/learn-context';
 import { allUnitsComplete, computeUnitStates, previewSuffix, sortUnits } from '../_lib/unit-states';
 
 export const dynamic = 'force-dynamic';
-
 export const metadata: Metadata = { title: 'Track Map' };
 
 interface PageProps {
@@ -21,12 +23,30 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
   const ctx = await loadLearnContext(trackId, readVersionParam(query.version));
   const { track, version, enrollment, isPreview, staffAccess } = ctx;
 
+  let evidence: LearningEvidenceView | null = null;
+  let legacyEvidenceOnly = false;
+  if (!isPreview) {
+    try {
+      evidence = await loadLearningEvidenceForUser({ user: ctx.user, trackId });
+    } catch (error) {
+      if (error instanceof ServiceError && error.code === 'ASSESSMENT_BLUEPRINT_MISSING') legacyEvidenceOnly = true;
+      else throw error;
+    }
+  }
+
   const units = sortUnits(version.units);
   const completedUnitIds = enrollment?.completedUnitIds ?? [];
   const states = computeUnitStates(units, completedUnitIds);
   const unitsComplete = allUnitsComplete(units, completedUnitIds);
-  const passedScenarioIds = new Set(enrollment?.passedScenarioIds ?? []);
-  const certified = !isPreview && enrollment?.status === 'CERTIFIED';
+  const passedScenarioIds = new Set(
+    evidence
+      ? evidence.scenarioCoverage.filter((coverage) => coverage.status === 'passed').map((coverage) => coverage.scenarioId)
+      : (enrollment?.passedScenarioIds ?? []),
+  );
+  const certified = evidence?.certification?.status === 'certified';
+  const masteryPct = evidence?.analytics.currentMastery.ratio === null || !evidence
+    ? null
+    : evidence.analytics.currentMastery.ratio * 100;
   const bestScores = isPreview ? {} : await loadBestScenarioScores(ctx.user.uid, trackId);
 
   const mapUnits: CheckpointMapUnit[] = units.map((unit, index) => ({
@@ -37,7 +57,6 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
     state: states[index],
     firstTryAccuracyPct: enrollment?.unitScores[unit.id]?.firstTryAccuracyPct ?? null,
   }));
-
   const mapScenarios: CheckpointMapScenario[] = version.simScenarios.map((scenario) => ({
     id: scenario.id,
     title: scenario.title,
@@ -57,7 +76,7 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
 
       <TrackHeader
         track={track}
-        masteryPct={enrollment?.progressPct ?? 0}
+        masteryPct={masteryPct}
         xpEarned={enrollment?.xpEarned ?? 0}
         certified={certified}
         isPreview={isPreview}
@@ -69,6 +88,20 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
           <Eye aria-hidden className="mt-0.5 size-4 shrink-0" />
           Preview only — you are playing the draft TrackVersion. Progress is not recorded and every Checkpoint is open.
         </p>
+      ) : null}
+      {legacyEvidenceOnly ? (
+        <p role="note" className="rounded-pulse-md border border-pulse-amber/40 bg-pulse-amber/10 px-4 py-3 text-sm text-pulse-secondary">
+          Historical progress remains visible as <strong>historical_unverified</strong>. It cannot satisfy current mastery or certification
+          requirements until this Track has a versioned assessment blueprint and new eligible evidence.
+        </p>
+      ) : null}
+      {evidence ? (
+        <LearningEvidencePanel
+          analytics={evidence.analytics}
+          certification={evidence.certification}
+          scenarioCoverage={evidence.scenarioCoverage}
+          scenarioLabels={evidence.scenarioLabels}
+        />
       ) : null}
 
       <section aria-labelledby="checkpoint-path-heading">

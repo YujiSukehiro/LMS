@@ -71,6 +71,9 @@ export function UnitPlayPreview({
             drills={unit.drills}
             pillars={pillars}
             seed={`${trackId}:${unit.id}:studio:${round}`}
+            trackId={trackId}
+            versionId="draft"
+            unitId={unit.id}
             onComplete={(results) => setPhase({ kind: 'done', results })}
           />
         ) : (

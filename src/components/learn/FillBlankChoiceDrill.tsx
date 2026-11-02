@@ -1,20 +1,30 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { FILL_BLANK_TOKEN, type FillBlankChoiceDrill as FillBlankChoiceDrillItem } from '@/lib/schemas/curriculum';
+import { FILL_BLANK_TOKEN } from '@/lib/schemas/curriculum';
+import type { LearnerDrill } from '@/lib/schemas/learning';
 import { cn, seededShuffle } from '@/lib/utils';
-import { DrillCheckButton, TileKey, normalizeWord, tileClass, type DrillViewProps, type TileState } from './drill-shared';
+import { DrillCheckButton, TileKey, tileClass, type DrillViewProps, type TileState } from './drill-shared';
 import { digitKeyIndex, useHotkeys } from './useHotkeys';
 
+type FillBlankLearnerDrill = Extract<LearnerDrill, { kind: 'FILL_BLANK_CHOICE' }>;
+type FillBlankAnswer = { kind: 'FILL_BLANK_CHOICE'; word: string };
+
 /** FILL_BLANK_CHOICE: Playbook sentence with a highlighted blank + 4 word-bank chips. */
-export function FillBlankChoiceDrill({ drill, seed, locked, onAnswer }: DrillViewProps<FillBlankChoiceDrillItem>) {
+export function FillBlankChoiceDrill({
+  drill,
+  seed,
+  locked,
+  busy,
+  result,
+  onAnswer,
+}: DrillViewProps<FillBlankLearnerDrill, FillBlankAnswer>) {
   const chips = useMemo(
     () => seededShuffle(drill.wordBank.map((word, index) => ({ key: `${index}`, word })), seed),
     [drill.wordBank, seed],
   );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const selectedWord = chips.find((chip) => chip.key === selectedKey)?.word ?? null;
-  const isCorrectWord = (word: string) => normalizeWord(word) === normalizeWord(drill.correctWord);
 
   const [before, after] = useMemo(() => {
     const at = drill.sentenceTemplate.indexOf(FILL_BLANK_TOKEN);
@@ -23,8 +33,8 @@ export function FillBlankChoiceDrill({ drill, seed, locked, onAnswer }: DrillVie
   }, [drill.sentenceTemplate]);
 
   const check = () => {
-    if (locked || selectedWord === null) return;
-    onAnswer(isCorrectWord(selectedWord));
+    if (locked || busy || selectedWord === null) return;
+    onAnswer({ kind: 'FILL_BLANK_CHOICE', word: selectedWord });
   };
 
   useHotkeys((event) => {
@@ -44,19 +54,15 @@ export function FillBlankChoiceDrill({ drill, seed, locked, onAnswer }: DrillVie
     return false;
   }, !locked);
 
-  const blankState: TileState = locked
-    ? selectedWord !== null && isCorrectWord(selectedWord)
-      ? 'correct'
-      : 'wrong'
-    : selectedWord
-      ? 'selected'
-      : 'idle';
+  const blankState: TileState = result ? (result.correct ? 'correct' : 'wrong') : selectedWord ? 'selected' : 'idle';
 
   const chipState = (key: string, word: string): TileState => {
-    if (!locked) return key === selectedKey ? 'selected' : 'idle';
-    if (isCorrectWord(word)) return 'correct';
-    if (key === selectedKey) return 'wrong';
-    return 'muted';
+    if (result?.correctAnswer?.kind === 'FILL_BLANK_CHOICE') {
+      if (word === result.correctAnswer.word) return 'correct';
+      if (key === selectedKey) return 'wrong';
+      return 'muted';
+    }
+    return key === selectedKey ? 'selected' : 'idle';
   };
 
   return (
@@ -102,10 +108,11 @@ export function FillBlankChoiceDrill({ drill, seed, locked, onAnswer }: DrillVie
         })}
       </div>
 
-      {!locked ? (
+      {!result ? (
         <DrillCheckButton
           onCheck={check}
           disabled={selectedWord === null}
+          busy={busy}
           hint="Press 1–4 to fill the blank, then Enter to check."
         />
       ) : null}

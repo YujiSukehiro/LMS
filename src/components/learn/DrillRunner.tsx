@@ -1,11 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useReducer, useRef } from 'react';
-import { CircleCheck, Flame } from 'lucide-react';
-import type { CompetencyPillar, DrillItem, DrillKind } from '@/lib/schemas/curriculum';
-import type { DrillResult } from '@/lib/schemas/api';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { CircleCheck, Flame, TriangleAlert } from 'lucide-react';
+import type { CompetencyPillar, DrillItem } from '@/lib/schemas/curriculum';
+import {
+  DrillAnswerResponseSchema,
+  DrillStartResponseSchema,
+  type DrillAnswerRequest,
+  type DrillAnswerResponse,
+  type DrillResult,
+  type DrillStartRequest,
+  type DrillStartResponse,
+} from '@/lib/schemas/api';
+import type { DrillAnswer, LearnerDrill, LearnerDrillKind } from '@/lib/schemas/learning';
 import { XP_RULES } from '@/lib/schemas/constants';
 import { cn } from '@/lib/utils';
+import { describeApiError, describeNetworkError } from '@/app/(dashboard)/learn/_lib/api-errors';
 import { FeedbackDrawer, type FeedbackStatus } from './FeedbackDrawer';
 import { FillBlankChoiceDrill } from './FillBlankChoiceDrill';
 import { MatchPairsDrill } from './MatchPairsDrill';
@@ -14,6 +24,7 @@ import { MultipleChoiceDrill } from './MultipleChoiceDrill';
 import { SegmentedProgress, type SegmentState } from './SegmentedProgress';
 import { SequenceOrderDrill } from './SequenceOrderDrill';
 import { TrueFalseSpotDrill } from './TrueFalseSpotDrill';
+import { createIdempotencyKey } from './drill-shared';
 import { useHotkeys } from './useHotkeys';
 
 export interface DrillRunnerProgress {
@@ -24,11 +35,16 @@ export interface DrillRunnerProgress {
 }
 
 export interface DrillRunnerProps {
-  drills: DrillItem[];
+  /** Full items are accepted only for legacy studio type compatibility and are stripped before rendering. */
+  drills: Array<LearnerDrill | DrillItem>;
   pillars: CompetencyPillar[];
   /** Seed for deterministic shuffles. */
   seed: string;
-  /** Called once when every Drill is cleared: one entry per Drill with the true first-try result. */
+  /** Server progress context. Optional only so an unconnected studio preview fails closed. */
+  trackId?: string;
+  versionId?: string;
+  unitId?: string;
+  /** Called once when every Drill is cleared, using accumulated server responses. */
   onComplete: (results: DrillResult[]) => void;
   /** Optional progress feed for an outer progress bar (pass a stable callback). */
   onProgress?: (progress: DrillRunnerProgress) => void;
@@ -36,7 +52,38 @@ export interface DrillRunnerProps {
   hideProgress?: boolean;
 }
 
-export const DRILL_KIND_LABELS: Record<DrillKind, string> = {
+function toLearnerDrill(drill: LearnerDrill | DrillItem): LearnerDrill {
+  const base = {
+    id: drill.id,
+    competencyPillarId: drill.competencyPillarId,
+    prompt: drill.prompt,
+    ruleIds: drill.ruleIds ?? [],
+    variationOfDrillId: drill.variationOfDrillId,
+  };
+  switch (drill.kind) {
+    case 'MULTIPLE_CHOICE':
+      return { ...base, kind: drill.kind, options: drill.options };
+    case 'TRUE_FALSE_SPOT':
+      return { ...base, kind: drill.kind, statement: drill.statement };
+    case 'SEQUENCE_ORDER':
+      return { ...base, kind: drill.kind, steps: 'steps' in drill ? drill.steps : drill.orderedSteps };
+    case 'MATCH_PAIRS':
+      return {
+        ...base,
+        kind: drill.kind,
+        leftOptions: 'leftOptions' in drill
+          ? drill.leftOptions
+          : drill.pairs.map((pair) => ({ id: pair.id, text: pair.leftPrompt })),
+        rightOptions: 'rightOptions' in drill
+          ? drill.rightOptions
+          : drill.pairs.map((pair) => ({ id: pair.id, text: pair.rightMatch })),
+      };
+    case 'FILL_BLANK_CHOICE':
+      return { ...base, kind: drill.kind, sentenceTemplate: drill.sentenceTemplate, wordBank: drill.wordBank };
+  }
+}
+
+export const DRILL_KIND_LABELS: Record<LearnerDrillKind, string> = {
   MULTIPLE_CHOICE: 'Scenario Choice',
   TRUE_FALSE_SPOT: 'Spot the Violation',
   SEQUENCE_ORDER: 'Call-Flow Order',
@@ -44,37 +91,53 @@ export const DRILL_KIND_LABELS: Record<DrillKind, string> = {
   FILL_BLANK_CHOICE: 'Complete the Script',
 };
 
-/** Plain-English description of the correct answer for the feedback drawer. */
-export function describeCorrectAnswer(drill: DrillItem): string[] {
+/** Describes only server-returned IDs/words that exist in the learner-safe Drill DTO. */
+export function describeCorrectAnswer(drill: LearnerDrill, answer: DrillAnswer): string[] {
   switch (drill.kind) {
     case 'MULTIPLE_CHOICE': {
-      const option = drill.options.find((o) => o.id === drill.correctOptionId);
+      if (answer.kind !== 'MULTIPLE_CHOICE') return [];
+      const option = drill.options.find((item) => item.id === answer.optionId);
       return option ? [option.text] : [];
     }
     case 'TRUE_FALSE_SPOT':
-      return [drill.isCompliant ? '✓ Policy Compliant' : '✕ Policy Violation'];
+      return answer.kind === 'TRUE_FALSE_SPOT'
+        ? [answer.isCompliant ? '✓ Policy Compliant' : '✕ Policy Violation']
+        : [];
     case 'SEQUENCE_ORDER':
-      return drill.orderedSteps.map((step) => step.text);
+      if (answer.kind !== 'SEQUENCE_ORDER') return [];
+      return answer.orderedStepIds.flatMap((id) => {
+        const step = drill.steps.find((item) => item.id === id);
+        return step ? [step.text] : [];
+      });
     case 'MATCH_PAIRS':
-      return drill.pairs.map((pair) => `${pair.leftPrompt} → ${pair.rightMatch}`);
+      if (answer.kind !== 'MATCH_PAIRS') return [];
+      return drill.leftOptions.flatMap((left) => {
+        const rightId = answer.matches[left.id];
+        const right = drill.rightOptions.find((item) => item.id === rightId);
+        return right ? [`${left.text} → ${right.text}`] : [];
+      });
     case 'FILL_BLANK_CHOICE':
-      return [drill.correctWord];
+      return answer.kind === 'FILL_BLANK_CHOICE' && drill.wordBank.includes(answer.word) ? [answer.word] : [];
   }
 }
 
 interface QueueEntry {
   drillIndex: number;
+  /** Local round number used only for labels and option shuffling, never grading. */
   attempt: number;
+  idempotencyKey: string;
 }
 
 interface RunnerState {
   queue: QueueEntry[];
   position: number;
   phase: 'answering' | 'feedback' | 'done';
-  lastCorrect: boolean;
-  /** drillIndex -> first-try result */
+  response: DrillAnswerResponse | null;
+  /** drillIndex -> server result for the initial attempt, when one was submitted. */
   firstTry: Record<number, boolean>;
-  /** drillIndex -> how it was cleared */
+  /** drillIndex -> server-derived first-independent result for the clearing answer. */
+  firstIndependent: Record<number, boolean>;
+  /** drillIndex -> how the server says it was cleared. */
   cleared: Record<number, 'first' | 'recovered'>;
   streak: number;
   bestStreak: number;
@@ -82,17 +145,22 @@ interface RunnerState {
 }
 
 type RunnerAction =
-  | { type: 'answer'; correct: boolean }
+  | { type: 'answer'; position: number; response: DrillAnswerResponse; recoveryKey: string }
   | { type: 'continue' }
   | { type: 'toggleCitation' };
 
 function initialState(count: number): RunnerState {
   return {
-    queue: Array.from({ length: count }, (_, drillIndex) => ({ drillIndex, attempt: 0 })),
+    queue: Array.from({ length: count }, (_, drillIndex) => ({
+      drillIndex,
+      attempt: 0,
+      idempotencyKey: createIdempotencyKey(),
+    })),
     position: 0,
     phase: count === 0 ? 'done' : 'answering',
-    lastCorrect: false,
+    response: null,
     firstTry: {},
+    firstIndependent: {},
     cleared: {},
     streak: 0,
     bestStreak: 0,
@@ -105,19 +173,23 @@ function reducer(state: RunnerState, action: RunnerAction): RunnerState {
     case 'toggleCitation':
       return { ...state, citationOpen: !state.citationOpen };
     case 'answer': {
-      if (state.phase !== 'answering') return state;
+      if (state.phase !== 'answering' || state.position !== action.position) return state;
       const entry = state.queue[state.position];
       if (!entry) return state;
+      const { response } = action;
       const firstTry =
-        entry.attempt === 0 ? { ...state.firstTry, [entry.drillIndex]: action.correct } : state.firstTry;
-      if (action.correct) {
+        response.attemptKind === 'initial'
+          ? { ...state.firstTry, [entry.drillIndex]: response.correct }
+          : state.firstTry;
+      if (response.correct) {
         const streak = state.streak + 1;
         return {
           ...state,
           phase: 'feedback',
-          lastCorrect: true,
+          response,
           firstTry,
-          cleared: { ...state.cleared, [entry.drillIndex]: entry.attempt === 0 ? 'first' : 'recovered' },
+          firstIndependent: { ...state.firstIndependent, [entry.drillIndex]: response.firstIndependent },
+          cleared: { ...state.cleared, [entry.drillIndex]: response.firstIndependent ? 'first' : 'recovered' },
           streak,
           bestStreak: Math.max(state.bestStreak, streak),
           citationOpen: false,
@@ -126,9 +198,12 @@ function reducer(state: RunnerState, action: RunnerAction): RunnerState {
       return {
         ...state,
         phase: 'feedback',
-        lastCorrect: false,
+        response,
         firstTry,
-        queue: [...state.queue, { drillIndex: entry.drillIndex, attempt: entry.attempt + 1 }],
+        queue: [
+          ...state.queue,
+          { drillIndex: entry.drillIndex, attempt: entry.attempt + 1, idempotencyKey: action.recoveryKey },
+        ],
         streak: 0,
         citationOpen: false,
       };
@@ -136,22 +211,48 @@ function reducer(state: RunnerState, action: RunnerAction): RunnerState {
     case 'continue': {
       if (state.phase !== 'feedback') return state;
       if (state.position + 1 < state.queue.length) {
-        return { ...state, position: state.position + 1, phase: 'answering', citationOpen: false };
+        return { ...state, position: state.position + 1, phase: 'answering', response: null, citationOpen: false };
       }
-      return { ...state, phase: 'done', citationOpen: false };
+      return { ...state, phase: 'done', response: null, citationOpen: false };
     }
   }
 }
 
-/**
- * Phase 2 + 3 of a Checkpoint: runs every Drill, then re-queues each missed Drill until all are cleared.
- * Does not call any API. `onComplete` receives the honest first-try results.
- */
-export function DrillRunner({ drills, pillars, seed, onComplete, onProgress, hideProgress = false }: DrillRunnerProps) {
+async function responseJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function submissionErrorMessage(error: unknown): string {
+  if (error instanceof TypeError) return describeNetworkError(error);
+  if (error instanceof Error) return error.message;
+  return describeNetworkError(error);
+}
+
+/** Runs server-graded Drills and re-queues each missed Drill until the server returns correct. */
+export function DrillRunner({
+  drills: inputDrills,
+  pillars,
+  seed,
+  trackId,
+  versionId,
+  unitId,
+  onComplete,
+  onProgress,
+  hideProgress = false,
+}: DrillRunnerProps) {
+  const drills = useMemo(() => inputDrills.map(toLearnerDrill), [inputDrills]);
   const [state, dispatch] = useReducer(reducer, drills.length, initialState);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const promptRef = useRef<HTMLHeadingElement>(null);
   const completedRef = useRef(false);
   const firstItemRef = useRef(true);
+  const submittingRef = useRef(false);
+  const startsRef = useRef(new Map<number, DrillStartResponse>());
 
   const pillarLabels = useMemo(() => new Map(pillars.map((p) => [p.id, p.label])), [pillars]);
   const entry = state.phase === 'done' ? undefined : state.queue[state.position];
@@ -179,9 +280,9 @@ export function DrillRunner({ drills, pillars, seed, onComplete, onProgress, hid
       drills.map((item, index) => ({
         drillId: item.id,
         competencyPillarId: item.competencyPillarId,
-        passedFirstTry: state.firstTry[index] === true,
+        passedFirstTry: state.firstIndependent[index] === true,
       })),
-    [drills, state.firstTry],
+    [drills, state.firstIndependent],
   );
 
   useEffect(() => {
@@ -212,7 +313,66 @@ export function DrillRunner({ drills, pillars, seed, onComplete, onProgress, hid
     return false;
   }, state.phase === 'feedback');
 
-  const firstTryCorrect = results.filter((r) => r.passedFirstTry).length;
+  const submitAnswer = async (answer: DrillAnswer) => {
+    if (submittingRef.current || state.phase !== 'answering' || !entry || !drill) return;
+    if (!trackId || !versionId || !unitId) {
+      setSubmitError('Server grading is not connected for this Drill preview.');
+      return;
+    }
+
+    const position = state.position;
+    const queueEntry = entry;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      let start = startsRef.current.get(position);
+      if (!start) {
+        const startBody: DrillStartRequest = { trackId, versionId, unitId, drillId: drill.id };
+        const startResponse = await fetch('/api/progress/drill-start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(startBody),
+        });
+        if (!startResponse.ok) throw new Error(await describeApiError(startResponse, 'progress'));
+        const parsedStart = DrillStartResponseSchema.safeParse(await responseJson(startResponse));
+        if (!parsedStart.success) {
+          throw new Error('The server reply was not readable. Your answer is still here; try again.');
+        }
+        start = parsedStart.data;
+        startsRef.current.set(position, start);
+      }
+
+      const answerBody: DrillAnswerRequest = {
+        trackId,
+        versionId,
+        unitId,
+        drillId: drill.id,
+        startId: start.startId,
+        idempotencyKey: queueEntry.idempotencyKey,
+        answer,
+      };
+      const answerResponse = await fetch('/api/progress/drill-answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(answerBody),
+      });
+      if (!answerResponse.ok) throw new Error(await describeApiError(answerResponse, 'progress'));
+      const parsedAnswer = DrillAnswerResponseSchema.safeParse(await responseJson(answerResponse));
+      if (!parsedAnswer.success) {
+        throw new Error('The server reply was not readable. Your answer is still here; try again.');
+      }
+      dispatch({ type: 'answer', position, response: parsedAnswer.data, recoveryKey: createIdempotencyKey() });
+    } catch (error) {
+      setSubmitError(submissionErrorMessage(error));
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  const firstTryCorrect = results.filter((result) => result.passedFirstTry).length;
 
   if (state.phase === 'done' || !drill || !entry) {
     const pct = drills.length === 0 ? 100 : Math.round((firstTryCorrect / drills.length) * 100);
@@ -243,19 +403,26 @@ export function DrillRunner({ drills, pillars, seed, onComplete, onProgress, hid
 
   const isRecovery = entry.attempt > 0;
   const remaining = state.queue.length - state.position;
-  const feedbackStatus: FeedbackStatus = state.lastCorrect ? (isRecovery ? 'recovered' : 'correct') : 'incorrect';
-  const feedbackXp = !state.lastCorrect
+  const response = state.response;
+  const feedbackStatus: FeedbackStatus = response?.correct
+    ? response.attemptKind === 'initial' && response.firstIndependent
+      ? 'correct'
+      : 'recovered'
+    : 'incorrect';
+  const feedbackXp = !response?.correct
     ? 0
-    : isRecovery
-      ? XP_RULES.perRecoveredDrill
-      : XP_RULES.perFirstTryCorrectDrill;
+    : response.firstIndependent
+      ? XP_RULES.perFirstTryCorrectDrill
+      : XP_RULES.perRecoveredDrill;
   const isLastItem = state.position + 1 >= state.queue.length;
   const pillarLabel = pillarLabels.get(drill.competencyPillarId);
   const itemSeed = `${seed}:${drill.id}:${entry.attempt}`;
   const viewProps = {
     seed: itemSeed,
-    locked: state.phase !== 'answering',
-    onAnswer: (correct: boolean) => dispatch({ type: 'answer', correct }),
+    locked: state.phase !== 'answering' || submitting,
+    busy: submitting,
+    result: response,
+    onAnswer: submitAnswer,
   };
 
   return (
@@ -266,9 +433,10 @@ export function DrillRunner({ drills, pillars, seed, onComplete, onProgress, hid
 
       <article
         key={state.position}
+        aria-busy={submitting}
         className={cn(
           'pulse-card-elevated pulse-slide-up p-5 @lg:p-7',
-          state.phase === 'feedback' && (state.lastCorrect ? 'border-pulse-emerald/60' : 'border-pulse-amber/60'),
+          state.phase === 'feedback' && (response?.correct ? 'border-pulse-emerald/60' : 'border-pulse-amber/60'),
         )}
       >
         <header className="mb-4 flex flex-wrap items-center gap-2">
@@ -307,17 +475,30 @@ export function DrillRunner({ drills, pillars, seed, onComplete, onProgress, hid
         {drill.kind === 'FILL_BLANK_CHOICE' ? <FillBlankChoiceDrill drill={drill} {...viewProps} /> : null}
       </article>
 
-      {state.phase === 'feedback' ? (
+      {submitError && state.phase === 'answering' ? (
+        <div role="alert" className="mt-4 flex gap-3 rounded-pulse-lg border border-pulse-amber/50 bg-pulse-amber/10 p-4">
+          <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-pulse-amber" />
+          <div>
+            <p className="font-semibold text-pulse-primary">Your answer was not submitted</p>
+            <p className="mt-1 text-sm text-pulse-secondary">{submitError}</p>
+            <p className="mt-1 text-xs text-pulse-muted">Your answer is still selected. Select Check to try again.</p>
+          </div>
+        </div>
+      ) : null}
+
+      {state.phase === 'feedback' && response ? (
         <FeedbackDrawer
           status={feedbackStatus}
           xp={feedbackXp}
-          explanation={drill.explanation}
-          correctAnswer={state.lastCorrect ? undefined : describeCorrectAnswer(drill)}
-          sourcePages={drill.sourcePages}
+          explanation={response.explanation ?? 'This submission was already recorded. Start a new attempt for fresh feedback.'}
+          correctAnswer={response.correct || !response.correctAnswer
+            ? undefined
+            : describeCorrectAnswer(drill, response.correctAnswer)}
+          sourcePages={response.sourcePages}
           citationExpanded={state.citationOpen}
           onToggleCitation={() => dispatch({ type: 'toggleCitation' })}
           onContinue={() => dispatch({ type: 'continue' })}
-          continueLabel={state.lastCorrect && isLastItem ? 'Finish Drills' : 'Continue'}
+          continueLabel={response.correct && isLastItem ? 'Finish Drills' : 'Continue'}
         />
       ) : null}
     </section>

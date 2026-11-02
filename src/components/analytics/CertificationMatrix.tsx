@@ -4,11 +4,20 @@ import Link from 'next/link';
 import { Award, Download, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type CertificationCellStatus = 'CERTIFIED' | 'IN_PROGRESS' | 'NOT_STARTED' | 'NOT_ASSIGNED';
+export type CertificationCellStatus =
+  | 'CERTIFIED'
+  | 'IN_PROGRESS'
+  | 'READY_FOR_TRAINER_REVIEW'
+  | 'RECERTIFICATION_REQUIRED'
+  | 'EXPIRED'
+  | 'REVOKED'
+  | 'HISTORICAL_UNVERIFIED'
+  | 'NOT_STARTED'
+  | 'NOT_ASSIGNED';
 
 export interface CertificationCell {
   status: CertificationCellStatus;
-  /** Best Simulation score for CERTIFIED, progress percent for IN_PROGRESS. */
+  /** Optional display percentage; not a measure of live-call readiness. */
   pct: number | null;
 }
 
@@ -32,6 +41,16 @@ function cellText(cell: CertificationCell): string {
       return cell.pct === null ? 'Certified' : `Certified (${Math.round(cell.pct)}%)`;
     case 'IN_PROGRESS':
       return `In Progress (${Math.round(cell.pct ?? 0)}%)`;
+    case 'READY_FOR_TRAINER_REVIEW':
+      return 'Trainer Review Required';
+    case 'RECERTIFICATION_REQUIRED':
+      return 'Recertification Required';
+    case 'EXPIRED':
+      return 'Expired';
+    case 'REVOKED':
+      return 'Revoked';
+    case 'HISTORICAL_UNVERIFIED':
+      return 'Historical — Unverified';
     case 'NOT_STARTED':
       return 'Not Started';
     case 'NOT_ASSIGNED':
@@ -163,8 +182,15 @@ function StatusChip({ cell }: { cell: CertificationCell }) {
       </span>
     );
   }
-  if (cell.status === 'IN_PROGRESS') {
+  if (
+    cell.status === 'IN_PROGRESS' ||
+    cell.status === 'READY_FOR_TRAINER_REVIEW' ||
+    cell.status === 'RECERTIFICATION_REQUIRED'
+  ) {
     return <span className="pulse-pill pulse-pill-amber pulse-metric">{text}</span>;
+  }
+  if (cell.status === 'EXPIRED' || cell.status === 'REVOKED') {
+    return <span className="pulse-pill pulse-pill-crimson">{text}</span>;
   }
   return <span className={cn('text-xs text-pulse-muted', cell.status === 'NOT_ASSIGNED' && 'opacity-60')}>{text}</span>;
 }
