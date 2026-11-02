@@ -16,6 +16,8 @@ import {
 } from '@/lib/schemas/curriculum';
 import type { RegenerateItemRequest } from '@/lib/schemas/api';
 import { getLLMGateway } from '@/lib/ai/gateway';
+import { assertGeneratedClaimEvidence } from '@/lib/ai/pipeline/generate-track';
+import { loadSourceReview, type SourceReviewData } from '@/lib/services/source-store';
 import type { LLMGateway } from '@/lib/ai/types';
 import { selectPages, type ExtractedPage } from '@/lib/ai/pdf-extractor';
 import type { UnitOutline } from '@/lib/ai/prompts/blueprint';
@@ -74,7 +76,13 @@ function trackContextSummary(track: TrackDoc, draft: TrackVersionDoc): string {
   return [`Track "${track.title}" has these Units:`, unitLines, 'Key takeaways already taught:', keyTakeaways].join('\n');
 }
 
-function unitContext(track: TrackDoc, draft: TrackVersionDoc, unit: TrackUnit, allPages: ExtractedPage[]): UnitPromptInput {
+function unitContext(
+  track: TrackDoc,
+  draft: TrackVersionDoc,
+  unit: TrackUnit,
+  allPages: ExtractedPage[],
+  sourceReview?: SourceReviewData,
+): UnitPromptInput {
   const cited = unitCitedPages(unit);
   const pages = cited.length > 0 ? selectPages(allPages, cited) : allPages;
   const pillarIds = [...new Set(unit.drills.map((drill) => drill.competencyPillarId))];
@@ -95,6 +103,7 @@ function unitContext(track: TrackDoc, draft: TrackVersionDoc, unit: TrackUnit, a
     pillars: draft.competencyPillars,
     outline,
     pages,
+    sourceReview,
     otherUnitTitles: draft.units.filter((other) => other.id !== unit.id).map((other) => other.title),
   };
 }
@@ -117,6 +126,10 @@ export async function regenerateDraftItem(
   if (!draft) throw new RegenerateItemError(409, 'NO_DRAFT', 'This Track has no draft yet. Build the Track first.');
   if (allPages.length === 0) {
     throw new RegenerateItemError(409, 'NO_SOURCE_PAGES', 'This Track has no Playbook pages. Upload the Playbook PDF again.');
+  }
+  const sourceReview = draft.sourceBundleId ? await loadSourceReview(trackId, draft.sourceBundleId) : undefined;
+  if (sourceReview && draft.sourceRevision !== sourceReview.bundle.revisionHash) {
+    throw new RegenerateItemError(409, 'SOURCE_REVISION_STALE', 'The source bundle changed. Start a new draft from the approved source revision before regenerating an item.');
   }
   const pillarIds = draft.competencyPillars.map((pillar) => pillar.id);
   const now = Date.now();
@@ -144,6 +157,7 @@ export async function regenerateDraftItem(
         pillars: draft.competencyPillars,
         unitTitles: draft.units.map((unit) => unit.title),
         pages: allPages,
+        sourceReview,
         preferredPageOrder: preferred,
         current,
         otherScenarioTitles: draft.simScenarios.filter((scenario) => scenario.id !== current.id).map((scenario) => scenario.title),
@@ -153,6 +167,11 @@ export async function regenerateDraftItem(
       schemaName: SINGLE_SIM_SCHEMA_NAME,
     });
     const pair = finalizeScenario(generated, current.id, ctx);
+    if (sourceReview) {
+      for (const criterion of pair.secretConfig.rubricCriteria) {
+        assertGeneratedClaimEvidence(criterion.id, criterion.evidence, sourceReview);
+      }
+    }
     const simScenarios = draft.simScenarios.map((scenario, i) => (i === index ? pair.publicScenario : scenario));
     const otherSecrets = (secrets?.scenarios ?? []).filter((config) => config.scenarioId !== current.id);
     const secretOrder = new Map(simScenarios.map((scenario, i) => [scenario.id, i]));
@@ -173,7 +192,7 @@ export async function regenerateDraftItem(
   const unitIndex = draft.units.findIndex((unit) => unit.id === request.unitId);
   if (unitIndex === -1) throw new RegenerateItemError(404, 'NOT_FOUND', 'This Unit does not exist in the draft.');
   const unit = draft.units[unitIndex];
-  const input = unitContext(track, draft, unit, allPages);
+  const input = unitContext(track, draft, unit, allPages, sourceReview);
   const allowedPages = input.pages.map((page) => page.pageNumber);
   let item: BriefingCard | DrillItem;
   let nextUnit: TrackUnit;
@@ -195,6 +214,7 @@ export async function regenerateDraftItem(
       schemaName: BRIEFING_CARD_SCHEMA_NAME,
     });
     const card = finalizeBriefingCard(generated, current.id, allowedPages);
+    if (sourceReview) assertGeneratedClaimEvidence(card.id, card.evidence, sourceReview);
     item = card;
     nextUnit = { ...unit, briefingCards: unit.briefingCards.map((existing, i) => (i === cardIndex ? card : existing)) };
   } else {
@@ -215,6 +235,7 @@ export async function regenerateDraftItem(
       schemaName: DRILL_SCHEMA_NAME,
     });
     const drill = finalizeDrill(generated, current.id, ctx);
+    if (sourceReview) assertGeneratedClaimEvidence(drill.id, drill.evidence, sourceReview);
     item = drill;
     nextUnit = { ...unit, drills: unit.drills.map((existing, i) => (i === drillIndex ? drill : existing)) };
   }

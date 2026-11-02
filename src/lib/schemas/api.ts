@@ -12,6 +12,7 @@ import {
   TrackUnitSchema,
 } from './curriculum';
 import { EnrollmentDocSchema, SimEvaluationSchema, SimSessionDocSchema } from './analytics';
+import { ClaimEvidenceSchema } from './source-truth';
 
 // ---------- Generic error body ----------
 export const ApiErrorBodySchema = z.object({
@@ -43,7 +44,72 @@ export const UploadTrackFieldsSchema = z.object({
   campaignCode: z.string().max(32).default(''),
   divisionId: DivisionIdSchema,
 });
-export const UploadTrackResponseSchema = z.object({ trackId: z.string(), pageCount: z.number().int() });
+export const UploadTrackModeSchema = z.enum(['new-bundle', 'append-document']);
+export const UploadTrackResponseSchema = z.object({
+  trackId: z.string(),
+  pageCount: z.number().int(),
+  bundleId: z.string(),
+  documentId: z.string(),
+  sourceRevision: z.string(),
+});
+
+const SourceRevisionSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const SourceReviewBaseFields = {
+  bundleId: z.string().min(1),
+  expectedRevisionHash: SourceRevisionSchema.optional(),
+};
+const EffectiveDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional();
+
+/** Trainer review commands. Approval identity and support labels are always recomputed on the server. */
+export const SourceReviewRequestSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('approve_excerpt'),
+    ...SourceReviewBaseFields,
+    evidence: ClaimEvidenceSchema.optional(),
+    evidenceId: z.string().min(1).optional(),
+    claimId: z.string().min(1).optional(),
+    approvalStatus: z.literal('approved').optional(),
+  }).strict(),
+  z.object({
+    action: z.literal('approve_transcription'),
+    ...SourceReviewBaseFields,
+    pageId: z.string().min(1).optional(),
+    documentId: z.string().min(1).optional(),
+    revisionId: z.string().min(1).optional(),
+    pageNumber: z.number().int().positive().optional(),
+    text: z.string().min(1).max(100_000),
+  }).strict(),
+  z.object({
+    action: z.literal('approve_asset'),
+    ...SourceReviewBaseFields,
+    assetId: z.string().min(1),
+  }).strict(),
+  z.object({
+    action: z.literal('approve_rule_pack'),
+    ...SourceReviewBaseFields,
+    rulePackId: z.string().min(1),
+    ruleId: z.string().min(1).optional(),
+  }).strict(),
+  z.object({
+    action: z.literal('approve_bundle'),
+    ...SourceReviewBaseFields,
+  }).strict(),
+  z.object({
+    action: z.literal('assign_conflict'),
+    ...SourceReviewBaseFields,
+    conflictId: z.string().min(1),
+  }).strict(),
+  z.object({
+    action: z.literal('record_conflict_decision'),
+    ...SourceReviewBaseFields,
+    conflictId: z.string().min(1),
+    status: z.enum(['resolved', 'accepted_context_difference']),
+    decision: z.string().min(1).max(5_000),
+    effectiveFrom: EffectiveDateSchema,
+    effectiveTo: EffectiveDateSchema,
+  }).strict(),
+]);
+export type SourceReviewRequest = z.infer<typeof SourceReviewRequestSchema>;
 
 /** SSE `event: progress` payload for GET /api/tracks/[trackId]/generate */
 export const GenerateProgressEventSchema = z.object({

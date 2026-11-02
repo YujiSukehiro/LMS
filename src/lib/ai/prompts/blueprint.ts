@@ -7,6 +7,13 @@ import type { DivisionId } from '@/lib/schemas/domain';
 import { PDF_LIMITS } from '@/lib/schemas/constants';
 import { formatSourcePages, type ExtractedPage } from '@/lib/ai/pdf-extractor';
 import {
+  formatApprovedAssets,
+  formatBudgetedSourcePages,
+  formatSharedRulePacks,
+  planSourceBudget,
+  type SourceReviewPromptContext,
+} from '@/lib/ai/pipeline/source-budget';
+import {
   CITATION_RULE,
   DIVISION_PROFILES,
   GROUNDING_RULE,
@@ -177,9 +184,21 @@ export function buildBlueprintUserPrompt(input: {
   campaignCode: string;
   divisionId: DivisionId;
   pages: ExtractedPage[];
+  sourceReview?: SourceReviewPromptContext;
 }): string {
-  const condensed = input.pages.length > PDF_LIMITS.condensedBlueprintPageThreshold;
-  const pageText = formatSourcePages(condensed ? condensePages(input.pages) : input.pages);
+  const condensed = !input.sourceReview && input.pages.length > PDF_LIMITS.condensedBlueprintPageThreshold;
+  const budget = input.sourceReview
+    ? planSourceBudget({
+        stage: 'blueprint',
+        pages: input.sourceReview.pages,
+        rulePacks: input.sourceReview.rulePacks,
+        assets: input.sourceReview.assets,
+        charBudget: 48000,
+      })
+    : null;
+  const pageText = budget
+    ? formatBudgetedSourcePages(budget.pages)
+    : formatSourcePages(condensed ? condensePages(input.pages) : input.pages);
   return [
     `Track title: ${input.trackTitle}`,
     `Division: ${divisionLabel(input.divisionId)}`,
@@ -187,7 +206,17 @@ export function buildBlueprintUserPrompt(input: {
     `Playbook page count: ${input.pages.length} (valid page numbers: 1-${input.pages.length})`,
     condensed
       ? 'The Playbook is long, so each SOURCE PAGE below shows only its first part. Use the headings and opening text to map the pages to Units.'
-      : 'Each SOURCE PAGE below shows the full page text.',
+      : 'Each SOURCE PAGE below shows the full page text approved for this stage.',
+    ...(input.sourceReview
+      ? [
+          '',
+          'APPROVED SHARED RULES (inherit these exact rule IDs and statements in later stages):',
+          formatSharedRulePacks(input.sourceReview.rulePacks),
+          '',
+          'APPROVED OPERATIONAL ASSETS (use these exact values in their declared context):',
+          formatApprovedAssets(input.sourceReview.assets),
+        ]
+      : []),
     '',
     pageText,
     '',

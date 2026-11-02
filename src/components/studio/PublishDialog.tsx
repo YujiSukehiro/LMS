@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Check, Copy, LoaderCircle, Send, X } from 'lucide-react';
 import { ALL_COHORTS_ID } from '@/lib/schemas/constants';
 import { cn } from '@/lib/utils';
-import { publishTrack } from './api-client';
+import { PublicationGatesError, publishTrack } from './api-client';
+import type { PublicationGateReport } from '@/lib/schemas/source-truth';
 
 export interface PublishCohortOption {
   id: string;
@@ -22,6 +23,7 @@ export function PublishDialog({
   cohorts,
   initialCohortIds,
   beforePublish,
+  onOpenSourceReview,
   disabled,
 }: {
   trackId: string;
@@ -30,6 +32,7 @@ export function PublishDialog({
   initialCohortIds: string[];
   /** Saves pending edits. Return false to stop the publish. */
   beforePublish: () => Promise<boolean>;
+  onOpenSourceReview: () => void;
   disabled?: boolean;
 }) {
   const router = useRouter();
@@ -37,6 +40,7 @@ export function PublishDialog({
   const [selected, setSelected] = useState<Set<string>>(new Set(initialCohortIds));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gateReport, setGateReport] = useState<PublicationGateReport | null>(null);
   const [published, setPublished] = useState<{ versionId: string; link: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -44,6 +48,7 @@ export function PublishDialog({
 
   function open() {
     setError(null);
+    setGateReport(null);
     setPublished(null);
     setCopied(false);
     dialogRef.current?.showModal();
@@ -70,6 +75,7 @@ export function PublishDialog({
     }
     setBusy(true);
     setError(null);
+    setGateReport(null);
     try {
       const saved = await beforePublish();
       if (!saved) {
@@ -80,6 +86,7 @@ export function PublishDialog({
       setPublished({ versionId, link: `${window.location.origin}/learn/${encodeURIComponent(trackId)}` });
       router.refresh();
     } catch (err) {
+      if (err instanceof PublicationGatesError) setGateReport(err.report);
       setError(err instanceof Error ? err.message : 'The Track did not publish.');
     } finally {
       setBusy(false);
@@ -177,6 +184,22 @@ export function PublishDialog({
               <p role="alert" className="rounded-pulse-md border border-pulse-crimson/40 bg-pulse-crimson/10 px-3 py-2 text-sm text-pulse-crimson">
                 {error}
               </p>
+            ) : null}
+            {gateReport ? (
+              <section className="rounded-pulse-md border border-pulse-crimson/30 bg-pulse-crimson/5 p-3" aria-label="Publication gate issues">
+                <p className="text-xs font-semibold text-pulse-crimson">Source revision {gateReport.checkedSourceRevision}</p>
+                <ul className="mt-2 flex max-h-56 flex-col gap-2 overflow-y-auto">
+                  {gateReport.issues.map((issue, index) => (
+                    <li key={`${issue.code}-${issue.affectedId}-${index}`} className="text-xs">
+                      <span className="font-semibold">{issue.code} · {issue.affectedType} {issue.affectedId}</span>
+                      <span className="mt-0.5 block text-pulse-secondary">{issue.message}</span>
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" className="pulse-btn mt-3" onClick={() => { close(); onOpenSourceReview(); }}>
+                  Open Source Review
+                </button>
+              </section>
             ) : null}
             <div className="flex justify-end gap-2">
               <button type="button" className="pulse-btn pulse-btn-ghost" onClick={close} disabled={busy}>

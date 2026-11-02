@@ -21,7 +21,16 @@ import {
   type TrackUnit,
 } from '@/lib/schemas/curriculum';
 import type { DivisionId } from '@/lib/schemas/domain';
+import { ClaimEvidenceProposalSchema, finalizeEvidenceProposals } from '@/lib/ai/prompts/evidence';
 import { formatSourcePages, type ExtractedPage } from '@/lib/ai/pdf-extractor';
+import {
+  EXACT_EVIDENCE_RULE,
+  formatApprovedAssets,
+  formatBudgetedSourcePages,
+  formatSharedRulePacks,
+  planSourceBudget,
+  type SourceReviewPromptContext,
+} from '@/lib/ai/pipeline/source-budget';
 import type { UnitOutline } from '@/lib/ai/prompts/blueprint';
 import {
   CITATION_RULE,
@@ -54,16 +63,20 @@ export interface UnitBuildContext {
   pillarIds: string[];
   /** Page numbers the items may cite. */
   allowedPages: number[];
+  /** Approved source bundles require exact claim evidence; legacy manual exchange remains optional. */
+  requireEvidence?: boolean;
 }
 
 const citedPages = z.array(z.number().int().positive()).min(1).max(10);
+const proposedEvidence = z.array(ClaimEvidenceProposalSchema).min(1).max(12).optional();
 
-const CardGenerationSchema = BriefingCardSchema.omit({ id: true }).extend({ sourcePages: citedPages });
+const CardGenerationSchema = BriefingCardSchema.omit({ id: true }).extend({ sourcePages: citedPages, evidence: proposedEvidence });
 
-const MultipleChoiceGenerationSchema = MultipleChoiceDrillSchema.omit({ id: true }).extend({ sourcePages: citedPages });
-const TrueFalseGenerationSchema = TrueFalseSpotDrillSchema.omit({ id: true }).extend({ sourcePages: citedPages });
+const MultipleChoiceGenerationSchema = MultipleChoiceDrillSchema.omit({ id: true }).extend({ sourcePages: citedPages, evidence: proposedEvidence });
+const TrueFalseGenerationSchema = TrueFalseSpotDrillSchema.omit({ id: true }).extend({ sourcePages: citedPages, evidence: proposedEvidence });
 const SequenceGenerationSchema = SequenceOrderDrillSchema.omit({ id: true, orderedSteps: true }).extend({
   sourcePages: citedPages,
+  evidence: proposedEvidence,
   orderedSteps: z
     .array(z.object({ text: z.string().max(140) }))
     .min(3)
@@ -72,12 +85,13 @@ const SequenceGenerationSchema = SequenceOrderDrillSchema.omit({ id: true, order
 });
 const MatchPairsGenerationSchema = MatchPairsDrillSchema.omit({ id: true, pairs: true }).extend({
   sourcePages: citedPages,
+  evidence: proposedEvidence,
   pairs: z
     .array(z.object({ leftPrompt: z.string().max(100), rightMatch: z.string().max(100) }))
     .min(3)
     .max(4),
 });
-const FillBlankGenerationSchema = FillBlankChoiceDrillSchema.omit({ id: true }).extend({ sourcePages: citedPages });
+const FillBlankGenerationSchema = FillBlankChoiceDrillSchema.omit({ id: true }).extend({ sourcePages: citedPages, evidence: proposedEvidence });
 
 const DrillGenerationSchema = z.discriminatedUnion('kind', [
   MultipleChoiceGenerationSchema,
@@ -107,12 +121,17 @@ function checkPages(pages: number[], allowed: Set<number>, path: (string | numbe
   }
 }
 
+function checkRequiredEvidence(evidence: CardGeneration['evidence'], ctx: UnitBuildContext, path: (string | number)[], report: IssueSink): void {
+  if (ctx.requireEvidence && !evidence?.length) report(path, 'Provide exact claim-to-excerpt evidence from the supplied source documents.');
+}
+
 function checkDrill(drill: DrillGeneration, ctx: UnitBuildContext, path: (string | number)[], report: IssueSink): void {
   const allowed = new Set(ctx.allowedPages);
   if (!ctx.pillarIds.includes(drill.competencyPillarId)) {
     report([...path, 'competencyPillarId'], `Use one of these CompetencyPillar ids: ${ctx.pillarIds.join(', ')}.`);
   }
   checkPages(drill.sourcePages, allowed, [...path, 'sourcePages'], report);
+  checkRequiredEvidence(drill.evidence, ctx, [...path, 'evidence'], report);
   switch (drill.kind) {
     case 'MULTIPLE_CHOICE': {
       const ids = drill.options.map((option) => option.id);
@@ -164,7 +183,10 @@ export function buildUnitGenerationSchema(ctx: UnitBuildContext) {
     .superRefine((value, zctx) => {
       const report: IssueSink = (path, message) => zctx.addIssue({ code: z.ZodIssueCode.custom, path, message });
       const allowed = new Set(ctx.allowedPages);
-      value.briefingCards.forEach((card, index) => checkPages(card.sourcePages, allowed, ['briefingCards', index, 'sourcePages'], report));
+      value.briefingCards.forEach((card, index) => {
+        checkPages(card.sourcePages, allowed, ['briefingCards', index, 'sourcePages'], report);
+        checkRequiredEvidence(card.evidence, ctx, ['briefingCards', index, 'evidence'], report);
+      });
       value.drills.forEach((drill, index) => checkDrill(drill, ctx, ['drills', index], report));
       const kinds = new Set(value.drills.map((drill) => drill.kind));
       if (kinds.size < MIN_DISTINCT_DRILL_KINDS) {
@@ -190,10 +212,12 @@ export function buildCardGenerationSchema(ctx: Pick<UnitBuildContext, 'allowedPa
 
 /** Zod output schema for regenerating one Drill of a fixed kind. */
 export function buildDrillGenerationSchema(kind: DrillKind, ctx: UnitBuildContext) {
-  const base: z.ZodType<DrillGeneration> = DRILL_GENERATION_SCHEMAS[kind];
-  return base.superRefine((drill, zctx) => {
-    checkDrill(drill, ctx, [], (path, message) => zctx.addIssue({ code: z.ZodIssueCode.custom, path, message }));
-  });
+  // Keep each variant's Zod input type (including optional evidence defaults) intact.
+  const refine = <T extends z.ZodTypeAny>(schema: T) =>
+    schema.superRefine((drill, zctx) => {
+      checkDrill(drill as DrillGeneration, ctx, [], (path, message) => zctx.addIssue({ code: z.ZodIssueCode.custom, path, message }));
+    });
+  return refine(DRILL_GENERATION_SCHEMAS[kind]);
 }
 
 const DRILL_KIND_GUIDE = [
@@ -219,6 +243,7 @@ export function buildUnitSystemPrompt(divisionId: DivisionId): string {
     GROUNDING_RULE,
     'Teach only rules that the SOURCE PAGES state. Copy exact values (amounts, days, steps, required fields) from the pages. If a detail is not stated, do not use it.',
     CITATION_RULE,
+    EXACT_EVIDENCE_RULE,
     LANGUAGE_RULE,
     `Callers in Drills are ${profile.counterparty}. Use synthetic names and synthetic order numbers.`,
     '',
@@ -245,8 +270,10 @@ export interface UnitPromptInput {
   globalSummary: string;
   pillars: CompetencyPillar[];
   outline: UnitOutline;
-  /** Only the SOURCE PAGES mapped to this Unit. */
+  /** Only the legacy SOURCE PAGES mapped to this Unit. */
   pages: ExtractedPage[];
+  /** Approved document identities, inherited rules, and operational assets for exact evidence. */
+  sourceReview?: SourceReviewPromptContext;
   /** Titles of the other Units, to avoid overlap. */
   otherUnitTitles: string[];
 }
@@ -256,8 +283,20 @@ function unitPillars(input: Pick<UnitPromptInput, 'pillars' | 'outline'>): Compe
   return preferred.length > 0 ? preferred : input.pillars;
 }
 
-function contextBlock(input: Omit<UnitPromptInput, 'pages'> & { pages: ExtractedPage[] }): string[] {
-  const pages = fitPagesToBudget(input.pages, UNIT_SOURCE_CHAR_BUDGET);
+function contextBlock(input: UnitPromptInput): string[] {
+  const budget = input.sourceReview
+    ? planSourceBudget({
+        stage: `unit:${input.outline.id}`,
+        pages: input.sourceReview.pages,
+        rulePacks: input.sourceReview.rulePacks,
+        assets: input.sourceReview.assets,
+        selectedPageNumbers: input.outline.sourcePages,
+        preferredPageOrder: input.outline.sourcePages,
+        charBudget: UNIT_SOURCE_CHAR_BUDGET,
+      })
+    : null;
+  const legacyPages = budget ? [] : fitPagesToBudget(input.pages, UNIT_SOURCE_CHAR_BUDGET);
+  const allowedPages = budget ? budget.pages.map((page) => page.pageNumber) : legacyPages.map((page) => page.pageNumber);
   return [
     `Track: ${input.trackTitle}${input.campaignCode ? ` (campaign ${input.campaignCode})` : ''}`,
     `Division: ${divisionLabel(input.divisionId)}`,
@@ -272,9 +311,19 @@ function contextBlock(input: Omit<UnitPromptInput, 'pages'> & { pages: Extracted
     `Summary: ${input.outline.summary}`,
     `Focus: ${input.outline.focus}`,
     input.otherUnitTitles.length > 0 ? `Other Units (do not teach their rules here): ${input.otherUnitTitles.join('; ')}` : '',
-    `Allowed sourcePages: ${describePageSet(pages.map((page) => page.pageNumber))}`,
+    `Allowed sourcePages: ${describePageSet(allowedPages)}`,
+    ...(input.sourceReview
+      ? [
+          '',
+          'APPROVED SHARED RULES (inherit these exact rule IDs and statements):',
+          formatSharedRulePacks(input.sourceReview.rulePacks),
+          '',
+          'APPROVED OPERATIONAL ASSETS (use these exact values in their declared context):',
+          formatApprovedAssets(input.sourceReview.assets),
+        ]
+      : []),
     '',
-    formatSourcePages(pages),
+    budget ? formatBudgetedSourcePages(budget.pages) : formatSourcePages(legacyPages),
   ];
 }
 
@@ -323,6 +372,7 @@ export function finalizeBriefingCard(card: CardGeneration, id: string, allowedPa
     doList: card.doList.slice(0, 4).map((item) => clampText(item, 140)).filter(Boolean),
     dontList: card.dontList.slice(0, 4).map((item) => clampText(item, 140)).filter(Boolean),
     sourcePages: sanitizePages(card.sourcePages, allowed, allowedPages.slice(0, 1)),
+    ...(card.evidence ? { evidence: finalizeEvidenceProposals(card.evidence, id) } : {}),
   });
 }
 
@@ -335,6 +385,7 @@ export function finalizeDrill(drill: DrillGeneration, id: string, ctx: UnitBuild
     prompt: clampText(drill.prompt, 300),
     explanation: clampText(drill.explanation, 350),
     sourcePages: sanitizePages(drill.sourcePages, allowed, ctx.allowedPages.slice(0, 1)),
+    ...(drill.evidence ? { evidence: finalizeEvidenceProposals(drill.evidence, id) } : {}),
   };
   switch (drill.kind) {
     case 'MULTIPLE_CHOICE': {

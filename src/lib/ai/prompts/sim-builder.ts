@@ -13,7 +13,16 @@ import {
   type SecretSimScenarioConfig,
 } from '@/lib/schemas/curriculum';
 import type { DivisionId } from '@/lib/schemas/domain';
+import { ClaimEvidenceProposalSchema, finalizeEvidenceProposals } from '@/lib/ai/prompts/evidence';
 import { DEFAULT_SIM_PASS_THRESHOLD } from '@/lib/schemas/constants';
+import {
+  EXACT_EVIDENCE_RULE,
+  formatApprovedAssets,
+  formatBudgetedSourcePages,
+  formatSharedRulePacks,
+  planSourceBudget,
+  type SourceReviewPromptContext,
+} from '@/lib/ai/pipeline/source-budget';
 import { formatSourcePages, type ExtractedPage } from '@/lib/ai/pdf-extractor';
 import {
   CITATION_RULE,
@@ -39,6 +48,7 @@ export const SIM_SOURCE_CHAR_BUDGET = 30000;
 export interface SimBuildContext {
   pillarIds: string[];
   allowedPages: number[];
+  requireEvidence?: boolean;
 }
 
 export interface SimScenarioPair {
@@ -48,7 +58,10 @@ export interface SimScenarioPair {
 
 const citedPages = z.array(z.number().int().positive()).min(1).max(10);
 
-const RubricGenerationSchema = RubricCriterionSchema.omit({ id: true }).extend({ sourcePages: citedPages });
+const RubricGenerationSchema = RubricCriterionSchema.omit({ id: true }).extend({
+  sourcePages: citedPages,
+  evidence: z.array(ClaimEvidenceProposalSchema).min(1).max(12).optional(),
+});
 
 const ScenarioGenerationSchema = z.object({
   publicScenario: PublicSimScenarioSchema.omit({ id: true }).extend({
@@ -91,6 +104,9 @@ function checkScenario(scenario: ScenarioGeneration, ctx: SimBuildContext, path:
         `Use one of these CompetencyPillar ids: ${ctx.pillarIds.join(', ')}.`,
       );
     }
+    if (ctx.requireEvidence && !criterion.evidence?.length) {
+      report([...path, 'secretConfig', 'rubricCriteria', index, 'evidence'], 'Provide exact claim-to-excerpt evidence from the supplied source documents.');
+    }
     const outside = invalidPages(criterion.sourcePages, allowed);
     if (outside.length > 0) {
       report(
@@ -130,6 +146,7 @@ export function buildSimSystemPrompt(divisionId: DivisionId): string {
     GROUNDING_RULE,
     'Every rubric "evaluationRule" must state the exact rule from the SOURCE PAGES that the agent must follow, so a judge can grade the transcript without the Playbook.',
     CITATION_RULE,
+    EXACT_EVIDENCE_RULE,
     LANGUAGE_RULE,
     '',
     'PUBLIC PART ("publicScenario"):',
@@ -159,12 +176,24 @@ export interface SimPromptInput {
   pillars: CompetencyPillar[];
   unitTitles: string[];
   pages: ExtractedPage[];
-  /** Page numbers ordered by importance (most cited first), used when the pages exceed the budget. */
+  sourceReview?: SourceReviewPromptContext;
+  /** Citation frequency orders optional pages only; critical inputs are planned first. */
   preferredPageOrder: number[];
 }
 
 function simContext(input: SimPromptInput): string[] {
-  const pages = selectPagesWithinBudget(input.pages, input.preferredPageOrder, SIM_SOURCE_CHAR_BUDGET);
+  const budget = input.sourceReview
+    ? planSourceBudget({
+        stage: 'simulations',
+        pages: input.sourceReview.pages,
+        rulePacks: input.sourceReview.rulePacks,
+        assets: input.sourceReview.assets,
+        preferredPageOrder: input.preferredPageOrder,
+        charBudget: SIM_SOURCE_CHAR_BUDGET,
+      })
+    : null;
+  const legacyPages = budget ? [] : selectPagesWithinBudget(input.pages, input.preferredPageOrder, SIM_SOURCE_CHAR_BUDGET);
+  const allowedPages = budget ? budget.pages.map((page) => page.pageNumber) : input.pages.map((page) => page.pageNumber);
   return [
     `Track: ${input.trackTitle}${input.campaignCode ? ` (campaign ${input.campaignCode})` : ''}`,
     `Division: ${divisionLabel(input.divisionId)}`,
@@ -176,9 +205,19 @@ function simContext(input: SimPromptInput): string[] {
     describePillars(input.pillars),
     '',
     input.unitTitles.length > 0 ? `Units the agent completed before the Simulation: ${input.unitTitles.join('; ')}` : '',
-    `Allowed sourcePages: ${describePageSet(input.pages.map((page) => page.pageNumber))}`,
+    `Allowed sourcePages: ${describePageSet(allowedPages)}`,
+    ...(input.sourceReview
+      ? [
+          '',
+          'APPROVED SHARED RULES (inherit these exact rule IDs and statements):',
+          formatSharedRulePacks(input.sourceReview.rulePacks),
+          '',
+          'APPROVED OPERATIONAL ASSETS (use these exact values in their declared context):',
+          formatApprovedAssets(input.sourceReview.assets),
+        ]
+      : []),
     '',
-    formatSourcePages(pages),
+    budget ? formatBudgetedSourcePages(budget.pages) : formatSourcePages(legacyPages),
   ];
 }
 
@@ -229,14 +268,18 @@ export function finalizeScenario(generated: ScenarioGeneration, id: string, ctx:
     passScoreThreshold: Math.min(95, Math.max(60, Math.round(pub.passScoreThreshold))),
   });
   const secret = generated.secretConfig;
-  const rubricCriteria = secret.rubricCriteria.slice(0, 6).map((criterion, index) => ({
-    id: `${id}-r${index + 1}`,
-    competencyPillarId: ctx.pillarIds.includes(criterion.competencyPillarId) ? criterion.competencyPillarId : ctx.pillarIds[0],
-    criterionLabel: clampText(criterion.criterionLabel, 100),
-    evaluationRule: clampText(criterion.evaluationRule, 300),
-    weight: criterion.weight,
-    sourcePages: sanitizePages(criterion.sourcePages, allowed, ctx.allowedPages.slice(0, 1)),
-  }));
+  const rubricCriteria = secret.rubricCriteria.slice(0, 6).map((criterion, index) => {
+    const criterionId = `${id}-r${index + 1}`;
+    return {
+      id: criterionId,
+      competencyPillarId: ctx.pillarIds.includes(criterion.competencyPillarId) ? criterion.competencyPillarId : ctx.pillarIds[0],
+      criterionLabel: clampText(criterion.criterionLabel, 100),
+      evaluationRule: clampText(criterion.evaluationRule, 300),
+      weight: criterion.weight,
+      sourcePages: sanitizePages(criterion.sourcePages, allowed, ctx.allowedPages.slice(0, 1)),
+      ...(criterion.evidence ? { evidence: finalizeEvidenceProposals(criterion.evidence, criterionId) } : {}),
+    };
+  });
   const secretConfig = SecretSimScenarioConfigSchema.parse({
     scenarioId: id,
     personaName: clampText(secret.personaName, 60),

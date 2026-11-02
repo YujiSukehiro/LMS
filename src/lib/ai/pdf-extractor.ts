@@ -3,6 +3,7 @@
  * No Firebase imports: unit tests import the pure helpers from this file.
  */
 import { PDF_LIMITS } from '@/lib/schemas/constants';
+import { extractionQualityFlags } from '@/lib/services/source-evidence';
 
 export type PlaybookPdfErrorCode = 'NOT_PDF' | 'TOO_LARGE' | 'TOO_MANY_PAGES' | 'UNREADABLE' | 'SCANNED_IMAGE';
 
@@ -19,6 +20,18 @@ export class PlaybookPdfError extends Error {
 export interface ExtractedPage {
   pageNumber: number;
   text: string;
+  /** Unmodified pdf.js page text retained for source evidence and quality detection. */
+  rawText?: string;
+}
+
+/** Preserve the shared extraction heuristics and fail closed on sparse/caption-only evidence. */
+export function sourcePageExtractionFlags(page: Pick<ExtractedPage, 'text' | 'rawText'>): ReturnType<typeof extractionQualityFlags> {
+  const rawText = page.rawText ?? page.text;
+  const flags = new Set(extractionQualityFlags(rawText));
+  const normalizedLength = page.text.replace(/\s+/g, ' ').trim().length;
+  const captionOnly = /(?:^|\n)\s*(?:image|figure|screenshot|screen shot)\s*\d*\s*[:.-]/i.test(rawText) && normalizedLength < 1_000;
+  if (flags.has('low_text_density') || captionOnly) flags.add('manual_transcription_required');
+  return [...flags];
 }
 
 export interface ExtractedPlaybook {
@@ -180,6 +193,7 @@ export async function extractPlaybookPdf(
     const pages: ExtractedPage[] = rawPages.map((text, index) => ({
       pageNumber: index + 1,
       text: normalizePageText(text),
+      rawText: text,
     }));
     const totalChars = pages.reduce((sum, page) => sum + page.text.length, 0);
     if (totalChars < PDF_LIMITS.minExtractedChars) {

@@ -51,6 +51,10 @@ import {
   trackRef,
 } from '@/lib/ai/pipeline/track-store';
 import { clampPct } from '@/lib/utils';
+import { loadSourceReview } from '@/lib/services/source-store';
+import { verifyClaimEvidence } from '@/lib/services/source-evidence';
+import type { ClaimEvidence, SourceConflict } from '@/lib/schemas/source-truth';
+import type { SourceReviewPromptContext } from '@/lib/ai/pipeline/source-budget';
 
 export type ProgressListener = (event: GenerateProgressEvent) => void;
 
@@ -61,6 +65,68 @@ export function describeGenerationError(error: unknown): string {
   }
   if (error instanceof Error && error.message) return error.message;
   return 'The Track build stopped because of an unknown error. Select Retry to build the Track again.';
+}
+
+interface SourceGenerationContext extends SourceReviewPromptContext {
+  sourceBundleId: string;
+  sourceRevision: string;
+  requiredRuleIds: string[];
+  conflicts: SourceConflict[];
+}
+
+async function loadApprovedSourceContext(track: TrackDoc): Promise<SourceGenerationContext | null> {
+  if (!track.activeSourceBundleId) return null;
+  const review = await loadSourceReview(track.id, track.activeSourceBundleId);
+  const { bundle } = review;
+  if (
+    (bundle.status !== 'approved' && bundle.status !== 'published') ||
+    !bundle.approvedSourceRevision ||
+    bundle.approvedSourceRevision !== bundle.revisionHash
+  ) {
+    throw new Error('The active source bundle must be approved at its exact current revision before generation.');
+  }
+  const rulePacks = review.rulePacks.filter((pack) => bundle.sharedRulePackIds.includes(pack.id));
+  const missingPackIds = bundle.sharedRulePackIds.filter((id) => !rulePacks.some((pack) => pack.id === id));
+  if (missingPackIds.length > 0 || rulePacks.some((pack) => pack.approvalStatus !== 'approved')) {
+    throw new Error(`Approved shared rule packs are required before generation (${missingPackIds.join(', ') || 'unapproved pack'}).`);
+  }
+  return {
+    pages: review.pages,
+    rulePacks,
+    assets: review.assets,
+    conflicts: review.conflicts,
+    sourceBundleId: bundle.id,
+    sourceRevision: bundle.revisionHash,
+    requiredRuleIds: rulePacks.flatMap((pack) => pack.rules.map((rule) => rule.id)),
+  };
+}
+
+/** Recompute exact support on the server; generated support and approval labels are never trusted. */
+export function assertGeneratedClaimEvidence(
+  ownerId: string,
+  evidence: ClaimEvidence[] | undefined,
+  source: Pick<SourceGenerationContext, 'pages' | 'conflicts'>,
+): void {
+  if (!evidence?.length) throw new Error(`${ownerId} is missing exact claim-to-excerpt evidence.`);
+  for (const proposal of evidence) {
+    const verified = verifyClaimEvidence(proposal, source.pages, source.conflicts);
+    if (verified.support !== 'supported') {
+      throw new Error(`${ownerId} evidence ${proposal.id} is ${verified.support.replaceAll('_', ' ')}; the previous valid draft was preserved.`);
+    }
+  }
+}
+
+function assertUnitEvidence(unit: TrackUnit, source: SourceGenerationContext): void {
+  for (const card of unit.briefingCards) assertGeneratedClaimEvidence(card.id, card.evidence, source);
+  for (const drill of unit.drills) assertGeneratedClaimEvidence(drill.id, drill.evidence, source);
+}
+
+function assertScenarioEvidence(scenarios: ReturnType<typeof finalizeScenarios>, source: SourceGenerationContext): void {
+  for (const scenario of scenarios) {
+    for (const criterion of scenario.secretConfig.rubricCriteria) {
+      assertGeneratedClaimEvidence(criterion.id, criterion.evidence, source);
+    }
+  }
 }
 
 /** Page numbers ordered by how often the Units cite them (most cited first). */
@@ -99,6 +165,7 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
     if (!track) throw new Error('This Track does not exist.');
     const pages = await loadSourcePages(trackId);
     if (pages.length === 0) throw new Error('This Track has no extracted Playbook pages. Upload the Playbook PDF again.');
+    const source = await loadApprovedSourceContext(track);
 
     // Pass 1: Blueprint
     await report('BLUEPRINTING', 15, `Read ${pages.length} pages. Analyzing campaign rules...`);
@@ -110,6 +177,7 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
         campaignCode: track.campaignCode,
         divisionId: track.divisionId,
         pages,
+        sourceReview: source ?? undefined,
       }),
       schema: buildBlueprintSchema(pages.length),
       schemaName: BLUEPRINT_SCHEMA_NAME,
@@ -123,8 +191,8 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
       source: runtime.provider === 'replay' ? 'replay' : runtime.provider === 'gemini' ? 'hosted_ai' : runtime.provider === 'manual_chat' ? 'manual_chat' : 'local_ai',
       provider: runtime.provider,
       model: runtime.heavyModel,
-      prompt: { templateId: 'staged-track-generation', templateVersion: 'v1' },
-      schema: { name: 'TrackVersion', version: 'v1' },
+      prompt: { templateId: 'staged-track-generation', templateVersion: source ? 'v2' : 'v1' },
+      schema: { name: 'TrackVersion', version: source ? 'v2' : 'v1' },
       runtime: { label: runtime.runtimeLabel ?? runtime.provider, profileId: `${runtime.provider}-local` },
       recordedAt: new Date(createdAt).toISOString(),
     });
@@ -138,6 +206,9 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
         units,
         simScenarios,
         provenance,
+        ...(source
+          ? { sourceBundleId: source.sourceBundleId, sourceRevision: source.sourceRevision, requiredRuleIds: source.requiredRuleIds }
+          : {}),
         publishedAt: null,
         createdAt,
       });
@@ -157,8 +228,8 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
     const unitTotal = blueprint.units.length;
     for (const [index, outline] of blueprint.units.entries()) {
       const unitPages = selectPages(pages, outline.sourcePages);
-      const allowedPages = unitPages.map((page) => page.pageNumber);
-      const ctx = { pillarIds, allowedPages };
+      const allowedPages = [...new Set((source?.pages ?? unitPages).map((page) => page.pageNumber))];
+      const ctx = { pillarIds, allowedPages, requireEvidence: source !== null };
       const generated = await gateway.generateStructured({
         tier: 'heavy',
         systemPrompt: buildUnitSystemPrompt(track.divisionId),
@@ -170,20 +241,23 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
           pillars: blueprint.competencyPillars,
           outline,
           pages: unitPages,
+          sourceReview: source ?? undefined,
           otherUnitTitles: blueprint.units.filter((other) => other.id !== outline.id).map((other) => other.title),
         }),
         schema: buildUnitGenerationSchema(ctx),
         schemaName: UNIT_SCHEMA_NAME,
       });
-      units.push(finalizeUnit(outline, generated, ctx));
+      const unit = finalizeUnit(outline, generated, ctx);
+      if (source) assertUnitEvidence(unit, source);
+      units.push(unit);
       await saveDraft(units, []);
       await report('BUILDING_UNITS', 30 + ((index + 1) * 45) / unitTotal, `Built Checkpoint ${index + 1}: ${outline.title}`);
     }
 
     // Pass 3: Sim Builder
     await report('BUILDING_SIMS', 80, 'Creating Live Call Simulation personas & grading rubrics...');
-    const allPageNumbers = pages.map((page) => page.pageNumber);
-    const simCtx = { pillarIds, allowedPages: allPageNumbers };
+    const allPageNumbers = [...new Set((source?.pages ?? pages).map((page) => page.pageNumber))];
+    const simCtx = { pillarIds, allowedPages: allPageNumbers, requireEvidence: source !== null };
     const simRaw = await gateway.generateStructured({
       tier: 'heavy',
       systemPrompt: buildSimSystemPrompt(track.divisionId),
@@ -195,14 +269,16 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
         pillars: blueprint.competencyPillars,
         unitTitles: units.map((unit) => unit.title),
         pages,
+        sourceReview: source ?? undefined,
         preferredPageOrder: pagesByCitation(units, pages),
       }),
       schema: buildSimGenerationSchema(simCtx),
       schemaName: SIM_SCHEMA_NAME,
     });
     const scenarios = finalizeScenarios(simRaw, simCtx);
+    if (source) assertScenarioEvidence(scenarios, source);
 
-    await commitDraft({ track, trackId, blueprint, units, scenarios, versionNumber, createdAt, provenance });
+    await commitDraft({ track, trackId, blueprint, units, scenarios, versionNumber, createdAt, provenance, source });
     lastPercent = 100;
     onProgress({ step: 'READY', percent: 100, message: 'Track Ready! Redirecting to Preview Studio...' });
   } catch (error) {
@@ -225,6 +301,7 @@ async function commitDraft(input: {
   versionNumber: number;
   createdAt: number;
   provenance: ProvenanceRecord;
+  source: SourceGenerationContext | null;
 }): Promise<void> {
   const now = Date.now();
   const simScenarios = input.scenarios.map((pair) => pair.publicScenario);
@@ -236,6 +313,13 @@ async function commitDraft(input: {
     units: input.units,
     simScenarios,
     provenance: input.provenance,
+    ...(input.source
+      ? {
+          sourceBundleId: input.source.sourceBundleId,
+          sourceRevision: input.source.sourceRevision,
+          requiredRuleIds: input.source.requiredRuleIds,
+        }
+      : {}),
     publishedAt: null,
     createdAt: input.createdAt,
   });

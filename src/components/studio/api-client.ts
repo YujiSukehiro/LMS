@@ -20,6 +20,17 @@ import {
   type SecretSimScenarioConfig,
 } from '@/lib/schemas/curriculum';
 import type { DivisionId } from '@/lib/schemas/domain';
+import { PublicationGateReportSchema, type PublicationGateReport } from '@/lib/schemas/source-truth';
+
+export class PublicationGatesError extends Error {
+  constructor(
+    message: string,
+    readonly report: PublicationGateReport,
+  ) {
+    super(message);
+    this.name = 'PublicationGatesError';
+  }
+}
 
 const STATUS_MESSAGES: Record<number, string> = {
   401: 'Your session expired. Sign in again.',
@@ -110,7 +121,28 @@ export async function publishTrack(trackId: string, assignedCohortIds: string[])
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ assignedCohortIds }),
   });
-  if (!response.ok) throw await errorFrom(response, 'The Track did not publish');
+  if (!response.ok) {
+    try {
+      const body: unknown = await response.clone().json();
+      const parsedError = ApiErrorBodySchema.safeParse(body);
+      if (parsedError.success && parsedError.data.error === 'PUBLICATION_GATES_FAILED') {
+        const details = parsedError.data.details;
+        const candidate = details && typeof details === 'object' && 'publicationGate' in details
+          ? (details as { publicationGate: unknown }).publicationGate
+          : details;
+        const report = PublicationGateReportSchema.safeParse(candidate);
+        if (report.success) {
+          throw new PublicationGatesError(
+            parsedError.data.message ?? 'Resolve the Source Review issues before publishing.',
+            report.data,
+          );
+        }
+      }
+    } catch (error) {
+      if (error instanceof PublicationGatesError) throw error;
+    }
+    throw await errorFrom(response, 'The Track did not publish');
+  }
   const parsed = PublishTrackResponseSchema.safeParse(await response.json());
   if (!parsed.success) throw new Error('The server sent an unexpected publish response.');
   return parsed.data.publishedVersionId;

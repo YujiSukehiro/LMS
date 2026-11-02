@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, CircleAlert, CircleCheck, FileText, LoaderCircle, Pencil, Play, Save } from 'lucide-react';
+import { ArrowLeft, CircleAlert, CircleCheck, FileText, LoaderCircle, Pencil, Play, Save, ShieldCheck } from 'lucide-react';
 import {
   BriefingCardSchema,
   DrillItemSchema,
@@ -24,6 +24,7 @@ import { ScenarioPlayPreview, UnitPlayPreview } from './PlayPreview';
 import { RegenerateItemButton } from './RegenerateItemButton';
 import { PublishDialog, type PublishCohortOption } from './PublishDialog';
 import { RevisedPlaybookDialog } from './RevisedPlaybookDialog';
+import { SourceReview } from './SourceReview';
 import { fetchDraftSecrets, patchTrackDraft, regenerateItem } from './api-client';
 import { issueTargetsKey, validateStudioDraft, type StudioIssue } from './validation';
 
@@ -49,7 +50,7 @@ export function TrackStudio({
   const [scenarios, setScenarios] = useState<PublicSimScenario[]>(draft.simScenarios);
   const [secrets, setSecrets] = useState<SecretSimScenarioConfig[]>(initialSecrets);
   const [dirty, setDirty] = useState(false);
-  const [mode, setMode] = useState<'play' | 'edit'>('play');
+  const [mode, setMode] = useState<'play' | 'edit' | 'source'>('play');
   const [selection, setSelection] = useState<StudioSelection | null>(() =>
     draft.units.length > 0
       ? { kind: 'unit', unitId: [...draft.units].sort((a, b) => a.orderIndex - b.orderIndex)[0].id }
@@ -207,6 +208,9 @@ export function TrackStudio({
             <ModeButton active={mode === 'edit'} onClick={() => setMode('edit')} icon={<Pencil aria-hidden className="size-4" />}>
               Edit
             </ModeButton>
+            <ModeButton active={mode === 'source'} onClick={() => setMode('source')} icon={<ShieldCheck aria-hidden className="size-4" />}>
+              Source Review
+            </ModeButton>
           </div>
           <SaveIndicator dirty={dirty} state={saveState} />
           <button type="button" className="pulse-btn" onClick={() => void save()} disabled={!dirty || saveState.kind === 'saving'}>
@@ -226,6 +230,7 @@ export function TrackStudio({
             cohorts={cohorts}
             initialCohortIds={track.assignedCohortIds}
             beforePublish={beforePublish}
+            onOpenSourceReview={() => setMode('source')}
             disabled={saveState.kind === 'saving'}
           />
         </div>
@@ -269,7 +274,9 @@ export function TrackStudio({
         </aside>
 
         <div className="min-w-0">
-          {mode === 'edit' ? (
+          {mode === 'source' ? (
+            <SourceReview trackId={track.id} draft={{ ...draft, units, simScenarios: scenarios }} />
+          ) : mode === 'edit' ? (
             <div className="flex flex-col gap-4">
               <div className="pulse-card p-4">
                 <TextField

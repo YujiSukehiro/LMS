@@ -5,6 +5,9 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
+import { evaluatePublicationGates } from '@/lib/services/source-evidence';
+import { loadSourceReview, SourceBundleNotFoundError } from '@/lib/services/source-store';
+import type { PublicationGateReport } from '@/lib/schemas/source-truth';
 import { ALL_COHORTS_ID, INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import { PublishTrackRequestSchema } from '@/lib/schemas/api';
 import {
@@ -33,6 +36,7 @@ class PublishError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly gateReport?: PublicationGateReport,
   ) {
     super(message);
   }
@@ -85,6 +89,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
         throw new PublishError(400, 'VALIDATION_FAILED', 'Every Simulation needs a persona and grading rubric before you publish.');
       }
 
+      // Source evidence is evaluated inside the same transaction as the version freeze. A missing
+      // bundle/revision deliberately evaluates as legacy_unknown and cannot bypass the new gates.
+      const emptySource = { bundle: null, pages: [], rulePacks: [], assets: [], conflicts: [] };
+      let source: Awaited<ReturnType<typeof loadSourceReview>> | typeof emptySource = emptySource;
+      if (draft.sourceBundleId) {
+        try {
+          source = await loadSourceReview(trackId, draft.sourceBundleId, tx);
+        } catch (error) {
+          if (!(error instanceof SourceBundleNotFoundError)) throw error;
+        }
+      }
+      const gateReport = evaluatePublicationGates({ draft, ...source });
+      if (!gateReport.eligible) {
+        const count = gateReport.issues.filter((issue) => issue.blocking).length;
+        throw new PublishError(
+          409,
+          'PUBLICATION_GATES_FAILED',
+          `Publication is blocked by ${count} source review issue${count === 1 ? '' : 's'}. Resolve each item in Source Review and try again.`,
+          gateReport,
+        );
+      }
+
       const versionNumber = Math.max(draft.versionNumber, versionNumberFromId(track.publishedVersionId) + 1);
       const versionId = `v${versionNumber}`;
       const existingVersion = await tx.get(versionRef(trackId, versionId));
@@ -124,7 +150,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
     });
     return NextResponse.json({ publishedVersionId });
   } catch (error) {
-    if (error instanceof PublishError) return jsonError(error.status, error.code, error.message);
+    if (error instanceof PublishError) {
+      if (error.gateReport) {
+        return NextResponse.json(
+          {
+            error: error.code,
+            message: error.message,
+            details: { publicationGate: error.gateReport, issues: error.gateReport.issues },
+          },
+          { status: error.status, headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
+      return jsonError(error.status, error.code, error.message);
+    }
     throw error;
   }
 }

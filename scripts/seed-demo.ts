@@ -66,6 +66,28 @@ import {
   SIM_DISPOSITION_PENALTY,
   XP_RULES,
 } from '../src/lib/schemas/constants';
+import {
+  ClaimEvidenceSchema,
+  OperationalAssetSchema,
+  SharedRulePackSchema,
+  SourceBundleSchema,
+  SourceConflictSchema,
+  SourcePageEvidenceSchema,
+  type ClaimEvidence,
+  type OperationalAsset,
+  type SharedRulePack,
+  type SourceBundle,
+  type SourceConflict,
+  type SourceExcerptRef,
+  type SourcePageEvidence,
+} from '../src/lib/schemas/source-truth';
+import { evaluatePublicationGates, extractionQualityFlags, normalizeSourceText } from '../src/lib/services/source-evidence';
+import {
+  computeSourceBundleRevisionHash,
+  hashSourceBytes,
+  hashSourcePageContent,
+  sourcePageEvidenceId,
+} from '../src/lib/services/source-store';
 
 // ---------------------------------------------------------------------------
 // 0. Flags and safety gate
@@ -76,6 +98,13 @@ const DRY_RUN = args.has('--dry-run');
 const ALLOW_PRODUCTION = args.has('--allow-production');
 const DEMO_PASSWORD = 'PulseDemo!2026';
 const TRACK_ID = 'demo-mvp-retention';
+const BLOCKED_TRACK_ID = 'demo-unresolved-price';
+const SOURCE_BUNDLE_ID = 'bundle-demo-mvp-retention';
+const BLOCKED_SOURCE_BUNDLE_ID = 'bundle-demo-unresolved-price';
+const SOURCE_DOCUMENT_ID = 'doc-demo-mvp-playbook';
+const SOURCE_DOCUMENT_REVISION = 'demo-mvp-playbook-revision-1';
+const RULE_PACK_ID = 'pack-demo-mvp-foundations';
+const RULE_ID = 'rule-demo-mvp-identity-verification';
 const TRACK_DIVISION: DivisionId = 'INBOUND';
 const PUBLISHED_VERSION_ID = 'v1';
 const NOW = Date.now();
@@ -894,6 +923,213 @@ function buildCohorts(existingCreatedAt: Map<string, number>, agentCounts: Map<s
   );
 }
 
+interface SourceFixture {
+  bundle: SourceBundle;
+  pages: SourcePageEvidence[];
+  rulePacks: SharedRulePack[];
+  assets: OperationalAsset[];
+  conflicts: SourceConflict[];
+}
+
+function mainExcerpt(pageNumber: number, exactText = PLAYBOOK_PAGES[pageNumber - 1]): SourceExcerptRef {
+  if (!exactText) throw new Error(`Unknown synthetic Playbook page ${pageNumber}.`);
+  return {
+    documentId: SOURCE_DOCUMENT_ID,
+    revisionId: SOURCE_DOCUMENT_REVISION,
+    pageNumber,
+    exactText,
+    fromApprovedTranscription: false,
+  };
+}
+
+function approvedClaim(
+  id: string,
+  claim: string,
+  pageNumbers: number[],
+  trainerUid: string,
+  reviewedAt: number,
+): ClaimEvidence {
+  return ClaimEvidenceSchema.parse({
+    id,
+    claim,
+    ruleIds: pageNumbers.includes(2) ? [RULE_ID] : [],
+    excerpts: pageNumbers.map((pageNumber) => mainExcerpt(pageNumber)),
+    support: 'supported',
+    approvalStatus: 'approved',
+    critical: false,
+    requiresInterfaceDetails: false,
+    reviewerUid: trainerUid,
+    reviewedAt,
+  });
+}
+
+function buildApprovedSourceFixture(trainerUid: string, createdAt: number, approvedAt: number): {
+  units: TrackUnit[];
+  review: SourceFixture;
+} {
+  const units: TrackUnit[] = UNITS.map((unit) => ({
+    ...unit,
+    briefingCards: unit.briefingCards.map((card) => ({
+      ...card,
+      evidence: [approvedClaim(`evidence-${card.id}`, card.keyTakeaway, card.sourcePages, trainerUid, approvedAt)],
+    })),
+    drills: unit.drills.map((drill) => ({
+      ...drill,
+      evidence: [approvedClaim(`evidence-${drill.id}`, drill.prompt, drill.sourcePages, trainerUid, approvedAt)],
+    })),
+  }));
+
+  const document = {
+    id: SOURCE_DOCUMENT_ID,
+    revisionId: SOURCE_DOCUMENT_REVISION,
+    bundleId: SOURCE_BUNDLE_ID,
+    trackId: TRACK_ID,
+    role: 'shared_foundation' as const,
+    fileName: 'MVP_Retention_Escalations_Playbook.pdf',
+    storagePath: `playbooks/${TRACK_ID}/${createdAt}-MVP_Retention_Escalations_Playbook.pdf`,
+    sourceVersion: 'synthetic-demo-v1',
+    effectiveDate: null,
+    uploadedAt: createdAt,
+    uploadedByUid: trainerUid,
+    contentHash: hashSourceBytes(buildPlaybookPdf(PLAYBOOK_PAGES)),
+    pageCount: PLAYBOOK_PAGES.length,
+    inheritanceOrder: 0,
+    excluded: false,
+    exclusionReason: null,
+  };
+  let pages = PLAYBOOK_PAGES.map((rawText, index) => SourcePageEvidenceSchema.parse({
+    id: sourcePageEvidenceId(SOURCE_DOCUMENT_ID, index + 1),
+    documentId: SOURCE_DOCUMENT_ID,
+    revisionId: SOURCE_DOCUMENT_REVISION,
+    pageNumber: index + 1,
+    rawText,
+    normalizedText: normalizeSourceText(rawText),
+    contentHash: hashSourcePageContent(rawText),
+    characterCount: rawText.length,
+    extractionFlags: extractionQualityFlags(rawText),
+    transcription: null,
+    approvedExcerpts: [],
+  }));
+  const bundleIdentity = {
+    documents: [document],
+    sharedRulePackIds: [RULE_PACK_ID],
+    precedencePolicyId: 'standard-meds-precedence-v1',
+  };
+  const revisionHash = computeSourceBundleRevisionHash(bundleIdentity, pages);
+  const bundle = SourceBundleSchema.parse({
+    schemaVersion: 1,
+    id: SOURCE_BUNDLE_ID,
+    trackId: TRACK_ID,
+    ...bundleIdentity,
+    conflictIds: [],
+    status: 'approved',
+    revisionHash,
+    approvedSourceRevision: revisionHash,
+    approvedByUid: trainerUid,
+    approvedAt,
+    createdAt,
+    updatedAt: approvedAt,
+  });
+  const ruleEvidence = approvedClaim(
+    'evidence-rule-demo-mvp-identity-verification',
+    'Verify full name, date of birth, and ZIP code before account details.',
+    [2],
+    trainerUid,
+    approvedAt,
+  );
+  const rulePacks = [SharedRulePackSchema.parse({
+    id: RULE_PACK_ID,
+    revision: 'synthetic-demo-rules-v1',
+    title: 'MVP synthetic shared foundations',
+    sourceDocumentIds: [SOURCE_DOCUMENT_ID],
+    rules: [{
+      id: RULE_ID,
+      packId: RULE_PACK_ID,
+      title: 'Verify three identity points',
+      statement: 'Verify full name, date of birth, and ZIP code on file before discussing account details.',
+      severity: 'critical',
+      applicableTrackIds: [TRACK_ID],
+      channels: ['voice'],
+      stages: ['verification'],
+      evidence: ruleEvidence,
+      requiredKnowledge: true,
+      requiredScenarioCoverage: true,
+      sourceRevision: revisionHash,
+      approvalStatus: 'approved',
+      approvedByUid: trainerUid,
+      approvedAt,
+    }],
+    approvalStatus: 'approved',
+    createdAt,
+    updatedAt: approvedAt,
+  })];
+  const assets: OperationalAsset[] = [
+    OperationalAssetSchema.parse({
+      id: 'offer-demo-mvp-price-discount',
+      trackId: TRACK_ID,
+      product: 'MVP Plus',
+      context: 'existing_patient_discount',
+      stage: 'save_offer',
+      sourceRefs: [mainExcerpt(5)],
+      effectiveFrom: null,
+      effectiveTo: null,
+      status: 'approved',
+      approvedByUid: trainerUid,
+      approvedAt,
+      kind: 'offer',
+      label: '50% off the next 2 billing cycles',
+      amountCents: null,
+      comparisonAmountCents: 3900,
+      recurringInterval: 'monthly',
+      duration: 'plan_term',
+      discountBasisPoints: 5000,
+      calculation: 'Apply 50% off to each of the next 2 billing cycles only.',
+      sequence: 1,
+      prerequisites: ['Price or value concern'],
+    }),
+    OperationalAssetSchema.parse({
+      id: 'offer-demo-mvp-travel-pause',
+      trackId: TRACK_ID,
+      product: 'MVP Plus',
+      context: 'existing_patient_cancellation',
+      stage: 'save_offer',
+      sourceRefs: [mainExcerpt(5)],
+      effectiveFrom: null,
+      effectiveTo: null,
+      status: 'approved',
+      approvedByUid: trainerUid,
+      approvedAt,
+      kind: 'offer',
+      label: 'Pause up to 60 days',
+      amountCents: 0,
+      comparisonAmountCents: 3900,
+      recurringInterval: 'monthly',
+      duration: 'plan_term',
+      discountBasisPoints: null,
+      calculation: 'Pause billing for up to 60 days; limit 1 pause per 12 months.',
+      sequence: 2,
+      prerequisites: ['Travel, Moving or temporary non-use'],
+    }),
+  ];
+  const excerpts = [
+    ...units.flatMap((unit) => [
+      ...unit.briefingCards.flatMap((card) => card.evidence?.flatMap((item) => item.excerpts) ?? []),
+      ...unit.drills.flatMap((drill) => drill.evidence?.flatMap((item) => item.excerpts) ?? []),
+    ]),
+    ...rulePacks.flatMap((pack) => pack.rules.flatMap((rule) => rule.evidence.excerpts)),
+    ...assets.flatMap((asset) => asset.sourceRefs),
+  ];
+  pages = pages.map((page) => SourcePageEvidenceSchema.parse({
+    ...page,
+    approvedExcerpts: excerpts.filter((excerpt) =>
+      excerpt.documentId === page.documentId &&
+      excerpt.revisionId === page.revisionId &&
+      excerpt.pageNumber === page.pageNumber
+    ),
+  }));
+  return { units, review: { bundle, pages, rulePacks, assets, conflicts: [] } };
+}
+
 function buildTrackDocs(trainerUid: string): {
   track: TrackDoc;
   draft: TrackVersionDoc;
@@ -901,6 +1137,7 @@ function buildTrackDocs(trainerUid: string): {
   draftSecrets: EvalRubricsDoc;
   publishedSecrets: EvalRubricsDoc;
   sourceBatches: SourcePageBatchDoc[];
+  sourceReview: SourceFixture;
 } {
   // Validate content invariants that the schemas do not check.
   for (const unit of UNITS) {
@@ -936,6 +1173,7 @@ function buildTrackDocs(trainerUid: string): {
   const createdAt = daysAgo(14);
   const publishedAt = daysAgo(12);
   const unitMinutes = UNITS.reduce((sum, unit) => sum + unit.estimatedMinutes, 0);
+  const sourceFixture = buildApprovedSourceFixture(trainerUid, createdAt, publishedAt);
 
   const track = TrackDocSchema.parse({
     id: TRACK_ID,
@@ -947,6 +1185,7 @@ function buildTrackDocs(trainerUid: string): {
     sourcePdfStoragePath: `playbooks/${TRACK_ID}/${createdAt}-MVP_Retention_Escalations_Playbook.pdf`,
     sourcePdfFileName: 'MVP_Retention_Escalations_Playbook.pdf',
     sourcePageCount: PLAYBOOK_PAGES.length,
+    activeSourceBundleId: SOURCE_BUNDLE_ID,
     currentDraftVersionId: DRAFT_VERSION_ID,
     publishedVersionId: PUBLISHED_VERSION_ID,
     assignedCohortIds: ['ALL'],
@@ -959,7 +1198,15 @@ function buildTrackDocs(trainerUid: string): {
     updatedAt: publishedAt,
   });
 
-  const versionBase = { trackId: TRACK_ID, competencyPillars: PILLARS, units: UNITS, simScenarios: SCENARIOS };
+  const versionBase = {
+    trackId: TRACK_ID,
+    competencyPillars: PILLARS,
+    units: sourceFixture.units,
+    simScenarios: SCENARIOS,
+    sourceBundleId: SOURCE_BUNDLE_ID,
+    sourceRevision: sourceFixture.review.bundle.revisionHash,
+    requiredRuleIds: [RULE_ID],
+  };
   const published = TrackVersionDocSchema.parse({
     ...versionBase,
     versionId: PUBLISHED_VERSION_ID,
@@ -1003,7 +1250,246 @@ function buildTrackDocs(trainerUid: string): {
     );
   }
 
-  return { track, draft, published, draftSecrets, publishedSecrets, sourceBatches };
+  return { track, draft, published, draftSecrets, publishedSecrets, sourceBatches, sourceReview: sourceFixture.review };
+}
+
+function buildBlockedSourceFixture(trainerUid: string): {
+  track: TrackDoc;
+  draft: TrackVersionDoc;
+  draftSecrets: EvalRubricsDoc;
+  review: SourceFixture;
+} {
+  const documentId = 'doc-demo-unresolved-price-policy';
+  const revisionId = 'demo-unresolved-price-revision-1';
+  const rulePackId = 'pack-demo-unresolved-price';
+  const ruleId = 'rule-demo-unresolved-price-decision';
+  const conflictId = 'DEMO-UNRESOLVED-PRICE';
+  const createdAt = daysAgo(2);
+  const sourceTexts = [
+    'Synthetic Recovery Price Policy A. The recovery checkout price is 99 USD. This fixture is deliberately unresolved. Two synthetic policy pages disagree about the checkout price. Do not select either price until an SME records a decision. This text exists only to exercise the publication gate and is not operational guidance.',
+    'Synthetic Recovery Price Policy B. The recovery checkout price is 109 USD. This fixture is deliberately unresolved. Two synthetic policy pages disagree about the checkout price. Do not select either price until an SME records a decision. This text exists only to exercise the publication gate and is not operational guidance.',
+  ];
+  const excerpt = (pageNumber: number): SourceExcerptRef => ({
+    documentId,
+    revisionId,
+    pageNumber,
+    exactText: sourceTexts[pageNumber - 1],
+    fromApprovedTranscription: false,
+  });
+  const evidence = (id: string, claim: string): ClaimEvidence => ClaimEvidenceSchema.parse({
+    id,
+    claim,
+    ruleIds: [ruleId],
+    excerpts: [excerpt(1), excerpt(2)],
+    support: 'supported',
+    approvalStatus: 'approved',
+    critical: true,
+    requiresInterfaceDetails: false,
+    reviewerUid: trainerUid,
+    reviewedAt: createdAt,
+  });
+  const pages = sourceTexts.map((rawText, index) => SourcePageEvidenceSchema.parse({
+    id: sourcePageEvidenceId(documentId, index + 1),
+    documentId,
+    revisionId,
+    pageNumber: index + 1,
+    rawText,
+    normalizedText: normalizeSourceText(rawText),
+    contentHash: hashSourcePageContent(rawText),
+    characterCount: rawText.length,
+    extractionFlags: extractionQualityFlags(rawText),
+    transcription: null,
+    approvedExcerpts: [excerpt(index + 1)],
+  }));
+  const document = {
+    id: documentId,
+    revisionId,
+    bundleId: BLOCKED_SOURCE_BUNDLE_ID,
+    trackId: BLOCKED_TRACK_ID,
+    role: 'product' as const,
+    fileName: 'synthetic-unresolved-price-policy.txt',
+    storagePath: `synthetic/${BLOCKED_TRACK_ID}/unresolved-price-policy.txt`,
+    sourceVersion: 'synthetic-conflict-v1',
+    effectiveDate: null,
+    uploadedAt: createdAt,
+    uploadedByUid: trainerUid,
+    contentHash: hashSourceBytes(Buffer.from(sourceTexts.join('\n\n'), 'utf8')),
+    pageCount: sourceTexts.length,
+    inheritanceOrder: 0,
+    excluded: false,
+    exclusionReason: null,
+  };
+  const bundleIdentity = {
+    documents: [document],
+    sharedRulePackIds: [rulePackId],
+    precedencePolicyId: 'standard-meds-precedence-v1',
+  };
+  const revisionHash = computeSourceBundleRevisionHash(bundleIdentity, pages);
+  const bundle = SourceBundleSchema.parse({
+    schemaVersion: 1,
+    id: BLOCKED_SOURCE_BUNDLE_ID,
+    trackId: BLOCKED_TRACK_ID,
+    ...bundleIdentity,
+    conflictIds: [conflictId],
+    status: 'needs_sme',
+    revisionHash,
+    approvedSourceRevision: null,
+    approvedByUid: null,
+    approvedAt: null,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  const rulePacks = [SharedRulePackSchema.parse({
+    id: rulePackId,
+    revision: 'synthetic-conflict-rules-v1',
+    title: 'Synthetic unresolved price policy',
+    sourceDocumentIds: [documentId],
+    rules: [{
+      id: ruleId,
+      packId: rulePackId,
+      title: 'Unresolved price requires an SME decision',
+      statement: 'Do not select either price until an SME records a decision.',
+      severity: 'critical',
+      applicableTrackIds: [BLOCKED_TRACK_ID],
+      channels: ['voice'],
+      stages: ['checkout'],
+      evidence: evidence('evidence-rule-demo-unresolved-price', 'Do not select either conflicting price without an SME decision.'),
+      requiredKnowledge: true,
+      requiredScenarioCoverage: false,
+      sourceRevision: revisionHash,
+      approvalStatus: 'approved',
+      approvedByUid: trainerUid,
+      approvedAt: createdAt,
+    }],
+    approvalStatus: 'approved',
+    createdAt,
+    updatedAt: createdAt,
+  })];
+  const assets: OperationalAsset[] = [OperationalAssetSchema.parse({
+    id: 'offer-demo-unresolved-price',
+    trackId: BLOCKED_TRACK_ID,
+    product: 'Synthetic Recovery',
+    context: 'recovery',
+    stage: 'checkout',
+    sourceRefs: [excerpt(1), excerpt(2)],
+    effectiveFrom: null,
+    effectiveTo: null,
+    status: 'draft',
+    approvedByUid: null,
+    approvedAt: null,
+    kind: 'offer',
+    label: 'Unresolved synthetic recovery price — do not use',
+    amountCents: null,
+    comparisonAmountCents: null,
+    recurringInterval: null,
+    duration: 'next_order_only',
+    discountBasisPoints: null,
+    calculation: null,
+    sequence: 1,
+    prerequisites: [],
+  })];
+  const conflicts = [SourceConflictSchema.parse({
+    id: conflictId,
+    trackId: BLOCKED_TRACK_ID,
+    sourceRefs: [excerpt(1), excerpt(2)],
+    affectedProducts: ['Synthetic Recovery'],
+    affectedContexts: ['recovery'],
+    affectedStages: ['checkout'],
+    affectedAssetIds: ['offer-demo-unresolved-price'],
+    affectedRuleIds: [ruleId],
+    detectedValues: ['99 USD', '109 USD'],
+    severity: 'critical',
+    status: 'open',
+    decision: null,
+    decisionOwnerUid: null,
+    decidedAt: null,
+    effectiveFrom: null,
+    effectiveTo: null,
+    downstreamInvalidationStatus: 'not_required',
+  })];
+  const card = {
+    ...UNITS[0].briefingCards[0],
+    id: 'card-demo-unresolved-price',
+    headline: 'Unresolved Synthetic Price Conflict',
+    bodyMarkdown: 'Two synthetic policy pages disagree on the recovery checkout price. **Do not select either price until an SME records a decision.**',
+    keyTakeaway: 'The 99 USD and 109 USD conflict is unresolved; do not choose a price.',
+    doList: ['Escalate the conflicting price sources for an SME decision'],
+    dontList: ['Do not infer that either price is approved'],
+    sourcePages: [1, 2],
+    evidence: [evidence('evidence-card-demo-unresolved-price', 'The synthetic recovery price is unresolved and must not be selected.')],
+  };
+  const drill = {
+    ...UNITS[0].drills[0],
+    id: 'drill-demo-unresolved-price',
+    prompt: 'Two synthetic sources list 99 USD and 109 USD. What must happen before a price is used?',
+    explanation: 'The conflict is open. Only an explicit SME decision can resolve it.',
+    sourcePages: [1, 2],
+    options: [
+      { id: 'a', text: 'Use the lower price automatically' },
+      { id: 'b', text: 'Wait for an explicit SME decision' },
+      { id: 'c', text: 'Use the most recent page without review' },
+      { id: 'd', text: 'Average the two prices' },
+    ],
+    correctOptionId: 'b',
+    evidence: [evidence('evidence-drill-demo-unresolved-price', 'An explicit SME decision is required before either price can be used.')],
+  };
+  const units: TrackUnit[] = [{
+    ...UNITS[0],
+    id: 'unit-demo-unresolved-price',
+    title: 'Resolve Synthetic Price Conflict',
+    briefingCards: [1, 2].map((index) => ({
+      ...card,
+      id: index === 1 ? card.id : `${card.id}-${index}`,
+      evidence: [evidence(`evidence-card-demo-unresolved-price-${index}`, 'The synthetic recovery price is unresolved and must not be selected.')],
+    })),
+    drills: [1, 2, 3, 4].map((index) => ({
+      ...drill,
+      id: index === 1 ? drill.id : `${drill.id}-${index}`,
+      evidence: [evidence(`evidence-drill-demo-unresolved-price-${index}`, 'An explicit SME decision is required before either price can be used.')],
+    })),
+  }];
+  const track = TrackDocSchema.parse({
+    id: BLOCKED_TRACK_ID,
+    title: 'Synthetic Unresolved Price Gate',
+    campaignCode: 'SYNTH-BLOCKED',
+    divisionId: TRACK_DIVISION,
+    status: 'DRAFT',
+    generationProgress: { step: 'READY', percent: 100, message: 'Synthetic blocked fixture is ready for gate testing.' },
+    sourcePdfStoragePath: `synthetic/${BLOCKED_TRACK_ID}/unresolved-price-policy.txt`,
+    sourcePdfFileName: 'synthetic-unresolved-price-policy.txt',
+    sourcePageCount: sourceTexts.length,
+    activeSourceBundleId: BLOCKED_SOURCE_BUNDLE_ID,
+    currentDraftVersionId: DRAFT_VERSION_ID,
+    publishedVersionId: null,
+    assignedCohortIds: [],
+    competencyPillars: PILLARS,
+    unitCount: units.length,
+    simScenarioCount: 1,
+    estimatedTotalMinutes: 12,
+    createdByUid: trainerUid,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  const draft = TrackVersionDocSchema.parse({
+    trackId: BLOCKED_TRACK_ID,
+    versionId: DRAFT_VERSION_ID,
+    versionNumber: 1,
+    competencyPillars: PILLARS,
+    units,
+    simScenarios: [SCENARIOS[0]],
+    sourceBundleId: BLOCKED_SOURCE_BUNDLE_ID,
+    sourceRevision: revisionHash,
+    requiredRuleIds: [ruleId],
+    publishedAt: null,
+    createdAt,
+  });
+  const draftSecrets = EvalRubricsDocSchema.parse({
+    trackId: BLOCKED_TRACK_ID,
+    versionId: DRAFT_VERSION_ID,
+    scenarios: [SECRET_SCENARIOS[0]],
+    updatedAt: createdAt,
+  });
+  return { track, draft, draftSecrets, review: { bundle, pages, rulePacks, assets, conflicts } };
 }
 
 interface ScopeAccumulator {
@@ -1386,6 +1872,18 @@ async function upsertAuthUser(auth: Auth, demo: DemoUser): Promise<SeedUserRecor
   return { demo, uid, email };
 }
 
+function sourceReviewWrites(review: SourceFixture): Array<{ path: string; data: object }> {
+  const { bundle } = review;
+  const root = `tracks/${bundle.trackId}/sourceBundles/${bundle.id}`;
+  return [
+    { path: root, data: bundle },
+    ...review.pages.map((page) => ({ path: `${root}/pageEvidence/${page.id}`, data: page })),
+    ...review.rulePacks.map((pack) => ({ path: `${root}/rulePacks/${pack.id}`, data: pack })),
+    ...review.assets.map((asset) => ({ path: `${root}/assets/${asset.id}`, data: asset })),
+    ...review.conflicts.map((conflict) => ({ path: `${root}/conflicts/${conflict.id}`, data: conflict })),
+  ];
+}
+
 async function writeAll(db: Firestore, docs: Array<{ path: string; data: object }>): Promise<void> {
   const CHUNK = 400;
   for (let i = 0; i < docs.length; i += CHUNK) {
@@ -1415,10 +1913,20 @@ async function main(): Promise<void> {
   if (DRY_RUN) {
     const fakeUsers: SeedUserRecord[] = DEMO_USERS.map((demo) => ({ demo, uid: `seed-${demo.key}`, email: signInEmail(demo) }));
     const trackDocs = buildTrackDocs('seed-trainer');
+    const blockedDocs = buildBlockedSourceFixture('seed-trainer');
     const progress = buildProgress(fakeUsers);
     const cohorts = buildCohorts(new Map(), new Map());
     const pdf = buildPlaybookPdf(PLAYBOOK_PAGES);
-    console.log('Dry run: every document passed schema validation.');
+    const approvedDraftGate = evaluatePublicationGates({ draft: trackDocs.draft, ...trackDocs.sourceReview, now: NOW });
+    const approvedPublishedGate = evaluatePublicationGates({ draft: trackDocs.published, ...trackDocs.sourceReview, now: NOW });
+    const blockedGate = evaluatePublicationGates({ draft: blockedDocs.draft, ...blockedDocs.review, now: NOW });
+    if (!approvedDraftGate.eligible || !approvedPublishedGate.eligible) {
+      throw new Error(`Approved source fixture failed publication gates: ${JSON.stringify([...approvedDraftGate.issues, ...approvedPublishedGate.issues])}`);
+    }
+    if (!blockedGate.issues.some((issue) => issue.code === 'SME_DECISION_REQUIRED' && issue.affectedId === 'DEMO-UNRESOLVED-PRICE')) {
+      throw new Error(`Blocked source fixture did not require its unresolved SME decision: ${JSON.stringify(blockedGate.issues)}`);
+    }
+    console.log('Dry run: every document passed schema validation and both publication-gate fixtures behaved as expected.');
     console.log({
       cohorts: cohorts.length,
       users: progress.userDocs.length,
@@ -1426,6 +1934,10 @@ async function main(): Promise<void> {
       drills: trackDocs.published.units.reduce((sum, unit) => sum + unit.drills.length, 0),
       scenarios: trackDocs.published.simScenarios.length,
       sourceBatches: trackDocs.sourceBatches.length,
+      sourceFixtures: {
+        approved: { bundleId: SOURCE_BUNDLE_ID, eligible: approvedDraftGate.eligible, issues: approvedDraftGate.issues.length },
+        blocked: { bundleId: BLOCKED_SOURCE_BUNDLE_ID, eligible: blockedGate.eligible, issueCodes: blockedGate.issues.map((issue) => issue.code) },
+      },
       enrollments: progress.enrollments.length,
       simSessions: progress.simSessions.map((session) => `${session.userDisplayName}: ${session.scenarioId} ${session.evaluation?.overallScorePct}% ${session.evaluation?.passed ? 'PASS' : 'FAIL'}`),
       readiness: progress.userDocs.filter((user) => user.stats.overallReadinessScore > 0).map((user) => `${user.displayName}: ${user.stats.overallReadinessScore}`),
@@ -1447,6 +1959,7 @@ async function main(): Promise<void> {
   if (!trainer) throw new Error('The trainer demo user was not created.');
 
   const trackDocs = buildTrackDocs(trainer.uid);
+  const blockedDocs = buildBlockedSourceFixture(trainer.uid);
   const progress = buildProgress(users);
 
   const writes: Array<{ path: string; data: object }> = [
@@ -1456,6 +1969,11 @@ async function main(): Promise<void> {
     { path: `tracks/${TRACK_ID}/versions/${PUBLISHED_VERSION_ID}/secrets/${EVAL_RUBRICS_DOC_ID}`, data: trackDocs.publishedSecrets },
     { path: `tracks/${TRACK_ID}/versions/${DRAFT_VERSION_ID}/secrets/${EVAL_RUBRICS_DOC_ID}`, data: trackDocs.draftSecrets },
     ...trackDocs.sourceBatches.map((batch) => ({ path: `tracks/${TRACK_ID}/sourcePages/${batch.id}`, data: batch })),
+    ...sourceReviewWrites(trackDocs.sourceReview),
+    { path: `tracks/${BLOCKED_TRACK_ID}`, data: blockedDocs.track },
+    { path: `tracks/${BLOCKED_TRACK_ID}/versions/${DRAFT_VERSION_ID}`, data: blockedDocs.draft },
+    { path: `tracks/${BLOCKED_TRACK_ID}/versions/${DRAFT_VERSION_ID}/secrets/${EVAL_RUBRICS_DOC_ID}`, data: blockedDocs.draftSecrets },
+    ...sourceReviewWrites(blockedDocs.review),
     ...progress.userDocs.map((user) => ({ path: `users/${user.uid}`, data: user })),
     ...progress.enrollments.map((enrollment) => ({ path: `enrollments/${enrollment.id}`, data: enrollment })),
     ...progress.simSessions.map((session) => ({ path: `simSessions/${session.id}`, data: session })),

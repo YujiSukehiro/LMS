@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DivisionIdSchema } from './domain';
 import { ProvenanceRecordSchema } from '@/lib/ai/provenance';
+import { ClaimEvidenceSchema } from './source-truth';
 
 /** The 8 canonical LogiCall skill keys (docs/04 §3.2). */
 export const CanonicalPillarKeySchema = z.enum([
@@ -32,6 +33,7 @@ export const BriefingCardSchema = z.object({
   doList: z.array(z.string().max(140)).max(4),
   dontList: z.array(z.string().max(140)).max(4),
   sourcePages: z.array(z.number().int().positive()),
+  evidence: z.array(ClaimEvidenceSchema).optional(),
 });
 export type BriefingCard = z.infer<typeof BriefingCardSchema>;
 
@@ -42,6 +44,7 @@ const BaseDrillFields = {
   prompt: z.string().max(300),
   explanation: z.string().max(350), // Displayed immediately after answering
   sourcePages: z.array(z.number().int().positive()),
+  evidence: z.array(ClaimEvidenceSchema).optional(),
 };
 
 export const MultipleChoiceDrillSchema = z.object({
@@ -146,6 +149,7 @@ export const RubricCriterionSchema = z.object({
   evaluationRule: z.string().max(300), // Exact PDF-grounded rule for the Judge LLM
   weight: z.number().int().min(10).max(50), // Weights across a scenario sum to 100
   sourcePages: z.array(z.number().int().positive()),
+  evidence: z.array(ClaimEvidenceSchema).optional(),
 });
 export type RubricCriterion = z.infer<typeof RubricCriterionSchema>;
 
@@ -202,6 +206,7 @@ export const TrackDocSchema = z.object({
   sourcePdfStoragePath: z.string(),
   sourcePdfFileName: z.string(),
   sourcePageCount: z.number().int().positive(),
+  activeSourceBundleId: z.string().nullable().optional(),
   currentDraftVersionId: z.string(),
   publishedVersionId: z.string().nullable(),
   assignedCohortIds: z.array(z.string()), // ['ALL'] or ['INTERNAL', 'THS', 'DOZ']
@@ -224,6 +229,9 @@ export const TrackVersionDocSchema = z.object({
   units: z.array(TrackUnitSchema),
   simScenarios: z.array(PublicSimScenarioSchema),
   provenance: ProvenanceRecordSchema.optional(),
+  sourceBundleId: z.string().nullable().optional(),
+  sourceRevision: z.string().nullable().optional(),
+  requiredRuleIds: z.array(z.string()).optional(),
   publishedAt: z.number().nullable(),
   createdAt: z.number(),
 });
