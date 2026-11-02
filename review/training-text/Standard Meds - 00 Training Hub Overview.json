@@ -1,0 +1,20 @@
+{
+  "status": "success",
+  "data": {
+    "total_pages": 2,
+    "extracted_pages": 2,
+    "pages": [
+      {
+        "page": 1,
+        "chars": 917,
+        "text": "PARTNERSHIP ONBOARDING · TRAINING HUB\nStandard Meds × Logicall\nRecovery Calling Playbooks\nPick the vertical you're calling for. Each playbook has the products, per-stage\nscripts, objection library, and compliance rules for that funnel.\nCHOOSE YOUR VERTICAL\nNeuropathy\nNEUROCALMRX →\nLDN + B12 daily capsule for peripheral neuropathy. Two recoverable stages — Dosage and\nCheckout Abandon.\nAnti-Aging (Skin)\nLIFTRX\n→\nTretinoin 0.05% skin rejuvenation compound. Two recoverable stages — Dosage and Checkout\nAbandon.\nErectile Dysfunction\nQUATTRORX · TRISHOT →\nDaily chewable + on-demand tablet. Dedicated ED playbook — one combined dosage-and-\ncheckout stage, ED-specific objections and compliance.\nNail Fungus\nNEW\nZOLIRARX\n→\nBrush-on prescription topical for toenail fungus — Itraconazole + Terbinafine with DMSO. Four\npackages, two recoverable stages — Dosage and Checkout Abandon.\nAnti-Aging / Longevity\nNEW\nPage 1 of 2"
+      },
+      {
+        "page": 2,
+        "chars": 1070,
+        "text": "NAD+ THERAPY\n→\nInjectable NAD+ longevity protocol, men only. Two recoverable stages — Score and Checkout\nAbandon; the price lives on the checkout, not a plan page.\nCUSTOMER SUPPORT / RETENTION — APPLIES TO EVERY VERTICAL\nCustomer Support\nNEW\nALL PRODUCTS · EXISTING PATIENTS\n→\nWhat patients call about after they've bought — cancellations, charges, delivery, portal login, side\neffects — and what you do in each case. Open topics are marked as such.\nMedical Chat — Pending Information\nNEW\nALL PRODUCTS · DOSABLE → SUBSCRIPTIONS → PENDING\n→\nPatients who paid but were never prescribed, because the doctor asked them something and\nnobody answered. You get them into their portal to reply — before the 7-day payment hold runs\nout.\nRenewals — Failed Payment\nNEW\nALL PRODUCTS · REFLOW RENEWALS QUEUE\n→\nExisting patients whose subscription renewal was declined by their bank. Nothing to sell — you\nupdate the card on file and their treatment continues. Includes the step-by-step card update\nwalkthrough.\nStandard Meds × Logicall · Internal training material · 2026\nPage 2 of 2"
+      }
+    ],
+    "total_chars": 1987
+  }
+}

@@ -1,0 +1,364 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model — LogiCall Pulse (Cloud Firestore Standard)
+// ===============================================================
+//
+// Authentication & Trusted Custom Claims (`request.auth.token`):
+//   - active: bool (required, must be `true`; offboarded staff/BPO agents have `false`)
+//   - role: string in ['SUPER_ADMIN', 'ADMIN', 'TRAINER', 'PARTNER_SUPERVISOR', 'AGENT']
+//   - partnerCohortId: string (e.g., 'INTERNAL', 'THS', 'NGA', 'DOZ', 'ZIM', 'MRR',
+//                      'CALL_CORE', 'LATAM_DIRECT')
+//   - divisionIds: list<string> (subset of ['TELEHEALTH', 'INBOUND', 'OUTBOUND'])
+//
+// Server-Authoritative Write Model:
+//   All curriculum generation, drill mastery verification, simulation chat/grading,
+//   user/cohort provisioning, invite claiming, and analytics rollups are executed
+//   exclusively on the backend via `firebase-admin`. Client writes are denied across
+//   every collection EXCEPT a strictly constrained self-preference update on `/users/{uid}`.
+//
+// 1. Collection: /users/{uid}
+//    Document ID: Firebase Auth UID (`uid`)
+//    Fields:
+//      - uid: string (required, immutable, server-managed)
+//      - email: string (required, PII, immutable, server-managed)
+//      - displayName: string (required, immutable on client, server-managed)
+//      - lcId: string (optional, e.g., 'LC-1042', immutable on client, server-managed)
+//      - role: string (required, enum, immutable on client, server-managed)
+//      - active: bool (required, immutable on client, server-managed)
+//      - partnerCohortId: string (required, immutable on client, server-managed)
+//      - divisionIds: list<string> (required, immutable on client, server-managed)
+//      - preferences: map (client-updatable by owner only, max 3 keys)
+//          - soundEffects: bool (optional)
+//          - compactMode: bool (optional)
+//          - theme: string (optional, 1..64 chars)
+//      - xp: int/number (optional, immutable on client, server-managed)
+//      - streakDays: int/number (optional, immutable on client, server-managed)
+//      - createdAt: timestamp (required, immutable, server-managed)
+//      - updatedAt: timestamp (required on update, must equal `request.time`)
+//
+// 2. Collection: /cohorts/{cohortId}
+//    Document ID: Cohort code (e.g., 'INTERNAL', 'THS', 'NGA', 'DOZ', 'ZIM', 'MRR', 'CALL_CORE', 'LATAM_DIRECT')
+//    Fields:
+//      - id: string (required, server-managed)
+//      - name: string (required, server-managed)
+//      - divisionIds: list<string> (required, server-managed)
+//      - active: bool (required, server-managed)
+//      - createdAt / updatedAt: timestamp (server-managed)
+//
+// 3. Collection: /tracks/{trackId}
+//    Document ID: Track ID
+//    Fields:
+//      - id: string (required, server-managed)
+//      - title: string (required, server-managed)
+//      - divisionId: string (required, in ['TELEHEALTH', 'INBOUND', 'OUTBOUND'], server-managed)
+//      - status: string (required, e.g., 'DRAFT', 'GENERATING', 'PUBLISHED', 'ARCHIVED')
+//      - assignedCohortIds: list<string> (required, cohort IDs or 'ALL')
+//      - latestVersionId: string (optional, server-managed)
+//      - createdAt / updatedAt / publishedAt: timestamp (server-managed)
+//
+// 4. Subcollection: /tracks/{trackId}/versions/{versionId}
+//    Document ID: Version ID
+//    Fields:
+//      - Bundled learner-visible checkpoints/units, briefing cards, mastery drills,
+//        and public simulation context tickets (40–120 KB single-doc read bundle).
+//
+// 5. Subcollection: /tracks/{trackId}/versions/{versionId}/secrets/{secretId}
+//    Document ID: Secret / scenario ID
+//    Fields:
+//      - Server/trainer-only simulation persona hidden triggers, hidden facts, and
+//        deterministic AI grading rubrics. NEVER readable by AGENT or PARTNER_SUPERVISOR.
+//
+// 6. Subcollection: /tracks/{trackId}/sourcePages/{pageId}
+//    Document ID: Page ID
+//    Fields:
+//      - Extracted PDF playbook text/metadata for trainer authoring and source review.
+//
+// 7. Collection: /enrollments/{enrollmentId}
+//    Document ID: Enrollment ID
+//    Fields:
+//      - userId: string (required, learner UID, server-managed)
+//      - trackId: string (required, server-managed)
+//      - versionId: string (required, server-managed)
+//      - partnerCohortId: string (required, learner's BPO cohort ID, server-managed)
+//      - status / completedUnitIds / pillarScores / certifiedAt: server-managed progress
+//
+// 8. Collection: /simSessions/{sessionId}
+//    Document ID: Simulation Session ID
+//    Fields:
+//      - userId: string (required, learner UID, server-managed)
+//      - trackId: string (required, server-managed)
+//      - versionId: string (required, server-managed)
+//      - partnerCohortId: string (required, learner's BPO cohort ID, server-managed)
+//      - messages: list<map> (inline turn history, server-managed)
+//      - evaluation: map (optional, rubric scorecard, server-managed)
+//
+// 9. Collection: /analyticsRollups/{rollupId}
+//    Document ID: Pre-aggregated rollup ID (e.g., 'GLOBAL', 'DIVISION_*', 'COHORT_*', 'TRACK_*')
+//    Fields:
+//      - scopeType: string (required, e.g., 'GLOBAL', 'DIVISION', 'COHORT', 'TRACK')
+//      - partnerCohortId: string (present when scopeType == 'COHORT')
+//      - metrics / pillarAverages / missedRules: map (server-managed)
+//
+// 10. Collection: /rosterInvites/{inviteId}
+//     Document ID: Invite ID / code
+//     Fields:
+//       - partnerCohortId: string (required, target cohort ID, server-managed)
+//       - role / divisionIds / status / expiresAt: server-managed provisioning metadata
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions — Authentication, Active Status & RBAC
+    // ===============================================================
+
+    // Verify the request has a valid Firebase Auth identity.
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Enforce instant offboarding: every authenticated caller MUST carry `active == true`.
+    function isActiveUser() {
+      return isAuthenticated() &&
+        'active' in request.auth.token &&
+        request.auth.token.active is bool &&
+        request.auth.token.active == true;
+    }
+
+    // Check if the active caller owns a path-addressed user resource.
+    function isOwner(userId) {
+      return isActiveUser() && request.auth.uid == userId;
+    }
+
+    // Verify the active caller holds one of the allowed RBAC roles via custom claims.
+    function hasRole(allowedRoles) {
+      return isActiveUser() &&
+        'role' in request.auth.token &&
+        request.auth.token.role is string &&
+        request.auth.token.role in allowedRoles;
+    }
+
+    // Internal LogiCall operations roles with cross-cohort visibility.
+    function isInternalOps() {
+      return hasRole(['SUPER_ADMIN', 'ADMIN', 'TRAINER']);
+    }
+
+    // External BPO Partner Supervisor role (strictly isolated to own partnerCohortId).
+    function isPartnerSupervisor() {
+      return hasRole(['PARTNER_SUPERVISOR']);
+    }
+
+    // Validate that the caller carries a well-formed non-empty partnerCohortId claim.
+    function hasPartnerCohort() {
+      return 'partnerCohortId' in request.auth.token &&
+        request.auth.token.partnerCohortId is string &&
+        request.auth.token.partnerCohortId.size() > 0 &&
+        request.auth.token.partnerCohortId.size() <= 100;
+    }
+
+    // Ensure `uid` inside a document payload is never altered during an update.
+    function uidNotModified() {
+      return !('uid' in request.resource.data) ||
+        ('uid' in resource.data && request.resource.data.uid == resource.data.uid);
+    }
+
+    // Ensure none of the specified server-owned / immutable fields are added, removed, or modified.
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Helper Functions — Track Publication & Cohort Assignment Checks
+    // ===============================================================
+
+    // Evaluate whether a Track document's data is published and assigned to the caller's cohort.
+    function canReadPublishedTrackData(trackData) {
+      return trackData.status == 'PUBLISHED' &&
+        trackData.assignedCohortIds is list &&
+        ('ALL' in trackData.assignedCohortIds ||
+         (hasPartnerCohort() && request.auth.token.partnerCohortId in trackData.assignedCohortIds));
+    }
+
+    // Evaluate whether the parent `/tracks/{trackId}` document exists, is published, and is assigned.
+    function canReadPublishedTrackById(trackId) {
+      return exists(/databases/$(database)/documents/tracks/$(trackId)) &&
+        canReadPublishedTrackData(get(/databases/$(database)/documents/tracks/$(trackId)).data);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    // Strictly validate the user `preferences` map keys, primitive types, and string size bounds.
+    function isValidUserPreferences(prefs) {
+      return prefs is map &&
+        prefs.size() <= 3 &&
+        prefs.keys().hasOnly(['soundEffects', 'compactMode', 'theme']) &&
+        (!('soundEffects' in prefs) || prefs.soundEffects is bool) &&
+        (!('compactMode' in prefs) || prefs.compactMode is bool) &&
+        (!('theme' in prefs) || (
+          prefs.theme is string &&
+          prefs.theme.size() > 0 &&
+          prefs.theme.size() <= 64
+        ));
+    }
+
+    // Validate owner self-update on `/users/{uid}`: locks down all RBAC/identity/progress fields
+    // and restricts mutations strictly to validated `preferences` + server timestamp `updatedAt`.
+    function isValidUserSelfUpdate() {
+      return uidNotModified() &&
+        areImmutableFieldsUnchanged([
+          'uid',
+          'email',
+          'displayName',
+          'lcId',
+          'role',
+          'active',
+          'partnerCohortId',
+          'divisionIds',
+          'xp',
+          'streakDays',
+          'createdAt'
+        ]) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['preferences', 'updatedAt']) &&
+        'preferences' in request.resource.data &&
+        isValidUserPreferences(request.resource.data.preferences) &&
+        'updatedAt' in request.resource.data &&
+        request.resource.data.updatedAt is timestamp &&
+        request.resource.data.updatedAt == request.time;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // 1. Users (`/users/{uid}`)
+    // PII & roster isolation: Agents can `get` only their own profile (never `list` users);
+    // Partner Supervisors can `get` and `list` only users within their own `partnerCohortId`.
+    match /users/{uid} {
+      allow get: if isActiveUser() && (
+        request.auth.uid == uid ||
+        isInternalOps() ||
+        (isPartnerSupervisor() &&
+         hasPartnerCohort() &&
+         resource != null &&
+         resource.data.partnerCohortId == request.auth.token.partnerCohortId)
+      );
+
+      allow list: if isActiveUser() && (
+        isInternalOps() ||
+        (isPartnerSupervisor() &&
+         hasPartnerCohort() &&
+         resource.data.partnerCohortId == request.auth.token.partnerCohortId)
+      );
+
+      allow create: if false;
+
+      allow update: if isOwner(uid) && isValidUserSelfUpdate();
+
+      allow delete: if false;
+    }
+
+    // 2. Partner & Internal Cohorts (`/cohorts/{cohortId}`)
+    match /cohorts/{cohortId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        (hasPartnerCohort() && cohortId == request.auth.token.partnerCohortId)
+      );
+
+      allow write: if false;
+    }
+
+    // 3. Campaign Tracks (`/tracks/{trackId}`)
+    match /tracks/{trackId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        canReadPublishedTrackData(resource.data)
+      );
+
+      allow write: if false;
+
+      // 4. Compiled Learner Track Versions (`/tracks/{trackId}/versions/{versionId}`)
+      match /versions/{versionId} {
+        allow read: if isActiveUser() && (
+          isInternalOps() ||
+          canReadPublishedTrackById(trackId)
+        );
+
+        allow write: if false;
+
+        // 5. Simulation Secrets & Grading Rubrics (`/tracks/{trackId}/versions/{versionId}/secrets/{secretId}`)
+        // Strictly hidden from AGENT and PARTNER_SUPERVISOR to prevent roleplay rubric/trigger inspection.
+        match /secrets/{secretId} {
+          allow read: if isInternalOps();
+          allow write: if false;
+        }
+      }
+
+      // 6. Extracted PDF Source Pages (`/tracks/{trackId}/sourcePages/{pageId}`)
+      match /sourcePages/{pageId} {
+        allow read: if isInternalOps();
+        allow write: if false;
+      }
+    }
+
+    // 7. Learner Track Enrollments (`/enrollments/{enrollmentId}`)
+    match /enrollments/{enrollmentId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        resource.data.userId == request.auth.uid ||
+        (isPartnerSupervisor() &&
+         hasPartnerCohort() &&
+         resource.data.partnerCohortId == request.auth.token.partnerCohortId)
+      );
+
+      allow write: if false;
+    }
+
+    // 8. Live Call Simulation Sessions (`/simSessions/{sessionId}`)
+    match /simSessions/{sessionId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        resource.data.userId == request.auth.uid ||
+        (isPartnerSupervisor() &&
+         hasPartnerCohort() &&
+         resource.data.partnerCohortId == request.auth.token.partnerCohortId)
+      );
+
+      allow write: if false;
+    }
+
+    // 9. Pre-Aggregated Analytics Rollups (`/analyticsRollups/{rollupId}`)
+    match /analyticsRollups/{rollupId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        (isPartnerSupervisor() &&
+         hasPartnerCohort() &&
+         resource.data.scopeType == 'COHORT' &&
+         resource.data.partnerCohortId == request.auth.token.partnerCohortId)
+      );
+
+      allow write: if false;
+    }
+
+    // 10. Roster & Cohort Invites (`/rosterInvites/{inviteId}`)
+    match /rosterInvites/{inviteId} {
+      allow read: if isActiveUser() && (
+        isInternalOps() ||
+        (isPartnerSupervisor() &&
+         hasPartnerCohort() &&
+         resource.data.partnerCohortId == request.auth.token.partnerCohortId)
+      );
+
+      allow write: if false;
+    }
+
+    // 11. Default Deny Catch-All for Any Unmatched Path
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

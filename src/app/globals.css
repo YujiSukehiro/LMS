@@ -1,0 +1,372 @@
+@import "tailwindcss";
+
+/* ================================================================
+   "Slate & Signal" design tokens (docs/05 §1.1)
+   ================================================================ */
+:root {
+  /* Dark-First Operational Palette */
+  --pulse-bg: #0b1120;
+  --pulse-surface-1: #111827;
+  --pulse-surface-2: #1e293b;
+  --pulse-surface-elevated: #263349;
+  --pulse-border: #334155;
+  --pulse-border-subtle: #1e293b;
+
+  /* Text Hierarchy */
+  --pulse-text-primary: #f8fafc;
+  --pulse-text-secondary: #cbd5e1;
+  --pulse-text-muted: #94a3b8;
+
+  /* Functional Signal Accents */
+  --pulse-indigo: #6366f1;
+  --pulse-indigo-hover: #4f46e5;
+  --pulse-emerald: #10b981;
+  --pulse-amber: #f59e0b;
+  --pulse-crimson: #ef4444;
+
+  /* Division Accent Pills */
+  --div-telehealth: #14b8a6;
+  --div-inbound: #8b5cf6;
+  --div-outbound: #f97316;
+
+  /* Geometry & Motion */
+  --pulse-radius-sm: 6px;
+  --pulse-radius-md: 10px;
+  --pulse-radius-lg: 14px;
+  --pulse-font-sans: var(--font-plus-jakarta), 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --pulse-font-mono: var(--font-jetbrains-mono), 'JetBrains Mono', ui-monospace, monospace;
+
+  color-scheme: dark;
+}
+
+/* Light Mode (set by the server from users/{uid}.preferences.theme — no client storage scripts) */
+:root[data-theme='light'] {
+  --pulse-bg: #f8fafc;
+  --pulse-surface-1: #ffffff;
+  --pulse-surface-2: #f1f5f9;
+  --pulse-surface-elevated: #e2e8f0;
+  --pulse-border: #cbd5e1;
+  --pulse-border-subtle: #e2e8f0;
+  --pulse-text-primary: #0b1120;
+  --pulse-text-secondary: #334155;
+  --pulse-text-muted: #64748b;
+  color-scheme: light;
+}
+
+/* Expose the tokens to Tailwind utilities: bg-pulse-surface-1, text-pulse-muted, border-pulse-border, ... */
+@theme inline {
+  --color-pulse-bg: var(--pulse-bg);
+  --color-pulse-surface-1: var(--pulse-surface-1);
+  --color-pulse-surface-2: var(--pulse-surface-2);
+  --color-pulse-elevated: var(--pulse-surface-elevated);
+  --color-pulse-border: var(--pulse-border);
+  --color-pulse-border-subtle: var(--pulse-border-subtle);
+  --color-pulse-primary: var(--pulse-text-primary);
+  --color-pulse-secondary: var(--pulse-text-secondary);
+  --color-pulse-muted: var(--pulse-text-muted);
+  --color-pulse-indigo: var(--pulse-indigo);
+  --color-pulse-indigo-hover: var(--pulse-indigo-hover);
+  --color-pulse-emerald: var(--pulse-emerald);
+  --color-pulse-amber: var(--pulse-amber);
+  --color-pulse-crimson: var(--pulse-crimson);
+  --color-div-telehealth: var(--div-telehealth);
+  --color-div-inbound: var(--div-inbound);
+  --color-div-outbound: var(--div-outbound);
+  --radius-pulse-sm: var(--pulse-radius-sm);
+  --radius-pulse-md: var(--pulse-radius-md);
+  --radius-pulse-lg: var(--pulse-radius-lg);
+  --font-sans: var(--pulse-font-sans);
+  --font-mono: var(--pulse-font-mono);
+}
+
+/* ================================================================
+   Base
+   ================================================================ */
+html,
+body {
+  background: var(--pulse-bg);
+  color: var(--pulse-text-primary);
+  font-family: var(--pulse-font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--pulse-indigo);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--pulse-indigo) 40%, transparent);
+}
+
+/* ================================================================
+   Shared component classes (use these for a consistent look)
+   ================================================================ */
+@layer components {
+  .pulse-card {
+    background: var(--pulse-surface-1);
+    border: 1px solid var(--pulse-border-subtle);
+    border-radius: var(--pulse-radius-lg);
+  }
+  .pulse-card-elevated {
+    background: var(--pulse-surface-2);
+    border: 1px solid var(--pulse-border);
+    border-radius: var(--pulse-radius-lg);
+  }
+  .pulse-metric {
+    font-family: var(--pulse-font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .pulse-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--pulse-text-muted);
+  }
+
+  .pulse-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+    padding: 0.5rem 0.95rem;
+    border-radius: var(--pulse-radius-md);
+    border: 1px solid var(--pulse-border);
+    background: var(--pulse-surface-2);
+    color: var(--pulse-text-primary);
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: background-color 150ms ease, border-color 150ms ease, transform 100ms ease, opacity 150ms ease;
+    cursor: pointer;
+  }
+  .pulse-btn:hover:not(:disabled) {
+    background: var(--pulse-surface-elevated);
+  }
+  .pulse-btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .pulse-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .pulse-btn-primary {
+    background: var(--pulse-indigo);
+    border-color: var(--pulse-indigo);
+    color: #fff;
+  }
+  .pulse-btn-primary:hover:not(:disabled) {
+    background: var(--pulse-indigo-hover);
+  }
+  .pulse-btn-success {
+    background: var(--pulse-emerald);
+    border-color: var(--pulse-emerald);
+    color: #04140e;
+  }
+  .pulse-btn-danger {
+    background: transparent;
+    border-color: var(--pulse-crimson);
+    color: var(--pulse-crimson);
+  }
+  .pulse-btn-ghost {
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .pulse-input,
+  .pulse-select,
+  .pulse-textarea {
+    width: 100%;
+    background: var(--pulse-bg);
+    border: 1px solid var(--pulse-border);
+    border-radius: var(--pulse-radius-md);
+    padding: 0.55rem 0.75rem;
+    color: var(--pulse-text-primary);
+    font-size: 0.875rem;
+  }
+  .pulse-input:focus,
+  .pulse-select:focus,
+  .pulse-textarea:focus {
+    border-color: var(--pulse-indigo);
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--pulse-indigo) 25%, transparent);
+  }
+  .pulse-textarea {
+    resize: vertical;
+    min-height: 4.5rem;
+  }
+
+  .pulse-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1px solid var(--pulse-border);
+    color: var(--pulse-text-secondary);
+    background: var(--pulse-surface-2);
+    white-space: nowrap;
+  }
+  .pulse-pill-telehealth {
+    color: var(--div-telehealth);
+    border-color: color-mix(in srgb, var(--div-telehealth) 45%, transparent);
+    background: color-mix(in srgb, var(--div-telehealth) 12%, transparent);
+  }
+  .pulse-pill-inbound {
+    color: var(--div-inbound);
+    border-color: color-mix(in srgb, var(--div-inbound) 45%, transparent);
+    background: color-mix(in srgb, var(--div-inbound) 12%, transparent);
+  }
+  .pulse-pill-outbound {
+    color: var(--div-outbound);
+    border-color: color-mix(in srgb, var(--div-outbound) 45%, transparent);
+    background: color-mix(in srgb, var(--div-outbound) 12%, transparent);
+  }
+  .pulse-pill-emerald {
+    color: var(--pulse-emerald);
+    border-color: color-mix(in srgb, var(--pulse-emerald) 45%, transparent);
+    background: color-mix(in srgb, var(--pulse-emerald) 12%, transparent);
+  }
+  .pulse-pill-amber {
+    color: var(--pulse-amber);
+    border-color: color-mix(in srgb, var(--pulse-amber) 45%, transparent);
+    background: color-mix(in srgb, var(--pulse-amber) 12%, transparent);
+  }
+  .pulse-pill-crimson {
+    color: var(--pulse-crimson);
+    border-color: color-mix(in srgb, var(--pulse-crimson) 45%, transparent);
+    background: color-mix(in srgb, var(--pulse-crimson) 12%, transparent);
+  }
+  .pulse-pill-indigo {
+    color: #a5b4fc;
+    border-color: color-mix(in srgb, var(--pulse-indigo) 50%, transparent);
+    background: color-mix(in srgb, var(--pulse-indigo) 15%, transparent);
+  }
+
+  .pulse-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.4rem;
+    height: 1.4rem;
+    padding: 0 0.3rem;
+    border-radius: var(--pulse-radius-sm);
+    border: 1px solid var(--pulse-border);
+    background: var(--pulse-bg);
+    font-family: var(--pulse-font-mono);
+    font-size: 0.7rem;
+    color: var(--pulse-text-muted);
+  }
+
+  /* Native <dialog> modal with @starting-style entry transition */
+  .pulse-dialog {
+    margin: auto;
+    width: min(560px, calc(100vw - 2rem));
+    max-height: calc(100vh - 4rem);
+    padding: 0;
+    background: var(--pulse-surface-1);
+    color: var(--pulse-text-primary);
+    border: 1px solid var(--pulse-border);
+    border-radius: var(--pulse-radius-lg);
+    box-shadow: 0 24px 60px rgb(0 0 0 / 0.45);
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+    transition: opacity 180ms ease, transform 180ms ease, overlay 180ms allow-discrete, display 180ms allow-discrete;
+  }
+  .pulse-dialog[open] {
+    opacity: 1;
+    transform: none;
+  }
+  @starting-style {
+    .pulse-dialog[open] {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+  }
+  .pulse-dialog::backdrop {
+    background: rgb(2 6 23 / 0);
+    backdrop-filter: blur(0);
+    transition: background-color 180ms ease, backdrop-filter 180ms ease, overlay 180ms allow-discrete, display 180ms allow-discrete;
+  }
+  .pulse-dialog[open]::backdrop {
+    background: rgb(2 6 23 / 0.7);
+    backdrop-filter: blur(3px);
+  }
+  @starting-style {
+    .pulse-dialog[open]::backdrop {
+      background: rgb(2 6 23 / 0);
+    }
+  }
+
+  /* Native popover menus */
+  .pulse-popover {
+    margin: 0;
+    padding: 0.4rem;
+    background: var(--pulse-surface-2);
+    color: var(--pulse-text-primary);
+    border: 1px solid var(--pulse-border);
+    border-radius: var(--pulse-radius-md);
+    box-shadow: 0 12px 30px rgb(0 0 0 / 0.35);
+  }
+
+  /* Container-query host for Drill cards and analytics widgets */
+  .pulse-cq {
+    container-type: inline-size;
+  }
+}
+
+/* Pulsing ring for the current unlocked Unit node */
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--pulse-indigo) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 14px color-mix(in srgb, var(--pulse-indigo) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--pulse-indigo) 0%, transparent);
+  }
+}
+.pulse-ring {
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+
+/* Feedback drawer slide-up */
+@keyframes pulse-slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.pulse-slide-up {
+  animation: pulse-slide-up 200ms ease-out;
+}
+
+/* Streaming caret for live Simulation messages */
+@keyframes pulse-caret {
+  50% {
+    opacity: 0;
+  }
+}
+.pulse-caret::after {
+  content: '▍';
+  margin-left: 2px;
+  color: var(--pulse-text-muted);
+  animation: pulse-caret 1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

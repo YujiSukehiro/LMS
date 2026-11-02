@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.env.local
+.env*.local
+firebase-debug*.log
+firestore-debug.log
+ui-debug.log
+playwright-report/
+test-results/
+coverage/
+.DS_Store
+demo-recordings/
+demo-replay/

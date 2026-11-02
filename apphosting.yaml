@@ -1,0 +1,37 @@
+runConfig:
+  cpu: 1
+  memoryMiB: 1024
+  minInstances: 0
+  maxInstances: 10
+  concurrency: 80
+
+env:
+  - variable: AI_PROVIDER
+    value: gemini
+    availability:
+      - RUNTIME
+  - variable: GEMINI_HEAVY_MODEL
+    value: gemini-2.5-flash
+    availability:
+      - RUNTIME
+  - variable: GEMINI_FAST_MODEL
+    value: gemini-2.5-flash-lite
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_USE_FIREBASE_EMULATOR
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: ALLOWED_GOOGLE_WORKSPACE_DOMAINS
+    value: logicall.io,logicall.live
+    availability:
+      - RUNTIME
+  - variable: MAX_SIM_SESSIONS_PER_USER_PER_DAY
+    value: "15"
+    availability:
+      - RUNTIME
+  - variable: GEMINI_API_KEY
+    secret: GEMINI_API_KEY
+    availability:
+      - RUNTIME
