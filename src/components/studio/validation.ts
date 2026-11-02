@@ -230,6 +230,15 @@ export function validateStudioDraft(input: {
     if (scenario.dispositionOptions.some(blank)) {
       issues.push({ target, where: `${prefix} › Disposition options`, message: 'has an empty line — type text or remove the line' });
     }
+    if (!scenario.context || !scenario.evidenceRequirements) {
+      issues.push({ target, where: `${prefix} › Scenario context`, message: 'explicit context and evidence requirements are required' });
+    } else {
+      for (const gateId of scenario.evidenceRequirements.requiredGateIds) {
+        if (!scenario.evidenceRequirements.gateSourceRefs[gateId]?.length) {
+          issues.push({ target, where: `${prefix} › Gate ${gateId}`, message: 'approved source references are required' });
+        }
+      }
+    }
 
     const secret = input.secretScenarios.find((s) => s.scenarioId === scenario.id);
     if (!secret) {
@@ -242,6 +251,12 @@ export function validateStudioDraft(input: {
     if (blank(secret.personaName)) issues.push({ target, where: `${secretPrefix} › Persona name`, message: 'must not be empty' });
     if (!scenario.dispositionOptions.includes(secret.expectedDisposition)) {
       issues.push({ target, where: `${secretPrefix} › Expected disposition`, message: 'must be one of the disposition options' });
+    }
+    if (!secret.qaFixtures?.some((fixture) => fixture.kind === 'golden_pass')) {
+      issues.push({ target, where: `${secretPrefix} › Scenario QA`, message: 'a scripted golden pass is required' });
+    }
+    if (!secret.qaFixtures?.some((fixture) => fixture.kind === 'golden_critical_fail')) {
+      issues.push({ target, where: `${secretPrefix} › Scenario QA`, message: 'a scripted critical-fail path is required' });
     }
     const total = secret.rubricCriteria.reduce((sum, c) => sum + (Number.isFinite(c.weight) ? c.weight : 0), 0);
     if (total !== 100) {

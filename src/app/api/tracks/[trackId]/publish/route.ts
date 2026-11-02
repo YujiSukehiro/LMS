@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { evaluatePublicationGates } from '@/lib/services/source-evidence';
+import { runScenarioQAFixture } from '@/lib/services/scenario-state';
 import { loadSourceReview, SourceBundleNotFoundError } from '@/lib/services/source-store';
 import type { PublicationGateReport } from '@/lib/schemas/source-truth';
 import { ALL_COHORTS_ID, INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
@@ -100,7 +101,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
           if (!(error instanceof SourceBundleNotFoundError)) throw error;
         }
       }
-      const gateReport = evaluatePublicationGates({ draft, ...source });
+      const gateReport = evaluatePublicationGates({ draft, ...source, secrets: secrets?.scenarios ?? [], runScenarioQAFixture });
       if (!gateReport.eligible) {
         const count = gateReport.issues.filter((issue) => issue.blocking).length;
         throw new PublishError(

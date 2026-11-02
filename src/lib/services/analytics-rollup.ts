@@ -46,6 +46,7 @@ import {
   type UserStats,
 } from '@/lib/schemas/domain';
 import { ServiceError } from './errors';
+import { appendEvaluationEvent } from './scenario-state';
 import {
   computeFirstTryAccuracyPct,
   computeOverallReadiness,
@@ -588,17 +589,32 @@ export async function saveSimulationEvaluation(args: {
   sessionId: string;
   evaluation: SimEvaluation;
   selectedDisposition: string;
+  session?: SimSessionDoc;
 }): Promise<void> {
   const ref = simSessionRef(args.sessionId);
   await adminDb.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     assertSessionEvaluable(snap);
+    const evidence = args.session?.scenarioState && args.session.simulationEvents
+      ? appendEvaluationEvent({
+          sessionId: args.sessionId,
+          state: args.session.scenarioState,
+          events: args.session.simulationEvents,
+          evaluation: args.evaluation,
+        })
+      : null;
     tx.update(ref, {
       status: 'EVALUATED',
       evaluation: args.evaluation,
       selectedDisposition: args.selectedDisposition,
+      ...(evidence ? {
+        scenarioState: evidence.state,
+        simulationEvents: [...args.session!.simulationEvents!, evidence.event],
+        nextEventSequence: evidence.event.sequence + 1,
+      } : {}),
       updatedAt: Date.now(),
     });
+    if (evidence) tx.set(ref.collection('events').doc(evidence.event.id), evidence.event);
   });
 }
 
@@ -707,13 +723,28 @@ export async function recordSimulationEvaluation(args: {
       addMissedItem(delta, track.id, `sim-${scenario.id}-${criterion.criterionId}`, criterion.criterionLabel);
     }
     const rollupSnaps = await readRollups(tx, scopes);
+    const evidence = session.scenarioState && session.simulationEvents
+      ? appendEvaluationEvent({
+          sessionId: session.id,
+          state: session.scenarioState,
+          events: session.simulationEvents,
+          evaluation,
+          now: new Date(now),
+        })
+      : null;
 
     tx.update(sRef, {
       status: 'EVALUATED',
       evaluation,
       selectedDisposition,
+      ...(evidence ? {
+        scenarioState: evidence.state,
+        simulationEvents: [...session.simulationEvents!, evidence.event],
+        nextEventSequence: evidence.event.sequence + 1,
+      } : {}),
       updatedAt: now,
     });
+    if (evidence) tx.set(sRef.collection('events').doc(evidence.event.id), evidence.event);
     tx.set(eRef, enrollmentToWrite);
     writeUserProgress(tx, user.uid, stats, skillScoresByPillar, now);
     writeRollups(tx, scopes, rollupSnaps, delta, now);

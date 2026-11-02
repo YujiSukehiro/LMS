@@ -1,5 +1,7 @@
-import type { TrackVersionDoc } from '@/lib/schemas/curriculum';
+import type { PublicSimScenario, SecretSimScenarioConfig, TrackVersionDoc } from '@/lib/schemas/curriculum';
+import type { ScenarioQAFixture } from '@/lib/schemas/simulation-state';
 import {
+  CanonicalDispositionSchema,
   ClaimEvidenceSchema,
   PublicationGateReportSchema,
   type ClaimEvidence,
@@ -208,6 +210,13 @@ export interface PublicationGateInput {
   rulePacks: SharedRulePack[];
   assets: OperationalAsset[];
   conflicts: SourceConflict[];
+  secrets?: SecretSimScenarioConfig[];
+  /** Server-only deterministic execution; browser previews validate fixture presence without importing Node crypto. */
+  runScenarioQAFixture?: (scenario: PublicSimScenario, fixture: ScenarioQAFixture) => {
+    passed: boolean;
+    errors: string[];
+    eligibility: { reasons: string[] };
+  };
   now?: number;
 }
 
@@ -274,6 +283,59 @@ export function evaluatePublicationGates(input: PublicationGateInput): Publicati
       }
       if (rule.requiredKnowledge && !coveredRuleIds.has(rule.id)) {
         issues.push(issue('RULE_COVERAGE_MISSING', `Required rule ${rule.id} is not covered by curriculum evidence.`, 'rule', rule.id));
+      }
+    }
+  }
+
+  for (const scenario of draft.simScenarios) {
+    if (!scenario.context || !scenario.evidenceRequirements) {
+      issues.push(issue('SCENARIO_CONTEXT_REQUIRED', `Scenario ${scenario.id} needs explicit context and evidence requirements.`, 'scenario', scenario.id));
+      continue;
+    }
+    if (scenario.context.sourceRevision !== sourceRevision) {
+      issues.push(issue('SCENARIO_SOURCE_REVISION_MISMATCH', `Scenario ${scenario.id} is bound to a different source revision.`, 'scenario', scenario.id));
+    }
+    for (const gateId of scenario.evidenceRequirements.requiredGateIds) {
+      const refs = scenario.evidenceRequirements.gateSourceRefs[gateId] ?? [];
+      if (refs.length === 0) {
+        issues.push(issue('SCENARIO_GATE_SOURCE_REQUIRED', `Scenario ${scenario.id} gate ${gateId} needs approved source references.`, 'scenario', scenario.id));
+      }
+      for (const ref of refs) {
+        const result = verifySourceExcerpt(ref, pages, { critical: true });
+        if (!result.matched) issues.push(issue('SCENARIO_GATE_SOURCE_INVALID', `Scenario ${scenario.id} gate ${gateId} has invalid source evidence (${result.reason}).`, 'scenario', scenario.id));
+      }
+    }
+    const secret = input.secrets?.find((config) => config.scenarioId === scenario.id);
+    if (!secret) {
+      issues.push(issue('SCENARIO_SECRET_REQUIRED', `Scenario ${scenario.id} needs its trainer-only rubric and QA fixtures.`, 'scenario', scenario.id));
+      continue;
+    }
+    if (!CanonicalDispositionSchema.safeParse(secret.expectedDisposition).success) {
+      issues.push(issue('SCENARIO_DISPOSITION_INVALID', `Scenario ${scenario.id} must use a canonical expected disposition.`, 'scenario', scenario.id));
+    }
+    for (const criterion of secret.rubricCriteria) {
+      if (!criterion.evidence?.length) issues.push(issue('CLAIM_EVIDENCE_MISSING', `Scenario rubric ${criterion.id} needs exact source evidence.`, 'claim', criterion.id, 'major'));
+      for (const original of criterion.evidence ?? []) {
+        const evidence = verifyClaimEvidence(original, pages, conflicts);
+        evidence.ruleIds.forEach((id) => coveredRuleIds.add(id));
+        if (evidence.support !== 'supported' || evidence.approvalStatus !== 'approved' || !evidence.reviewerUid || !evidence.reviewedAt) {
+          issues.push(issue('CLAIM_UNSUPPORTED', `Scenario rubric ${criterion.id} lacks approved exact supporting evidence.`, 'claim', evidence.id, evidence.critical ? 'critical' : 'major'));
+        }
+      }
+    }
+    const fixtures = secret.qaFixtures ?? [];
+    if (!fixtures.some((fixture) => fixture.kind === 'golden_pass')) {
+      issues.push(issue('SCENARIO_GOLDEN_PASS_REQUIRED', `Scenario ${scenario.id} needs a scripted golden pass.`, 'scenario', scenario.id));
+    }
+    if (!fixtures.some((fixture) => fixture.kind === 'golden_critical_fail')) {
+      issues.push(issue('SCENARIO_GOLDEN_FAIL_REQUIRED', `Scenario ${scenario.id} needs a scripted critical-fail path.`, 'scenario', scenario.id));
+    }
+    if (input.runScenarioQAFixture) {
+      for (const fixture of fixtures) {
+        const result = input.runScenarioQAFixture(scenario, fixture);
+        if (!result.passed || result.errors.length > 0) {
+          issues.push(issue('SCENARIO_QA_FAILED', `Scenario ${scenario.id} fixture ${fixture.id} failed or is unreachable: ${[...result.errors, ...result.eligibility.reasons].join(' ') || 'Expected gate result did not match.'}`, 'scenario', scenario.id));
+        }
       }
     }
   }

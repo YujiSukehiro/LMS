@@ -25,6 +25,7 @@ import {
 import { DEFAULT_SIM_PASS_THRESHOLD } from '@/lib/schemas/constants';
 import type { CompetencyPillar, PublicSimScenario, SecretSimScenarioConfig } from '@/lib/schemas/curriculum';
 import type { SessionUser } from '@/lib/schemas/domain';
+import type { SimulationEvent } from '@/lib/schemas/simulation-state';
 import { ServiceError } from './errors';
 import { applySimScoringRules, computeRawSimScore } from './scoring';
 
@@ -168,11 +169,13 @@ export function assembleSimEvaluation(input: {
   secret: SecretSimScenarioConfig;
   messages: SimMessage[];
   selectedDisposition: string;
+  events?: SimulationEvent[];
   evaluatedAt?: number;
   provenance?: ProvenanceRecord;
 }): SimEvaluation {
   const { judge, scenario, secret, messages, selectedDisposition } = input;
   const agentMessages = messages.filter((m) => m.role === 'agent');
+  const validEventIds = new Set((input.events ?? []).map((event) => event.id));
 
   const judgeById = new Map<string, JudgeOutput['criterionResults'][number]>();
   for (const result of judge.criterionResults) {
@@ -190,6 +193,7 @@ export function assembleSimEvaluation(input: {
         criterionLabel: criterion.criterionLabel,
         score: 0,
         agentQuoteEvidence: '',
+        evidenceEventIds: [],
         coachingNote: 'No evidence was found that you met this rule during the call.',
         betterResponseExample: fallbackExample,
       };
@@ -201,6 +205,7 @@ export function assembleSimEvaluation(input: {
       criterionLabel: criterion.criterionLabel,
       score,
       agentQuoteEvidence: verifyAgentQuote(graded.agentQuoteEvidence, agentMessages),
+      evidenceEventIds: (graded.evidenceEventIds ?? []).filter((id) => validEventIds.has(id)),
       coachingNote: graded.coachingNote.trim(),
       betterResponseExample: score === 100 ? null : graded.betterResponseExample?.trim() || fallbackExample,
     };
@@ -250,6 +255,7 @@ export async function evaluateSimulation(input: {
   messages: SimMessage[];
   selectedDisposition: string;
   pillars: CompetencyPillar[];
+  events?: SimulationEvent[];
   gateway?: LLMGateway;
 }): Promise<SimEvaluation> {
   const gateway = input.gateway ?? getLLMGateway();
@@ -260,6 +266,7 @@ export async function evaluateSimulation(input: {
     messages: input.messages,
     selectedDisposition: input.selectedDisposition,
     pillars: input.pillars,
+    events: input.events,
   });
   const judge = await gateway.generateStructured({
     tier: 'heavy',
@@ -275,6 +282,7 @@ export async function evaluateSimulation(input: {
     secret: input.secret,
     messages: input.messages,
     selectedDisposition: input.selectedDisposition,
+    events: input.events,
     provenance: createSimulationProvenance({ task: 'judge', systemPrompt, userPrompt }),
   });
 }

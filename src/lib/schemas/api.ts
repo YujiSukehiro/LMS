@@ -13,6 +13,15 @@ import {
 } from './curriculum';
 import { EnrollmentDocSchema, SimEvaluationSchema, SimSessionDocSchema } from './analytics';
 import { ClaimEvidenceSchema } from './source-truth';
+import {
+  ScenarioQAFixtureSchema,
+  ScenarioStateSchema,
+  SimulationActionSchema,
+  SimulationAssessmentEligibilitySchema,
+  SimulationEventSchema,
+  SimulationGateResultSchema,
+  SyntheticOutboxRecordSchema,
+} from './simulation-state';
 
 // ---------- Generic error body ----------
 export const ApiErrorBodySchema = z.object({
@@ -180,6 +189,74 @@ export type StartSimRequest = z.infer<typeof StartSimRequestSchema>;
 export const StartSimResponseSchema = z.object({ session: SimSessionDocSchema });
 
 export const SimMessageRequestSchema = z.object({ content: z.string().min(1).max(2000) });
+export const SimulationActionRequestSchema = z.object({ action: SimulationActionSchema }).strict();
+export const SimulationActionResponseSchema = z.object({
+  session: SimSessionDocSchema,
+  outboxRecord: SyntheticOutboxRecordSchema.nullable(),
+});
+
+/** Internal-ops, read-only execution of trainer-authored deterministic Simulation fixtures. */
+export const ScenarioQARequestSchema = z.object({
+  scenario: PublicSimScenarioSchema.strict(),
+  fixtures: z.array(ScenarioQAFixtureSchema.strict()).min(1).max(20),
+  fixtureId: z.string().min(1).optional(),
+}).strict().superRefine((body, context) => {
+  body.fixtures.forEach((fixture, index) => {
+    if (fixture.steps.length > 100) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fixtures', index, 'steps'],
+        message: 'A QA fixture can contain at most 100 scripted steps.',
+      });
+    }
+  });
+});
+export type ScenarioQARequest = z.infer<typeof ScenarioQARequestSchema>;
+
+const ScenarioQAEventValueSchema = z.union([
+  z.string(),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+  z.array(z.string()),
+]);
+export const ScenarioQAEventResultSchema = z.object({
+  id: z.string().min(1),
+  sequence: z.number().int().positive(),
+  type: SimulationEventSchema.shape.type,
+  actor: SimulationEventSchema.shape.actor,
+  provenance: SimulationEventSchema.shape.provenance,
+  /** Whitelisted structured metadata; transcript, notes, correction text, tokens and hashes are never returned. */
+  payload: z.record(z.string(), ScenarioQAEventValueSchema),
+}).strict();
+export const ScenarioQAGateResultSchema = SimulationGateResultSchema.omit({ sourceRefs: true }).extend({
+  sourceRefCount: z.number().int().nonnegative(),
+}).strict();
+export const ScenarioQAResultSchema = z.object({
+  fixtureId: z.string().min(1),
+  title: z.string().min(1),
+  kind: ScenarioQAFixtureSchema.shape.kind,
+  passed: z.boolean(),
+  outcome: ScenarioStateSchema.pick({
+    lifecycle: true,
+    selectedDisposition: true,
+    dispositionCorrect: true,
+    wrapUpComplete: true,
+  }).strict(),
+  events: z.array(ScenarioQAEventResultSchema),
+  gates: z.array(ScenarioQAGateResultSchema),
+  eligibility: SimulationAssessmentEligibilitySchema.strict(),
+  errors: z.array(z.string()),
+  expectationFailures: z.array(z.string()),
+}).strict();
+export type ScenarioQAResult = z.infer<typeof ScenarioQAResultSchema>;
+export const ScenarioQAResponseSchema = z.object({
+  trackId: z.string().min(1),
+  scenarioId: z.string().min(1),
+  results: z.array(ScenarioQAResultSchema),
+}).strict();
+export type ScenarioQAResponse = z.infer<typeof ScenarioQAResponseSchema>;
+
 /** SSE `event: token` payload */
 export const SimTokenEventSchema = z.object({ token: z.string() });
 /** SSE `event: done` payload */

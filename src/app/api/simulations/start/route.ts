@@ -11,6 +11,7 @@ import {
   simSessionsCollection,
 } from '@/lib/services/simulation-engine';
 import { loadLearnerTrackContext, loadSecretScenario } from '@/lib/services/track-loader';
+import { appendDialogueEvent, createInitialScenarioState, evaluateDeterministicGates } from '@/lib/services/scenario-state';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -76,6 +77,18 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     const ref = simSessionsCollection().doc();
+    const initialState = createInitialScenarioState(scenario);
+    const messageId = randomUUID();
+    const opening = appendDialogueEvent({
+      sessionId: ref.id,
+      state: initialState,
+      events: [],
+      actor: 'customer',
+      content: scenario.openingMessage,
+      provenance: 'deterministic',
+      now: new Date(now),
+      eventId: messageId,
+    });
     const session: SimSessionDoc = SimSessionDocSchema.parse({
       id: ref.id,
       userId: user.uid,
@@ -90,7 +103,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       turnCount: 0,
       messages: [
         {
-          id: randomUUID(),
+          id: messageId,
           role: 'counterparty',
           content: scenario.openingMessage,
           createdAt: now,
@@ -98,11 +111,18 @@ export async function POST(req: Request): Promise<NextResponse> {
       ],
       selectedDisposition: null,
       evaluation: null,
+      scenarioState: opening.state,
+      simulationEvents: [opening.event],
+      gateResults: evaluateDeterministicGates(scenario, opening.state, [opening.event]),
+      nextEventSequence: 2,
       provenance: createSimulationProvenance({ task: 'session' }),
       startedAt: now,
       updatedAt: now,
     });
-    await ref.set(session);
+    const batch = ref.firestore.batch();
+    batch.set(ref, session);
+    batch.set(ref.collection('events').doc(opening.event.id), opening.event);
+    await batch.commit();
 
     return NextResponse.json({ session }, { status: 201 });
   } catch (error) {

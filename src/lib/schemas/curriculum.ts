@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { DivisionIdSchema } from './domain';
 import { ProvenanceRecordSchema } from '@/lib/ai/provenance';
 import { ClaimEvidenceSchema } from './source-truth';
+import { ScenarioContextSchema, ScenarioEvidenceRequirementsSchema, ScenarioQAFixtureSchema } from './simulation-state';
 
 /** The 8 canonical LogiCall skill keys (docs/04 §3.2). */
 export const CanonicalPillarKeySchema = z.enum([
@@ -139,6 +140,9 @@ export const PublicSimScenarioSchema = z.object({
   dispositionOptions: z.array(z.string().max(80)).min(3).max(6),
   maxTurns: z.number().int().min(6).max(12).default(8),
   passScoreThreshold: z.number().int().min(60).max(95).default(80),
+  /** Required for all new runs; optional only so historical curriculum records remain readable. */
+  context: ScenarioContextSchema.optional(),
+  evidenceRequirements: ScenarioEvidenceRequirementsSchema.optional(),
 });
 export type PublicSimScenario = z.infer<typeof PublicSimScenarioSchema>;
 
@@ -163,6 +167,8 @@ export const SecretSimScenarioConfigSchema = z.object({
   expectedDisposition: z.string(),
   autoFailTriggers: z.array(z.string().max(180)),
   rubricCriteria: z.array(RubricCriterionSchema).min(3).max(6),
+  /** Scripted assessment fixtures are trainer-only and never enter actor prompts. */
+  qaFixtures: z.array(ScenarioQAFixtureSchema).optional(),
 });
 export type SecretSimScenarioConfig = z.infer<typeof SecretSimScenarioConfigSchema>;
 

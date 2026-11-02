@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { z } from 'zod';
 import {
   ArrowLeft,
   ClipboardCheck,
@@ -17,10 +18,13 @@ import { CallTicketHeader } from '@/components/simulation/CallTicketHeader';
 import { DifficultyBadge } from '@/components/simulation/DifficultyBadge';
 import { DispositionPicker } from '@/components/simulation/DispositionPicker';
 import { ScorecardView } from '@/components/simulation/ScorecardView';
+import { SyntheticOperationsPanel } from '@/components/simulation/SyntheticOperationsPanel';
 import { TranscriptChat, type TranscriptMessage } from '@/components/simulation/TranscriptChat';
 import { DIVISION_PILL_CLASS, SIM_CHANNEL_LABELS } from '@/components/simulation/labels';
+import { SimSessionDocSchema, type SimSessionDoc } from '@/lib/schemas/analytics';
 import {
   EvaluateSimResponseSchema,
+  SimulationActionResponseSchema,
   SimDoneEventSchema,
   SimTokenEventSchema,
   SseErrorEventSchema,
@@ -29,6 +33,8 @@ import {
 } from '@/lib/schemas/api';
 import type { PublicSimScenario } from '@/lib/schemas/curriculum';
 import type { DivisionId } from '@/lib/schemas/domain';
+import { CanonicalDispositionSchema } from '@/lib/schemas/source-truth';
+import { SyntheticOutboxRecordSchema, type SimulationAction } from '@/lib/schemas/simulation-state';
 import { readSseStream } from '@/lib/sse-client';
 import { cn } from '@/lib/utils';
 import { describeApiError, describeNetworkError, readApiFailure } from '../_lib/api-errors';
@@ -48,6 +54,24 @@ export interface SimulationRunnerProps {
 }
 
 type Phase = 'intro' | 'starting' | 'live' | 'grading' | 'scored';
+
+const SimulationOperationsResponseSchema = z.object({
+  session: SimSessionDocSchema,
+  outboxRecords: z.array(SyntheticOutboxRecordSchema),
+});
+
+function describeBlockedWrapUp(session: SimSessionDoc): string {
+  const latest = session.simulationEvents?.at(-1);
+  const reasons = session.dispositionValidation?.reasons ?? [];
+  const missing = Array.isArray(latest?.payload.missingEvidence)
+    ? latest.payload.missingEvidence.map(String)
+    : [];
+  const details = [
+    ...reasons,
+    ...(missing.length > 0 ? [`Missing wrap-up evidence: ${missing.join(', ')}.`] : []),
+  ];
+  return details.join(' ') || 'The server blocked this wrap-up. Review the gate feedback and event playback, correct the evidence, then try again.';
+}
 
 let localMessageSeq = 0;
 function nextLocalId(prefix: string): string {
@@ -73,6 +97,9 @@ export function SimulationRunner({
 }: SimulationRunnerProps) {
   const [phase, setPhase] = useState<Phase>('intro');
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [session, setSession] = useState<SimSessionDoc | null>(null);
+  const [outboxRecords, setOutboxRecords] = useState<z.infer<typeof SyntheticOutboxRecordSchema>[]>([]);
+  const [actionPending, setActionPending] = useState(false);
   const [messages, setMessages] = useState<TranscriptMessage[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [turnCount, setTurnCount] = useState(0);
@@ -88,12 +115,80 @@ export function SimulationRunner({
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  const applySession = useCallback((next: SimSessionDoc) => {
+    setSession(next);
+    setSessionId(next.id);
+    setMessages(next.messages.map((message) => ({ id: message.id, role: message.role, content: message.content })));
+    setTurnCount(next.turnCount);
+    setSelectedDisposition(next.selectedDisposition);
+    setDemoReplay(next.provenance?.source === 'replay');
+  }, []);
+
+  const refreshSession = useCallback(async (): Promise<SimSessionDoc | null> => {
+    if (!sessionId) return null;
+    try {
+      const response = await fetch(`/api/simulations/${encodeURIComponent(sessionId)}/action`, { cache: 'no-store' });
+      if (!response.ok) {
+        setError(await describeApiError(response, 'simulation'));
+        return null;
+      }
+      const parsed = SimulationOperationsResponseSchema.safeParse(await response.json());
+      if (!parsed.success) {
+        setError('The operations state could not be read. Your dialogue was saved; refresh before continuing.');
+        return null;
+      }
+      applySession(parsed.data.session);
+      setOutboxRecords(parsed.data.outboxRecords);
+      return parsed.data.session;
+    } catch (caught) {
+      setError(describeNetworkError(caught));
+      return null;
+    }
+  }, [applySession, sessionId]);
+
+  const performAction = useCallback(async (action: SimulationAction): Promise<SimSessionDoc | null> => {
+    if (!sessionId || actionPending) return null;
+    setActionPending(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/simulations/${encodeURIComponent(sessionId)}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      if (!response.ok) {
+        setError(await describeApiError(response, 'simulation'));
+        return null;
+      }
+      const parsed = SimulationActionResponseSchema.safeParse(await response.json());
+      if (!parsed.success) {
+        setError('The server processed the action, but its response was not readable. Refresh the operations state before continuing.');
+        return null;
+      }
+      applySession(parsed.data.session);
+      if (parsed.data.outboxRecord) {
+        const record = parsed.data.outboxRecord;
+        setOutboxRecords((current) => current.some((item) => item.id === record.id) ? current : [...current, record]);
+      }
+      return parsed.data.session;
+    } catch (caught) {
+      setError(describeNetworkError(caught));
+      return null;
+    } finally {
+      setActionPending(false);
+    }
+  }, [actionPending, applySession, sessionId]);
+
   const start = useCallback(async () => {
     abortRef.current?.abort();
     setPhase('starting');
     setError(null);
     setEvalError(null);
     setResult(null);
+    setSession(null);
+    setSessionId(null);
+    setOutboxRecords([]);
+    setActionPending(false);
     setDemoReplay(false);
     setSelectedDisposition(null);
     setSimEnded(false);
@@ -117,17 +212,13 @@ export function SimulationRunner({
         setPhase('intro');
         return;
       }
-      const { session } = parsed.data;
-      setSessionId(session.id);
-      setMessages(session.messages.map((m) => ({ id: m.id, role: m.role, content: m.content })));
-      setTurnCount(session.turnCount);
-      setDemoReplay(session.provenance?.source === 'replay');
+      applySession(parsed.data.session);
       setPhase('live');
     } catch (caught) {
       setError(describeNetworkError(caught));
       setPhase('intro');
     }
-  }, [trackId, versionId, scenario.id]);
+  }, [applySession, trackId, versionId, scenario.id]);
 
   const endCall = useCallback(() => {
     setEvalError(null);
@@ -136,7 +227,7 @@ export function SimulationRunner({
 
   const send = useCallback(
     async (content: string) => {
-      if (!sessionId || streamingText !== null || simEnded) return;
+      if (!sessionId || streamingText !== null || simEnded || actionPending || session?.scenarioState?.lifecycle !== 'in_call') return;
       const agentMessage: TranscriptMessage = { id: nextLocalId('agent'), role: 'agent', content };
       setMessages((prev) => [...prev, agentMessage]);
       setStreamingText('');
@@ -205,6 +296,7 @@ export function SimulationRunner({
           setEvalError(null);
           setPickerOpen(true);
         }
+        await refreshSession();
       } catch (caught) {
         if (isAbortError(caught)) return;
         rollback();
@@ -213,15 +305,48 @@ export function SimulationRunner({
         if (abortRef.current === controller) abortRef.current = null;
       }
     },
-    [sessionId, streamingText, simEnded, scenario.maxTurns],
+    [sessionId, streamingText, simEnded, actionPending, session?.scenarioState?.lifecycle, scenario.maxTurns, refreshSession],
   );
 
   const evaluate = useCallback(
     async (disposition: string) => {
-      if (!sessionId) return;
+      if (!sessionId || actionPending) return;
+      const canonicalDisposition = CanonicalDispositionSchema.safeParse(disposition);
+      if (!canonicalDisposition.success) {
+        setEvalError('Choose one of the canonical training dispositions.');
+        return;
+      }
       setSelectedDisposition(disposition);
-      setPickerOpen(false);
       setEvalError(null);
+
+      let wrapped = session;
+      const alreadyReady = wrapped?.status === 'READY_FOR_EVAL'
+        && wrapped.scenarioState?.lifecycle === 'wrap_up'
+        && wrapped.scenarioState.wrapUpComplete
+        && wrapped.selectedDisposition === disposition;
+      if (!alreadyReady) {
+        wrapped = await performAction({ type: 'wrap_up', disposition: canonicalDisposition.data });
+      }
+      if (!wrapped) {
+        setPhase('live');
+        setPickerOpen(true);
+        setEvalError('Wrap-up could not be saved. Review the operations feedback and try again.');
+        return;
+      }
+      if (wrapped.status !== 'READY_FOR_EVAL' || wrapped.scenarioState?.lifecycle !== 'wrap_up' || !wrapped.scenarioState.wrapUpComplete) {
+        setPhase('live');
+        setPickerOpen(true);
+        setEvalError(describeBlockedWrapUp(wrapped));
+        return;
+      }
+      if (wrapped.selectedDisposition !== disposition) {
+        setPhase('live');
+        setPickerOpen(true);
+        setEvalError(`Wrap-up is already recorded as ${wrapped.selectedDisposition}. Retry evaluation with that disposition.`);
+        return;
+      }
+
+      setPickerOpen(false);
       setPhase('grading');
       try {
         const response = await fetch(`/api/simulations/${encodeURIComponent(sessionId)}/evaluate`, {
@@ -252,7 +377,7 @@ export function SimulationRunner({
         setPickerOpen(true);
       }
     },
-    [sessionId],
+    [actionPending, performAction, session, sessionId],
   );
 
   const closePicker = useCallback(() => setPickerOpen(false), []);
@@ -260,7 +385,7 @@ export function SimulationRunner({
   const isStreaming = streamingText !== null;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-12">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link href={mapHref} className="inline-flex items-center gap-1.5 text-sm text-pulse-muted hover:text-pulse-primary">
           <ArrowLeft aria-hidden className="size-4" />
@@ -298,7 +423,7 @@ export function SimulationRunner({
             divisionId={divisionId}
             turnCount={turnCount}
             onEndCall={endCall}
-            disabled={isStreaming || phase === 'grading' || turnCount === 0}
+            disabled={isStreaming || phase === 'grading' || actionPending}
           />
           {phase === 'grading' ? (
             <div role="status" className="pulse-card-elevated flex items-center gap-4 p-5">
@@ -313,23 +438,40 @@ export function SimulationRunner({
               </div>
             </div>
           ) : null}
-          <TranscriptChat
-            messages={messages}
-            streamingText={streamingText}
-            counterpartyLabel={scenario.counterpartyRoleLabel}
-            onSend={(content) => void send(content)}
-            composerDisabled={isStreaming || simEnded || phase !== 'live'}
-            composerNote={
-              simEnded
-                ? 'The call has ended. Log your disposition to get your scorecard.'
-                : isStreaming
-                  ? `${scenario.counterpartyRoleLabel} is replying…`
-                  : undefined
-            }
-            restoreDraft={restoreDraft}
-            demoReplay={demoReplay}
-            className={cn('h-[min(62vh,40rem)]', phase === 'grading' && 'opacity-60')}
-          />
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(22rem,0.85fr)]">
+            <TranscriptChat
+              messages={messages}
+              streamingText={streamingText}
+              counterpartyLabel={scenario.counterpartyRoleLabel}
+              onSend={(content) => void send(content)}
+              composerDisabled={isStreaming || simEnded || actionPending || phase !== 'live' || session?.scenarioState?.lifecycle !== 'in_call'}
+              composerNote={
+                simEnded
+                  ? 'The call has ended. Wrap up and log your disposition to get your scorecard.'
+                  : isStreaming
+                    ? `${scenario.counterpartyRoleLabel} is replying…`
+                    : actionPending
+                      ? 'Saving the synthetic operation…'
+                      : session?.scenarioState?.lifecycle === 'pre_call' || session?.scenarioState?.lifecycle === 'ready_to_dial'
+                        ? 'Complete required inspections and dial in Synthetic Training before sending dialogue.'
+                        : session?.scenarioState?.lifecycle === 'wrap_up'
+                          ? 'Wrap-up is recorded. Submit the same disposition for evaluation.'
+                          : undefined
+              }
+              restoreDraft={restoreDraft}
+              demoReplay={demoReplay}
+              className={cn('h-[min(62vh,40rem)]', phase === 'grading' && 'opacity-60')}
+            />
+            {session ? (
+              <SyntheticOperationsPanel
+                scenario={scenario}
+                session={session}
+                outboxRecords={outboxRecords}
+                onAction={performAction}
+                disabled={isStreaming || phase === 'grading' || actionPending}
+              />
+            ) : null}
+          </div>
           {simEnded && phase === 'live' && !pickerOpen ? (
             <div className="flex justify-end">
               <button type="button" className="pulse-btn pulse-btn-primary" onClick={endCall}>
@@ -359,8 +501,9 @@ export function SimulationRunner({
         options={scenario.dispositionOptions}
         onSubmit={(disposition) => void evaluate(disposition)}
         onClose={closePicker}
+        submitting={actionPending || phase === 'grading'}
         error={evalError}
-        dismissible={!simEnded}
+        dismissible={phase !== 'grading'}
       />
     </div>
   );

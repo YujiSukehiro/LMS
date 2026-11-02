@@ -14,6 +14,7 @@ import {
   type SecretSimScenarioConfig,
 } from '@/lib/schemas/curriculum';
 import type { SessionUser } from '@/lib/schemas/domain';
+import { createInitialScenarioState } from '@/lib/services/scenario-state';
 
 const {
   mockRequireAuth,
@@ -101,9 +102,34 @@ const scenario: PublicSimScenario = {
   counterpartyRoleLabel: 'Synthetic caller',
   contextTicketSummary: 'Synthetic training queue; no real customer data.',
   openingMessage: 'This is a synthetic demonstration call.',
-  dispositionOptions: ['Completed', 'Escalated', 'Follow up'],
+  dispositionOptions: ['Recovered', 'Callback scheduled', "Didn't reply"],
   maxTurns: 8,
   passScoreThreshold: 80,
+  context: {
+    direction: 'outbound',
+    queue: 'recovery',
+    product: 'Synthetic Product',
+    stage: 'dosage',
+    contactState: 'lead',
+    pricingPosture: 'active',
+    caseBranch: 'replay_test',
+    syntheticTimezone: 'America/Boise',
+    syntheticNow: '2026-01-15T17:00:00.000Z',
+    sourceRevision: 'synthetic-source',
+    curriculumVersion: 'synthetic-v1',
+  },
+  evidenceRequirements: {
+    minimumLearnerTurns: 0,
+    requiredInspections: [],
+    requiredWorkflowActions: [],
+    requiredWrapUpEvidence: [],
+    requiredGateIds: [],
+    requiredCustomerConcerns: [],
+    expectedDurationMinutes: 5,
+    gateSourceRefs: {},
+    maximumCriticalFailures: 0,
+    maximumMajorFailures: 0,
+  },
 };
 
 const secret: SecretSimScenarioConfig = {
@@ -112,7 +138,7 @@ const secret: SecretSimScenarioConfig = {
   personaBackstoryAndMood: 'A fictional caller in a deterministic training fixture.',
   hiddenFactsToRevealOnlyWhenAsked: [],
   conditionalBehaviors: [],
-  expectedDisposition: 'Completed',
+  expectedDisposition: 'Recovered',
   autoFailTriggers: [],
   rubricCriteria: [
     {
@@ -219,15 +245,43 @@ function replaySession(): SimSessionDoc {
     ],
     selectedDisposition: null,
     evaluation: null,
+    scenarioState: { ...createInitialScenarioState(scenario), lifecycle: 'in_call', contactReached: 'patient', recording: 'active' },
+    simulationEvents: [],
+    nextEventSequence: 1,
     provenance: createProvenance({ source: 'replay', provider: 'replay', model: 'Demo replay' }),
     startedAt: 1,
     updatedAt: 1,
   });
 }
 
-const mockSessionRef = { id: 'session-new', set: vi.fn() };
+function evaluableReplaySession(): SimSessionDoc {
+  return SimSessionDocSchema.parse({
+    ...replaySession(),
+    status: 'READY_FOR_EVAL',
+    selectedDisposition: 'Recovered',
+    scenarioState: {
+      ...createInitialScenarioState(scenario),
+      lifecycle: 'wrap_up',
+      contactReached: 'patient',
+      workflowActionIds: ['recovery_confirmed'],
+      selectedDisposition: 'Recovered',
+      dispositionCorrect: true,
+      wrapUpComplete: true,
+    },
+  });
+}
+
+const mockBatchSet = vi.fn();
+const mockBatchCommit = vi.fn().mockResolvedValue(undefined);
+const mockSessionRef = {
+  id: 'session-new',
+  set: vi.fn(),
+  collection: () => ({ doc: (id: string) => ({ id }) }),
+  firestore: { batch: () => ({ set: mockBatchSet, commit: mockBatchCommit }) },
+};
 const mockTxGet = vi.fn();
 const mockTxUpdate = vi.fn();
+const mockTxSet = vi.fn();
 
 function request(path: string, body: unknown): Request {
   return new Request(`http://localhost${path}`, {
@@ -253,7 +307,10 @@ beforeEach(() => {
   query.select.mockReturnValue(query);
   mockSimSessionsCollection.mockReturnValue({
     ...query,
-    doc: (id?: string) => (id ? { id } : mockSessionRef),
+    doc: (id?: string) => (id ? {
+      id,
+      collection: () => ({ doc: (eventId: string) => ({ id: eventId }) }),
+    } : mockSessionRef),
   });
 
   mockRequireAuth.mockResolvedValue({ ok: true, user });
@@ -269,17 +326,14 @@ beforeEach(() => {
   mockStreamChat.mockImplementation(async function* () {
     yield 'Synthetic caller reply';
   });
-  mockTxGet.mockResolvedValue({
+  mockTxGet.mockImplementation(async () => ({
     exists: true,
-    get: (field: string) => {
-      if (field === 'status') return 'ACTIVE';
-      if (field === 'turnCount') return 0;
-      if (field === 'messages') return replaySession().messages;
-      return undefined;
-    },
-  });
+    id: 'session-synthetic',
+    data: () => replaySession(),
+    get: (field: string) => replaySession()[field as keyof SimSessionDoc],
+  }));
   mockRunTransaction.mockImplementation(async (callback) =>
-    callback({ get: mockTxGet, update: mockTxUpdate }),
+    callback({ get: mockTxGet, update: mockTxUpdate, set: mockTxSet }),
   );
 });
 
@@ -302,7 +356,8 @@ describe('Demo replay simulation routes', () => {
       model: 'Demo replay',
       runtime: { label: 'Demo replay', protocol: 'replay' },
     });
-    expect(mockSessionRef.set).toHaveBeenCalledWith(
+    expect(mockBatchSet).toHaveBeenCalledWith(
+      mockSessionRef,
       expect.objectContaining({ provenance: expect.objectContaining({ source: 'replay' }) }),
     );
   });
@@ -350,8 +405,11 @@ describe('Demo replay simulation routes', () => {
   });
 
   it('saves a published replay scorecard for inspection but bypasses all progress recording', async () => {
+    const session = evaluableReplaySession();
+    mockLoadOwnedSimSession.mockResolvedValue(session);
+
     const response = await evaluatePOST(
-      request('/api/simulations/session-synthetic/evaluate', { selectedDisposition: 'Completed' }),
+      request('/api/simulations/session-synthetic/evaluate', { selectedDisposition: 'Recovered' }),
       { params: Promise.resolve({ sessionId: 'session-synthetic' }) },
     );
     const body = (await response.json()) as EvaluateSimResponse;
@@ -360,8 +418,11 @@ describe('Demo replay simulation routes', () => {
     expect(body).toMatchObject({ certified: false, demoReplay: true });
     expect(mockSaveSimulationEvaluation).toHaveBeenCalledWith({
       sessionId: 'session-synthetic',
-      evaluation: replayEvaluation,
-      selectedDisposition: 'Completed',
+      session,
+      evaluation: expect.objectContaining({
+        provenance: expect.objectContaining({ source: 'replay' }),
+      }),
+      selectedDisposition: 'Recovered',
     });
     expect(mockRecordSimulationEvaluation).not.toHaveBeenCalled();
     expect(mockEnsureEnrollment).not.toHaveBeenCalled();
@@ -369,7 +430,7 @@ describe('Demo replay simulation routes', () => {
 
   it('keeps the normal published evaluation path unchanged', async () => {
     const normalSession = SimSessionDocSchema.parse({
-      ...replaySession(),
+      ...evaluableReplaySession(),
       provenance: createProvenance({ source: 'local_ai', provider: 'openai_compatible', model: 'synthetic-fast' }),
     });
     const normalEvaluation = SimEvaluationSchema.parse({
@@ -380,7 +441,7 @@ describe('Demo replay simulation routes', () => {
     mockEvaluateSimulation.mockResolvedValue(normalEvaluation);
 
     const response = await evaluatePOST(
-      request('/api/simulations/session-synthetic/evaluate', { selectedDisposition: 'Completed' }),
+      request('/api/simulations/session-synthetic/evaluate', { selectedDisposition: 'Recovered' }),
       { params: Promise.resolve({ sessionId: 'session-synthetic' }) },
     );
     const body = (await response.json()) as EvaluateSimResponse;

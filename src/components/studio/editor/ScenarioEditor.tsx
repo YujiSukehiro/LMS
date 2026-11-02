@@ -20,6 +20,8 @@ import {
   TextField,
   newItemId,
 } from './fields';
+import { ScenarioContextEvidenceEditor } from './ScenarioContextEvidenceEditor';
+import { ScenarioQASection } from './ScenarioQASection';
 
 export const DIFFICULTY_LABELS: Record<PublicSimScenario['difficulty'], string> = {
   STANDARD: 'Standard',
@@ -133,8 +135,13 @@ export function ScenarioEditor({
         </div>
       </EditorSection>
 
+      <ScenarioContextEvidenceEditor scenario={scenario} onChange={onScenarioChange} />
+
       {secret ? (
-        <SecretEditor scenario={scenario} secret={secret} pillars={pillars} onChange={onSecretChange} />
+        <>
+          <SecretEditor scenario={scenario} secret={secret} pillars={pillars} onChange={onSecretChange} />
+          <ScenarioQASection scenario={scenario} secret={secret} onChange={onSecretChange} />
+        </>
       ) : (
         <EditorSection title="Hidden persona and rubric" badge={<SecretBadge />}>
           <p className="text-sm text-pulse-amber">This Live Call Sim has no hidden persona or grading rubric yet.</p>

@@ -4,6 +4,7 @@ import { EvaluateSimRequestSchema, type EvaluateSimResponse } from '@/lib/schema
 import { DRAFT_VERSION_ID } from '@/lib/schemas/curriculum';
 import { recordSimulationEvaluation, saveSimulationEvaluation } from '@/lib/services/analytics-rollup';
 import { errorResponse, parseJsonBody } from '@/lib/services/route-helpers';
+import { applyDeterministicAssessment, assessmentEligibility, evaluateDeterministicGates, validateDisposition } from '@/lib/services/scenario-state';
 import { evaluateSimulation, loadOwnedSimSession } from '@/lib/services/simulation-engine';
 import { loadSecretScenario, loadTrack, loadVersion } from '@/lib/services/track-loader';
 
@@ -37,11 +38,8 @@ export async function POST(
     if (session.status === 'EVALUATED') {
       return jsonError(409, 'ALREADY_EVALUATED', 'This Simulation is already scored. Start a new call to try again.');
     }
-    if (session.status !== 'ACTIVE' && session.status !== 'READY_FOR_EVAL') {
-      return jsonError(409, 'SESSION_NOT_ACTIVE', 'This Simulation session is closed.');
-    }
-    if (!session.messages.some((m) => m.role === 'agent')) {
-      return jsonError(400, 'NO_AGENT_TURNS', 'Reply to the caller at least once before you end the call.');
+    if (session.status !== 'READY_FOR_EVAL' || session.scenarioState?.lifecycle !== 'wrap_up' || !session.simulationEvents) {
+      return jsonError(409, 'WRAP_UP_REQUIRED', 'Complete the required workflow evidence and a valid disposition before evaluation.');
     }
 
     const [track, sessionVersion, secret] = await Promise.all([
@@ -61,12 +59,26 @@ export async function POST(
       return jsonError(400, 'INVALID_DISPOSITION', 'Select one of the dispositions in the list.');
     }
 
-    const evaluation = await evaluateSimulation({
+    if (session.scenarioState.selectedDisposition !== selectedDisposition) {
+      return jsonError(409, 'DISPOSITION_CHANGED', 'Confirm the server-recorded disposition before evaluation.');
+    }
+
+    const judged = await evaluateSimulation({
       scenario,
       secret,
       messages: session.messages,
       selectedDisposition,
       pillars: sessionVersion.competencyPillars,
+      events: session.simulationEvents,
+    });
+    const gateResults = evaluateDeterministicGates(scenario, session.scenarioState, session.simulationEvents);
+    const eligibility = assessmentEligibility(scenario, session.scenarioState, session.simulationEvents, gateResults);
+    const dispositionValidation = validateDisposition(session.scenarioState, selectedDisposition);
+    const evaluation = applyDeterministicAssessment({
+      evaluation: judged,
+      gates: gateResults,
+      eligibility,
+      disposition: dispositionValidation,
     });
 
     const isDemoReplay =
@@ -75,14 +87,14 @@ export async function POST(
       session.messages.some((message) => message.provenance?.source === 'replay');
     if (isDemoReplay) {
       // Keep the demo scorecard inspectable, but never touch enrollment, readiness, XP, or certification.
-      await saveSimulationEvaluation({ sessionId: session.id, evaluation, selectedDisposition });
+      await saveSimulationEvaluation({ sessionId: session.id, session, evaluation, selectedDisposition });
       const response: EvaluateSimResponse = { evaluation, certified: false, demoReplay: true };
       return NextResponse.json(response);
     }
 
     const isDraftSession = session.versionId === DRAFT_VERSION_ID;
     if (isDraftSession) {
-      await saveSimulationEvaluation({ sessionId: session.id, evaluation, selectedDisposition });
+      await saveSimulationEvaluation({ sessionId: session.id, session, evaluation, selectedDisposition });
       const response: EvaluateSimResponse = { evaluation, certified: false };
       return NextResponse.json(response);
     }

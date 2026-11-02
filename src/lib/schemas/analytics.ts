@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { DivisionIdSchema } from './domain';
 import { ProvenanceRecordSchema } from '@/lib/ai/provenance';
+import {
+  DispositionValidationSchema,
+  ScenarioStateSchema,
+  SimulationAssessmentEligibilitySchema,
+  SimulationEventSchema,
+  SimulationGateResultSchema,
+} from './simulation-state';
 
 export const EnrollmentStatusSchema = z.enum(['NOT_STARTED', 'IN_PROGRESS', 'CERTIFIED']);
 export type EnrollmentStatus = z.infer<typeof EnrollmentStatusSchema>;
@@ -49,6 +56,7 @@ export const SimCriterionResultSchema = z.object({
   criterionLabel: z.string(),
   score: z.enum(['0', '50', '100']).transform(Number).or(z.number()),
   agentQuoteEvidence: z.string(),
+  evidenceEventIds: z.array(z.string()).optional(),
   coachingNote: z.string(),
   betterResponseExample: z.string().nullable(),
 });
@@ -63,6 +71,11 @@ export const SimEvaluationSchema = z.object({
   strengthsHighlighted: z.array(z.string()),
   coachingImprovements: z.array(z.string()),
   criterionResults: z.array(SimCriterionResultSchema),
+  /** Server-derived controls are authoritative over every model-produced score. */
+  gateResults: z.array(SimulationGateResultSchema).optional(),
+  assessmentEligibility: SimulationAssessmentEligibilitySchema.optional(),
+  dispositionValidation: DispositionValidationSchema.optional(),
+  evidenceEventIds: z.array(z.string()).optional(),
   provenance: ProvenanceRecordSchema.optional(),
   evaluatedAt: z.number(),
 });
@@ -86,6 +99,13 @@ export const SimSessionDocSchema = z.object({
   messages: z.array(SimMessageSchema),
   selectedDisposition: z.string().nullable(),
   evaluation: SimEvaluationSchema.nullable(),
+  /** Optional for historical sessions; all new scenario runs are server-state driven. */
+  scenarioState: ScenarioStateSchema.optional(),
+  simulationEvents: z.array(SimulationEventSchema).optional(),
+  gateResults: z.array(SimulationGateResultSchema).optional(),
+  dispositionValidation: DispositionValidationSchema.optional(),
+  assessmentEligibility: SimulationAssessmentEligibilitySchema.optional(),
+  nextEventSequence: z.number().int().positive().optional(),
   provenance: ProvenanceRecordSchema.optional(),
   startedAt: z.number(),
   updatedAt: z.number(),

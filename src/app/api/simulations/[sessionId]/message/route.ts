@@ -3,9 +3,11 @@ import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { getLLMGateway } from '@/lib/ai/gateway';
 import { buildActorMessages, buildActorSystemPrompt } from '@/lib/ai/prompts/sim-actor';
-import type { SimMessage } from '@/lib/schemas/analytics';
+import { SimSessionDocSchema, type SimMessage } from '@/lib/schemas/analytics';
+import type { PublicSimScenario } from '@/lib/schemas/curriculum';
 import { SimMessageRequestSchema, type SimDoneEvent } from '@/lib/schemas/api';
 import { ServiceError, isServiceError } from '@/lib/services/errors';
+import { appendDialogueEvent, assessmentEligibility, assertSafeSyntheticText, evaluateDeterministicGates } from '@/lib/services/scenario-state';
 import { errorResponse, parseJsonBody } from '@/lib/services/route-helpers';
 import { createSimEndStreamFilter } from '@/lib/services/sim-end-filter';
 import {
@@ -49,14 +51,16 @@ export async function POST(
     systemPrompt: string;
     history: SimMessage[];
     agentMessage: SimMessage;
+    scenario: PublicSimScenario;
     expectedTurnCount: number;
     nextTurnCount: number;
     maxTurns: number;
   };
   try {
+    assertSafeSyntheticText(content, 'the call transcript');
     const session = await loadOwnedSimSession(user, sessionId);
-    if (session.status !== 'ACTIVE') {
-      return jsonError(409, 'SIM_NOT_ACTIVE', 'This call has ended. Select a disposition to get your score.');
+    if (session.status !== 'ACTIVE' || session.scenarioState?.lifecycle !== 'in_call') {
+      return jsonError(409, 'SIM_NOT_IN_CALL', 'Complete pre-call inspection and dial before sending dialogue.');
     }
 
     const [track, version, secret] = await Promise.all([
@@ -87,6 +91,7 @@ export async function POST(
       }),
       history: [...session.messages, agentMessage],
       agentMessage,
+      scenario,
       expectedTurnCount: session.turnCount,
       nextTurnCount,
       maxTurns: scenario.maxTurns,
@@ -170,27 +175,61 @@ export async function POST(
             }
           : null;
 
-        // One write: agent message + reply. The transaction rejects a parallel send on the same session.
+        // Dialogue, state, gate evidence, and append-only events commit atomically.
         const ref = simSessionsCollection().doc(sessionId);
         await adminDb.runTransaction(async (tx) => {
           const snap = await tx.get(ref);
           if (!snap.exists) throw new ServiceError(404, 'SESSION_NOT_FOUND', 'This Simulation session does not exist.');
-          if (snap.get('status') !== 'ACTIVE' || snap.get('turnCount') !== prepared.expectedTurnCount) {
-            throw new ServiceError(
-              409,
-              'SIM_CONFLICT',
-              'This call changed in another window. Reload the page to continue.',
-            );
+          const current = SimSessionDocSchema.parse({ ...snap.data(), id: snap.id });
+          if (current.status !== 'ACTIVE' || current.turnCount !== prepared.expectedTurnCount || current.scenarioState?.lifecycle !== 'in_call' || !current.simulationEvents) {
+            throw new ServiceError(409, 'SIM_CONFLICT', 'This call changed in another window. Reload the page to continue.');
           }
-          const messages: unknown[] = Array.isArray(snap.get('messages')) ? snap.get('messages') : [];
+          const learner = appendDialogueEvent({
+            sessionId,
+            state: current.scenarioState,
+            events: current.simulationEvents,
+            actor: 'learner',
+            content: prepared.agentMessage.content,
+            provenance: 'learner',
+            now: new Date(prepared.agentMessage.createdAt),
+            eventId: prepared.agentMessage.id,
+          });
+          let state = learner.state;
+          let events = [...current.simulationEvents, learner.event];
+          if (replyMessage) {
+            const source = replyMessage.provenance?.source;
+            const customer = appendDialogueEvent({
+              sessionId,
+              state,
+              events,
+              actor: 'customer',
+              content: replyMessage.content,
+              provenance: source === 'replay' ? 'replay' : source === 'manual_chat' ? 'manual_chat' : 'local_ai',
+              runtimeProvenance: replyMessage.provenance,
+              now: new Date(replyMessage.createdAt),
+              eventId: replyMessage.id,
+            });
+            state = customer.state;
+            events = [...events, customer.event];
+          }
+          const gates = evaluateDeterministicGates(prepared.scenario, state, events);
+          const messages = replyMessage
+            ? [...current.messages, prepared.agentMessage, replyMessage]
+            : [...current.messages, prepared.agentMessage];
           tx.update(ref, {
-            messages: replyMessage
-              ? [...messages, prepared.agentMessage, replyMessage]
-              : [...messages, prepared.agentMessage],
+            messages,
             turnCount: prepared.nextTurnCount,
-            status: simEnded ? 'READY_FOR_EVAL' : 'ACTIVE',
+            status: 'ACTIVE',
+            scenarioState: state,
+            simulationEvents: events,
+            gateResults: gates,
+            assessmentEligibility: assessmentEligibility(prepared.scenario, state, events, gates),
+            nextEventSequence: events[events.length - 1]!.sequence + 1,
             updatedAt: Date.now(),
           });
+          for (const event of events.slice(current.simulationEvents.length)) {
+            tx.set(ref.collection('events').doc(event.id), event);
+          }
         });
 
         const done: SimDoneEvent = { simEnded, turnCount: prepared.nextTurnCount };
