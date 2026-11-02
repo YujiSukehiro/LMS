@@ -22,6 +22,8 @@ export interface TranscriptChatProps {
   composerNote?: string;
   /** Text to put back into the composer (for example after a failed send). Change `restoreKey` to apply it again. */
   restoreDraft?: { text: string; restoreKey: number } | null;
+  /** Shows a persistent inspection-only label for deterministic demo sessions. */
+  demoReplay?: boolean;
   maxLength?: number;
   className?: string;
 }
@@ -35,6 +37,7 @@ export function TranscriptChat({
   composerDisabled,
   composerNote,
   restoreDraft,
+  demoReplay = false,
   maxLength = 2000,
   className,
 }: TranscriptChatProps) {
@@ -81,6 +84,12 @@ export function TranscriptChat({
 
   return (
     <div className={cn('pulse-card flex min-h-0 flex-col', className)}>
+      {demoReplay ? (
+        <p role="status" className="border-b border-pulse-amber/30 bg-pulse-amber/10 px-4 py-2 text-sm text-pulse-secondary">
+          <span className="font-semibold text-pulse-amber">Demo replay</span> — inspection only; no progress, readiness, or
+          certification credit.
+        </p>
+      ) : null}
       <div
         ref={scrollRef}
         role="log"

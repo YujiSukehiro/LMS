@@ -13,6 +13,10 @@ function scoreTone(score: number): string {
 export function SimTranscriptDetails({ session, trackTitle }: { session: SimSessionDoc; trackTitle: string }) {
   const evaluation = session.evaluation;
   const passed = evaluation?.passed ?? false;
+  const isDemoReplay =
+    session.provenance?.source === 'replay' ||
+    evaluation?.provenance?.source === 'replay' ||
+    session.messages.some((message) => message.provenance?.source === 'replay');
   return (
     <details className="group pulse-card overflow-hidden open:border-pulse-border">
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-3 px-4 py-3 hover:bg-pulse-surface-2/40 [&::-webkit-details-marker]:hidden">
@@ -22,8 +26,10 @@ export function SimTranscriptDetails({ session, trackTitle }: { session: SimSess
           <span className="block truncate text-xs text-pulse-muted">
             {trackTitle} · {formatDate(session.startedAt)} · {session.turnCount} turns
             {session.versionId === 'draft' ? ' · Draft test-play' : ''}
+            {isDemoReplay ? ' · Demo replay' : ''}
           </span>
         </span>
+        {isDemoReplay ? <span className="pulse-pill pulse-pill-amber">Demo replay</span> : null}
         {evaluation ? (
           <span className={cn('pulse-pill pulse-metric', passed ? 'pulse-pill-emerald' : 'pulse-pill-amber')}>
             {passed ? <CircleCheck aria-hidden className="size-3.5" /> : <CircleX aria-hidden className="size-3.5" />}
@@ -32,6 +38,12 @@ export function SimTranscriptDetails({ session, trackTitle }: { session: SimSess
         ) : null}
       </summary>
 
+      {isDemoReplay ? (
+        <p role="status" className="border-t border-pulse-amber/30 bg-pulse-amber/10 px-4 py-2 text-sm text-pulse-secondary">
+          <span className="font-semibold text-pulse-amber">Demo replay:</span> transcript and scorecard are for inspection only;
+          no progress, readiness, or certification credit is recorded.
+        </p>
+      ) : null}
       <div className="grid gap-4 border-t border-pulse-border-subtle p-4 xl:grid-cols-2">
         <div className="flex flex-col gap-2">
           <p className="pulse-label">Transcript</p>

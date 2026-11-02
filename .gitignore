@@ -14,3 +14,8 @@ coverage/
 .DS_Store
 demo-recordings/
 demo-replay/
+mlx-runtime/*
+!mlx-runtime/README.md
+!mlx-runtime/start.sh
+!mlx-runtime/stop.sh
+!mlx-runtime/status.sh

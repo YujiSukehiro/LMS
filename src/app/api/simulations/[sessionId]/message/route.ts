@@ -8,7 +8,11 @@ import { SimMessageRequestSchema, type SimDoneEvent } from '@/lib/schemas/api';
 import { ServiceError, isServiceError } from '@/lib/services/errors';
 import { errorResponse, parseJsonBody } from '@/lib/services/route-helpers';
 import { createSimEndStreamFilter } from '@/lib/services/sim-end-filter';
-import { loadOwnedSimSession, simSessionsCollection } from '@/lib/services/simulation-engine';
+import {
+  createSimulationProvenance,
+  loadOwnedSimSession,
+  simSessionsCollection,
+} from '@/lib/services/simulation-engine';
 import { loadSecretScenario, loadTrack, loadVersion } from '@/lib/services/track-loader';
 import { sseFrame } from '@/lib/utils';
 
@@ -153,7 +157,17 @@ export async function POST(
 
         const simEnded = sentinelSeen || prepared.nextTurnCount >= prepared.maxTurns;
         const replyMessage: SimMessage | null = reply
-          ? { id: randomUUID(), role: 'counterparty', content: reply, createdAt: Date.now() }
+          ? {
+              id: randomUUID(),
+              role: 'counterparty',
+              content: reply,
+              createdAt: Date.now(),
+              provenance: createSimulationProvenance({
+                task: 'actor',
+                systemPrompt: prepared.systemPrompt,
+                messages: prepared.history,
+              }),
+            }
           : null;
 
         // One write: agent message + reply. The transaction rejects a parallel send on the same session.

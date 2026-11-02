@@ -14,6 +14,8 @@ export interface GenerateStructuredOptions<T extends z.ZodTypeAny> {
   schema: T;
   schemaName: string;
   temperature?: number; // Default 0.2 for deterministic grounded curriculum/grading
+  maxOutputTokens?: number;
+  signal?: AbortSignal;
 }
 
 export interface StreamChatOptions {
@@ -32,7 +34,7 @@ export interface LLMHealth {
 }
 
 export interface LLMGateway {
-  readonly providerName: 'ollama' | 'gemini';
+  readonly providerName: 'ollama' | 'gemini' | 'openai_compatible' | 'replay';
   generateStructured<T extends z.ZodTypeAny>(opts: GenerateStructuredOptions<T>): Promise<z.infer<T>>;
   streamChat(opts: StreamChatOptions): AsyncGenerator<string, void, unknown>;
   healthCheck(): Promise<LLMHealth>;

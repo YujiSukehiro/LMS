@@ -631,7 +631,20 @@ export async function recordSimulationEvaluation(args: {
   pillars: CompetencyPillar[];
   selectedDisposition: string;
 }): Promise<{ certified: boolean; enrollment: EnrollmentDoc }> {
-  const { user, track, version, session, evaluation, scenario, pillars, selectedDisposition } = args;
+  const { session, evaluation } = args;
+  if (
+    session.provenance?.source === 'replay' ||
+    evaluation.provenance?.source === 'replay' ||
+    session.messages.some((message) => message.provenance?.source === 'replay')
+  ) {
+    throw new ServiceError(
+      409,
+      'REPLAY_NOT_ELIGIBLE',
+      'Demo replay is for inspection only and cannot change progress, readiness, or certification.',
+    );
+  }
+
+  const { user, track, version, scenario, pillars, selectedDisposition } = args;
   const pillarIndex = buildPillarIndex(pillars, version.competencyPillars, track.competencyPillars);
   const scopes = rollupScopesFor(user, track);
   const sRef = simSessionRef(session.id);

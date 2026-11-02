@@ -69,6 +69,17 @@ export async function POST(
       pillars: sessionVersion.competencyPillars,
     });
 
+    const isDemoReplay =
+      session.provenance?.source === 'replay' ||
+      evaluation.provenance?.source === 'replay' ||
+      session.messages.some((message) => message.provenance?.source === 'replay');
+    if (isDemoReplay) {
+      // Keep the demo scorecard inspectable, but never touch enrollment, readiness, XP, or certification.
+      await saveSimulationEvaluation({ sessionId: session.id, evaluation, selectedDisposition });
+      const response: EvaluateSimResponse = { evaluation, certified: false, demoReplay: true };
+      return NextResponse.json(response);
+    }
+
     const isDraftSession = session.versionId === DRAFT_VERSION_ID;
     if (isDraftSession) {
       await saveSimulationEvaluation({ sessionId: session.id, evaluation, selectedDisposition });

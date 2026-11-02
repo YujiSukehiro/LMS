@@ -3,8 +3,10 @@
  * The Judge (heavy tier) gives per-criterion scores; every number in the SimEvaluation is computed
  * here with the pure rules in ./scoring.
  */
+import { createHash } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
-import { getLLMGateway } from '@/lib/ai/gateway';
+import { getActiveAiRuntime, getLLMGateway } from '@/lib/ai/gateway';
+import { createProvenance, type ProvenanceRecord } from '@/lib/ai/provenance';
 import type { LLMGateway } from '@/lib/ai/types';
 import {
   JudgeOutputSchema,
@@ -27,6 +29,64 @@ import { ServiceError } from './errors';
 import { applySimScoringRules, computeRawSimScore } from './scoring';
 
 const MAX_FEEDBACK_ITEMS = 4;
+const SIMULATION_PROMPT_VERSION = '1';
+
+export type SimulationProvenanceTask = 'session' | 'actor' | 'judge';
+
+function hashProvenanceInput(value: unknown): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
+/** Provider-neutral evidence metadata for sessions, generated actor turns, and judge results. */
+export function createSimulationProvenance(input: {
+  task: SimulationProvenanceTask;
+  systemPrompt?: string;
+  userPrompt?: string;
+  messages?: SimMessage[];
+  recordedAt?: string;
+}): ProvenanceRecord {
+  const runtime = getActiveAiRuntime();
+  const source =
+    runtime.provider === 'replay'
+      ? 'replay'
+      : runtime.provider === 'manual_chat'
+        ? 'manual_chat'
+        : runtime.provider === 'gemini'
+          ? 'hosted_ai'
+          : 'local_ai';
+  const protocol =
+    runtime.provider === 'openai_compatible'
+      ? 'openai_compatible_http'
+      : runtime.provider === 'ollama'
+        ? 'ollama_http'
+        : runtime.provider;
+
+  return createProvenance({
+    source,
+    provider: runtime.provider,
+    model: input.task === 'judge' ? runtime.heavyModel : runtime.fastModel,
+    prompt:
+      input.task === 'session'
+        ? null
+        : {
+            templateId: `simulation.${input.task}`,
+            templateVersion: SIMULATION_PROMPT_VERSION,
+            inputHash: hashProvenanceInput({
+              systemPrompt: input.systemPrompt ?? '',
+              userPrompt: input.userPrompt ?? '',
+              messages: input.messages?.map(({ role, content }) => ({ role, content })) ?? [],
+            }),
+          },
+    schema:
+      input.task === 'judge'
+        ? { name: 'SimJudgeOutput', version: SIMULATION_PROMPT_VERSION }
+        : input.task === 'actor'
+          ? { name: 'SimActorText', version: SIMULATION_PROMPT_VERSION }
+          : null,
+    runtime: { label: runtime.runtimeLabel ?? runtime.provider, protocol },
+    recordedAt: input.recordedAt ?? new Date().toISOString(),
+  });
+}
 
 /** Daily Simulation start limit per user (env MAX_SIM_SESSIONS_PER_USER_PER_DAY, default 15). */
 export function maxSimSessionsPerDay(): number {
@@ -109,6 +169,7 @@ export function assembleSimEvaluation(input: {
   messages: SimMessage[];
   selectedDisposition: string;
   evaluatedAt?: number;
+  provenance?: ProvenanceRecord;
 }): SimEvaluation {
   const { judge, scenario, secret, messages, selectedDisposition } = input;
   const agentMessages = messages.filter((m) => m.role === 'agent');
@@ -177,6 +238,7 @@ export function assembleSimEvaluation(input: {
     strengthsHighlighted: cleanList(judge.strengthsHighlighted),
     coachingImprovements,
     criterionResults,
+    provenance: input.provenance,
     evaluatedAt: input.evaluatedAt ?? Date.now(),
   });
 }
@@ -191,16 +253,18 @@ export async function evaluateSimulation(input: {
   gateway?: LLMGateway;
 }): Promise<SimEvaluation> {
   const gateway = input.gateway ?? getLLMGateway();
+  const systemPrompt = buildJudgeSystemPrompt();
+  const userPrompt = buildJudgeUserPrompt({
+    scenario: input.scenario,
+    secret: input.secret,
+    messages: input.messages,
+    selectedDisposition: input.selectedDisposition,
+    pillars: input.pillars,
+  });
   const judge = await gateway.generateStructured({
     tier: 'heavy',
-    systemPrompt: buildJudgeSystemPrompt(),
-    userPrompt: buildJudgeUserPrompt({
-      scenario: input.scenario,
-      secret: input.secret,
-      messages: input.messages,
-      selectedDisposition: input.selectedDisposition,
-      pillars: input.pillars,
-    }),
+    systemPrompt,
+    userPrompt,
     schema: JudgeOutputSchema,
     schemaName: 'SimJudgeOutput',
     temperature: 0.1,
@@ -211,5 +275,6 @@ export async function evaluateSimulation(input: {
     secret: input.secret,
     messages: input.messages,
     selectedDisposition: input.selectedDisposition,
+    provenance: createSimulationProvenance({ task: 'judge', systemPrompt, userPrompt }),
   });
 }

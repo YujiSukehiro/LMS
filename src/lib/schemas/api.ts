@@ -124,6 +124,8 @@ export const EvaluateSimRequestSchema = z.object({ selectedDisposition: z.string
 export const EvaluateSimResponseSchema = z.object({
   evaluation: SimEvaluationSchema,
   certified: z.boolean(),
+  /** Explicit inspection-only marker for Demo replay; omitted by assessed flows. */
+  demoReplay: z.boolean().optional(),
 });
 export type EvaluateSimResponse = z.infer<typeof EvaluateSimResponseSchema>;
 
@@ -156,6 +158,18 @@ export const AiHealthResponseSchema = z.object({
   ok: z.boolean(),
   provider: z.string(),
   models: z.array(z.string()),
+  status: z.enum(['ready', 'degraded', 'blocked', 'not_configured', 'demo', 'manual']).optional(),
+  runtimeLabel: z.string().optional(),
+  capabilities: z.array(z.object({
+    capability: z.string(),
+    status: z.enum(['passed', 'failed', 'not_tested']),
+    model: z.string().optional(),
+    latencyMs: z.number().int().nonnegative(),
+    outputChars: z.number().int().nonnegative().optional(),
+    lastSuccessAt: z.string().optional(),
+    error: z.string().optional(),
+    nextStep: z.string().optional(),
+  })).optional(),
   error: z.string().optional(),
 });
 export type AiHealthResponse = z.infer<typeof AiHealthResponseSchema>;

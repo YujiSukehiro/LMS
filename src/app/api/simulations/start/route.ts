@@ -5,7 +5,11 @@ import { SimSessionDocSchema, type SimSessionDoc } from '@/lib/schemas/analytics
 import { StartSimRequestSchema } from '@/lib/schemas/api';
 import { ensureEnrollment, hasCompletedAllUnits } from '@/lib/services/analytics-rollup';
 import { errorResponse, parseJsonBody, startOfUtcDay } from '@/lib/services/route-helpers';
-import { maxSimSessionsPerDay, simSessionsCollection } from '@/lib/services/simulation-engine';
+import {
+  createSimulationProvenance,
+  maxSimSessionsPerDay,
+  simSessionsCollection,
+} from '@/lib/services/simulation-engine';
 import { loadLearnerTrackContext, loadSecretScenario } from '@/lib/services/track-loader';
 
 export const runtime = 'nodejs';
@@ -94,6 +98,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       ],
       selectedDisposition: null,
       evaluation: null,
+      provenance: createSimulationProvenance({ task: 'session' }),
       startedAt: now,
       updatedAt: now,
     });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DivisionIdSchema } from './domain';
+import { ProvenanceRecordSchema } from '@/lib/ai/provenance';
 
 export const EnrollmentStatusSchema = z.enum(['NOT_STARTED', 'IN_PROGRESS', 'CERTIFIED']);
 export type EnrollmentStatus = z.infer<typeof EnrollmentStatusSchema>;
@@ -37,6 +38,8 @@ export const SimMessageSchema = z.object({
   role: z.enum(['counterparty', 'agent']),
   content: z.string(),
   createdAt: z.number(),
+  /** Present on generated actor turns; learner turns and legacy messages remain valid without it. */
+  provenance: ProvenanceRecordSchema.optional(),
 });
 export type SimMessage = z.infer<typeof SimMessageSchema>;
 
@@ -60,6 +63,7 @@ export const SimEvaluationSchema = z.object({
   strengthsHighlighted: z.array(z.string()),
   coachingImprovements: z.array(z.string()),
   criterionResults: z.array(SimCriterionResultSchema),
+  provenance: ProvenanceRecordSchema.optional(),
   evaluatedAt: z.number(),
 });
 export type SimEvaluation = z.infer<typeof SimEvaluationSchema>;
@@ -82,6 +86,7 @@ export const SimSessionDocSchema = z.object({
   messages: z.array(SimMessageSchema),
   selectedDisposition: z.string().nullable(),
   evaluation: SimEvaluationSchema.nullable(),
+  provenance: ProvenanceRecordSchema.optional(),
   startedAt: z.number(),
   updatedAt: z.number(),
 });

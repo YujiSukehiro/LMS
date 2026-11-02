@@ -45,7 +45,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 export class ReplayProvider implements LLMGateway {
-  readonly providerName = 'gemini' as const;
+  readonly providerName = 'replay' as const;
   private unitIndex = 0;
 
   constructor(private readonly filePath: string = process.env.DEMO_REPLAY_FILE ?? 'demo-replay/demo.json') {}

@@ -15,7 +15,10 @@
     "emulators": "firebase emulators:start --project logicall-pulse-dev --only auth,firestore,storage",
     "seed:local": "tsx --env-file=.env.local scripts/seed-demo.ts",
     "verify:ollama": "tsx --env-file=.env.local scripts/verify-ollama.ts",
-    "dev:local": "npm run verify:ollama && npm run dev"
+    "verify:local-ai": "tsx --env-file=.env.local scripts/verify-local-ai.ts",
+    "verify:local-ai:mlx": "sh scripts/with-mlx-env.sh npm run verify:local-ai",
+    "dev:local": "npm run verify:ollama && npm run dev",
+    "dev:mlx": "sh scripts/with-mlx-env.sh sh -c 'npm run verify:local-ai && npm run dev'"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",

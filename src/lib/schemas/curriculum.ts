@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DivisionIdSchema } from './domain';
+import { ProvenanceRecordSchema } from '@/lib/ai/provenance';
 
 /** The 8 canonical LogiCall skill keys (docs/04 §3.2). */
 export const CanonicalPillarKeySchema = z.enum([
@@ -222,6 +223,7 @@ export const TrackVersionDocSchema = z.object({
   competencyPillars: z.array(CompetencyPillarSchema),
   units: z.array(TrackUnitSchema),
   simScenarios: z.array(PublicSimScenarioSchema),
+  provenance: ProvenanceRecordSchema.optional(),
   publishedAt: z.number().nullable(),
   createdAt: z.number(),
 });

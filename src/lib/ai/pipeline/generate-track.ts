@@ -15,7 +15,8 @@ import {
 } from '@/lib/schemas/curriculum';
 import type { GenerateProgressEvent } from '@/lib/schemas/api';
 import { LLMStructuredOutputError, type LLMGateway } from '@/lib/ai/types';
-import { getLLMGateway } from '@/lib/ai/gateway';
+import { getActiveAiRuntime, getLLMGateway } from '@/lib/ai/gateway';
+import { createProvenance, type ProvenanceRecord } from '@/lib/ai/provenance';
 import { selectPages, type ExtractedPage } from '@/lib/ai/pdf-extractor';
 import {
   BLUEPRINT_SCHEMA_NAME,
@@ -117,6 +118,16 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
     const pillarIds = blueprint.competencyPillars.map((pillar) => pillar.id);
     const createdAt = Date.now();
     const versionNumber = nextDraftVersionNumber(track);
+    const runtime = getActiveAiRuntime();
+    const provenance = createProvenance({
+      source: runtime.provider === 'replay' ? 'replay' : runtime.provider === 'gemini' ? 'hosted_ai' : runtime.provider === 'manual_chat' ? 'manual_chat' : 'local_ai',
+      provider: runtime.provider,
+      model: runtime.heavyModel,
+      prompt: { templateId: 'staged-track-generation', templateVersion: 'v1' },
+      schema: { name: 'TrackVersion', version: 'v1' },
+      runtime: { label: runtime.runtimeLabel ?? runtime.provider, profileId: `${runtime.provider}-local` },
+      recordedAt: new Date(createdAt).toISOString(),
+    });
 
     const saveDraft = async (units: TrackUnit[], simScenarios: TrackVersionDoc['simScenarios']) => {
       const draft = TrackVersionDocSchema.parse({
@@ -126,6 +137,7 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
         competencyPillars: blueprint.competencyPillars,
         units,
         simScenarios,
+        provenance,
         publishedAt: null,
         createdAt,
       });
@@ -190,7 +202,7 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
     });
     const scenarios = finalizeScenarios(simRaw, simCtx);
 
-    await commitDraft({ track, trackId, blueprint, units, scenarios, versionNumber, createdAt });
+    await commitDraft({ track, trackId, blueprint, units, scenarios, versionNumber, createdAt, provenance });
     lastPercent = 100;
     onProgress({ step: 'READY', percent: 100, message: 'Track Ready! Redirecting to Preview Studio...' });
   } catch (error) {
@@ -212,6 +224,7 @@ async function commitDraft(input: {
   scenarios: ReturnType<typeof finalizeScenarios>;
   versionNumber: number;
   createdAt: number;
+  provenance: ProvenanceRecord;
 }): Promise<void> {
   const now = Date.now();
   const simScenarios = input.scenarios.map((pair) => pair.publicScenario);
@@ -222,6 +235,7 @@ async function commitDraft(input: {
     competencyPillars: input.blueprint.competencyPillars,
     units: input.units,
     simScenarios,
+    provenance: input.provenance,
     publishedAt: null,
     createdAt: input.createdAt,
   });

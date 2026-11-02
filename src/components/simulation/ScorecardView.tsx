@@ -22,6 +22,8 @@ export interface ScorecardViewProps {
   certified: boolean;
   passThreshold: number;
   selectedDisposition?: string | null;
+  /** Explicit route marker; replay provenance also enables the label for historical viewers. */
+  demoReplay?: boolean;
   /** CompetencyPillar id -> label, to label each criterion. */
   pillarLabels?: Record<string, string>;
   onRetry?: () => void;
@@ -41,6 +43,7 @@ export function ScorecardView({
   certified,
   passThreshold,
   selectedDisposition,
+  demoReplay = false,
   pillarLabels,
   onRetry,
   backHref,
@@ -48,12 +51,27 @@ export function ScorecardView({
 }: ScorecardViewProps) {
   const score = Math.round(evaluation.overallScorePct);
   const autoFailed = Boolean(evaluation.autoFailedReason);
+  const isDemoReplay = demoReplay || evaluation.provenance?.source === 'replay';
   const tone: ScoreTone = evaluation.passed ? 'emerald' : autoFailed ? 'crimson' : 'amber';
-  const status = evaluation.passed ? (certified ? 'PASSED & CERTIFIED' : 'PASSED') : 'RETRY RECOMMENDED';
+  const status = isDemoReplay
+    ? 'DEMO REPLAY'
+    : evaluation.passed
+      ? certified
+        ? 'PASSED & CERTIFIED'
+        : 'PASSED'
+      : 'RETRY RECOMMENDED';
   const toneText = tone === 'emerald' ? 'text-pulse-emerald' : tone === 'crimson' ? 'text-pulse-crimson' : 'text-pulse-amber';
 
   return (
     <section aria-label="Simulation scorecard" className="pulse-cq flex flex-col gap-5">
+      {isDemoReplay ? (
+        <div role="status" className="rounded-pulse-lg border border-pulse-amber/50 bg-pulse-amber/10 p-4">
+          <p className="font-bold text-pulse-amber">Demo replay</p>
+          <p className="mt-1 text-sm text-pulse-secondary">
+            This scorecard is for inspection only. It does not count toward progress, readiness, or certification.
+          </p>
+        </div>
+      ) : null}
       <div className="pulse-card-elevated flex flex-col items-center gap-6 p-6 @2xl:flex-row @2xl:items-center">
         <ScoreGauge scorePct={score} tone={tone} statusLabel={status} thresholdPct={passThreshold} />
         <div className="min-w-0 flex-1 text-center @2xl:text-left">

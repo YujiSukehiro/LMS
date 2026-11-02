@@ -83,6 +83,7 @@ export function SimulationRunner({
   const [restoreDraft, setRestoreDraft] = useState<{ text: string; restoreKey: number } | null>(null);
   const [selectedDisposition, setSelectedDisposition] = useState<string | null>(null);
   const [result, setResult] = useState<EvaluateSimResponse | null>(null);
+  const [demoReplay, setDemoReplay] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -93,6 +94,7 @@ export function SimulationRunner({
     setError(null);
     setEvalError(null);
     setResult(null);
+    setDemoReplay(false);
     setSelectedDisposition(null);
     setSimEnded(false);
     setPickerOpen(false);
@@ -119,6 +121,7 @@ export function SimulationRunner({
       setSessionId(session.id);
       setMessages(session.messages.map((m) => ({ id: m.id, role: m.role, content: m.content })));
       setTurnCount(session.turnCount);
+      setDemoReplay(session.provenance?.source === 'replay');
       setPhase('live');
     } catch (caught) {
       setError(describeNetworkError(caught));
@@ -240,6 +243,7 @@ export function SimulationRunner({
           return;
         }
         setResult(parsed.data);
+        setDemoReplay(parsed.data.demoReplay === true || parsed.data.evaluation.provenance?.source === 'replay');
         setSimEnded(true);
         setPhase('scored');
       } catch (caught) {
@@ -302,7 +306,9 @@ export function SimulationRunner({
               <div>
                 <p className="font-semibold">Grading your call…</p>
                 <p className="text-sm text-pulse-muted">
-                  The AI coach is checking every turn against the Playbook rubric. This can take up to a minute.
+                  {demoReplay
+                    ? 'Demo replay is loading the fixture scorecard for inspection. No assessment credit will be recorded.'
+                    : 'The AI coach is checking every turn against the Playbook rubric. This can take up to a minute.'}
                 </p>
               </div>
             </div>
@@ -321,6 +327,7 @@ export function SimulationRunner({
                   : undefined
             }
             restoreDraft={restoreDraft}
+            demoReplay={demoReplay}
             className={cn('h-[min(62vh,40rem)]', phase === 'grading' && 'opacity-60')}
           />
           {simEnded && phase === 'live' && !pickerOpen ? (
@@ -340,6 +347,7 @@ export function SimulationRunner({
           certified={result.certified}
           passThreshold={scenario.passScoreThreshold}
           selectedDisposition={selectedDisposition}
+          demoReplay={demoReplay}
           pillarLabels={pillarLabels}
           onRetry={() => void start()}
           backHref={mapHref}
