@@ -58,6 +58,8 @@ beforeEach(async () => {
     await setDoc(doc(admin, 'enrollments/agent-ths_t1'), { userId: 'agent-ths', trackId: 't1', partnerCohortId: 'THS' });
     await setDoc(doc(admin, 'enrollments/agent-doz_t1'), { userId: 'agent-doz', trackId: 't1', partnerCohortId: 'DOZ' });
     await setDoc(doc(admin, 'simSessions/s-doz'), { userId: 'agent-doz', partnerCohortId: 'DOZ' });
+    await setDoc(doc(admin, 'generationCheckpoints/checkpoint-synthetic'), { status: 'complete', synthetic: true });
+    await setDoc(doc(admin, 'simSessions/s-doz/manualJudgeTasks/current'), { taskType: 'judge', synthetic: true });
     await setDoc(doc(admin, 'analyticsRollups/COHORT_THS'), { scopeType: 'COHORT', partnerCohortId: 'THS' });
     await setDoc(doc(admin, 'analyticsRollups/COHORT_DOZ'), { scopeType: 'COHORT', partnerCohortId: 'DOZ' });
     await setDoc(doc(admin, 'analyticsRollups/GLOBAL'), { scopeType: 'GLOBAL', partnerCohortId: null });
@@ -145,5 +147,39 @@ describe('PARTNER_SUPERVISOR for THS', () => {
     const sup = db('sup-ths', 'PARTNER_SUPERVISOR', 'THS');
     await assertFails(getDoc(doc(sup, 'analyticsRollups/GLOBAL')));
     await assertFails(getDoc(doc(sup, 'tracks/t1/versions/v1/secrets/evalRubrics')));
+  });
+});
+
+describe('server-only generation checkpoints and manual judge tasks', () => {
+  const paths = [
+    'generationCheckpoints/checkpoint-synthetic',
+    'generationWorkingDrafts/track-synthetic',
+    'simSessions/s-doz/manualJudgeTasks/current',
+  ];
+
+  it.each([
+    ['learner', 'agent-ths', 'AGENT', 'THS'],
+    ['partner supervisor', 'sup-ths', 'PARTNER_SUPERVISOR', 'THS'],
+    ['trainer', 'trainer-1', 'TRAINER', 'INTERNAL'],
+    ['admin', 'admin-1', 'ADMIN', 'INTERNAL'],
+  ] as const)('denies %s document reads and writes', async (_label, uid, role, partnerCohortId) => {
+    const client = db(uid, role, partnerCohortId);
+
+    for (const path of paths) {
+      await assertFails(getDoc(doc(client, path)));
+      await assertFails(setDoc(doc(client, path), { synthetic: true, clientTampering: true }));
+    }
+  });
+
+  it('denies collection listing and inactive-admin access', async () => {
+    const admin = db('admin-1', 'ADMIN', 'INTERNAL');
+    const inactiveAdmin = db('old-admin', 'ADMIN', 'INTERNAL', false);
+
+    await assertFails(getDocs(collection(admin, 'generationCheckpoints')));
+    await assertFails(getDocs(collection(admin, 'simSessions/s-doz/manualJudgeTasks')));
+    for (const path of paths) {
+      await assertFails(getDoc(doc(inactiveAdmin, path)));
+      await assertFails(setDoc(doc(inactiveAdmin, path), { synthetic: true, clientTampering: true }));
+    }
   });
 });

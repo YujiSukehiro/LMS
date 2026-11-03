@@ -236,11 +236,12 @@ export function evaluatePublicationGates(input: PublicationGateInput): Publicati
     issues.push(issue('SOURCE_NOT_APPROVED', 'A trainer must approve this exact source bundle revision with approver identity before publication.', 'source', bundle.id));
   }
 
+  for (const decisionId of bundle?.unresolvedSmeDecisionIds ?? []) {
+    issues.push(issue('SME_DECISION_REQUIRED', `Standard Meds decision ${decisionId} requires an explicit SME resolution before publication.`, 'source', decisionId));
+  }
   const openConflicts = conflicts.filter((conflict) => conflict.status === 'open' || conflict.status === 'sme_review');
   for (const conflict of openConflicts) {
-    if (conflict.severity === 'critical') {
-      issues.push(issue('SME_DECISION_REQUIRED', `Conflict ${conflict.id} requires an SME decision for its affected items.`, 'conflict', conflict.id));
-    }
+    issues.push(issue('SME_DECISION_REQUIRED', `Conflict ${conflict.id} requires an SME decision for its affected items.`, 'conflict', conflict.id, conflict.severity));
   }
 
   const claims: Array<{ ownerId: string; evidence: ClaimEvidence }> = [];

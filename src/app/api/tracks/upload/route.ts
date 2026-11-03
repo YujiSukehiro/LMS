@@ -141,11 +141,18 @@ export async function POST(req: Request): Promise<NextResponse> {
   const existingTrackId = formString(form, 'trackId') || undefined;
   let existing: TrackDoc | null = null;
   let inherited: SourceReviewData | null = null;
+  let priorBundle: SourceReviewData['bundle'] | null = null;
   if (existingTrackId) {
     existing = await loadTrack(existingTrackId);
     if (!existing) return jsonError(404, 'NOT_FOUND', 'This Track does not exist.');
     if (isGenerationRunning(existing)) {
       return jsonError(409, 'GENERATION_RUNNING', 'A build is running for this Track. Wait for it to finish, then upload again.');
+    }
+    // A revised new bundle starts with new documents, but pack-level unresolved decisions must
+    // not disappear merely because the source revision changed.
+    if (existing.activeSourceBundleId && options.data.mode !== 'append-document') {
+      const snapshot = await sourceBundlesCollection(existing.id).doc(existing.activeSourceBundleId).get();
+      if (snapshot.exists) priorBundle = SourceBundleSchema.parse(snapshot.data());
     }
   }
   if (options.data.mode === 'append-document') {
@@ -236,6 +243,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     sharedRulePackIds: options.data.sharedRulePackIds ?? inherited?.bundle?.sharedRulePackIds ?? [],
     precedencePolicyId: inherited?.bundle?.precedencePolicyId ?? 'standard-meds-precedence-v1',
     conflictIds: inherited?.bundle?.conflictIds ?? [],
+    unresolvedSmeDecisionIds: inherited?.bundle?.unresolvedSmeDecisionIds ?? priorBundle?.unresolvedSmeDecisionIds ?? [],
     status: 'draft',
     revisionHash: computeSourceBundleRevisionHash({ documents, sharedRulePackIds: options.data.sharedRulePackIds ?? inherited?.bundle?.sharedRulePackIds ?? [], precedencePolicyId: inherited?.bundle?.precedencePolicyId ?? 'standard-meds-precedence-v1' }, pages),
     approvedSourceRevision: null,

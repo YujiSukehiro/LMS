@@ -218,6 +218,25 @@ describe('source bundle upload', () => {
     expect(store.get(`tracks/${first.trackId}/versions/v1`)).toEqual(published);
   });
 
+  it('carries the unresolved SME register into a revised source bundle', async () => {
+    const firstResponse = await POST(upload({ fileName: 'foundation.pdf' }));
+    expect(firstResponse.status).toBe(201);
+    const first = await firstResponse.json();
+    const originalPath = `tracks/${first.trackId}/sourceBundles/${first.bundleId}`;
+    const original = bundleAt(first.trackId, first.bundleId);
+    store.set(originalPath, { ...original, status: 'needs_sme', unresolvedSmeDecisionIds: ['SME-01', 'SME-10'] });
+
+    const revisedResponse = await POST(upload({ trackId: first.trackId, fileName: 'revised.pdf' }));
+    expect(revisedResponse.status).toBe(200);
+    const revised = await revisedResponse.json();
+    const revisedBundle = bundleAt(first.trackId, revised.bundleId);
+
+    expect(revised.bundleId).not.toBe(first.bundleId);
+    expect(revisedBundle.status).toBe('draft');
+    expect(revisedBundle.unresolvedSmeDecisionIds).toEqual(['SME-01', 'SME-10']);
+    expect((store.get(originalPath) as SourceBundle).unresolvedSmeDecisionIds).toEqual(['SME-01', 'SME-10']);
+  });
+
   it('rejects invalid append order and malformed inheritance with zero Firestore or storage writes', async () => {
     const validResponse = await POST(upload({ fileName: 'foundation.pdf' }));
     const { trackId } = await validResponse.json();

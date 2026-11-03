@@ -695,11 +695,13 @@ export async function saveSimulationEvaluation(args: {
   evaluation: SimEvaluation;
   selectedDisposition: string;
   session?: SimSessionDoc;
+  expectedSessionUpdatedAt?: number;
 }): Promise<void> {
   const ref = simSessionRef(args.sessionId);
   await adminDb.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     assertSessionEvaluable(snap);
+    assertExpectedSessionUpdatedAt(snap.get('updatedAt'), args.expectedSessionUpdatedAt);
     const evidence = args.session?.scenarioState && args.session.simulationEvents
       ? appendEvaluationEvent({
           sessionId: args.sessionId,
@@ -731,6 +733,12 @@ function assertSessionEvaluable(snap: DocumentSnapshot) {
   }
   if (status !== 'ACTIVE' && status !== 'READY_FOR_EVAL') {
     throw new ServiceError(409, 'SESSION_NOT_ACTIVE', 'This Simulation session is closed.');
+  }
+}
+
+function assertExpectedSessionUpdatedAt(actual: unknown, expected: number | undefined): void {
+  if (expected !== undefined && actual !== expected) {
+    throw new ServiceError(409, 'STALE_MANUAL_PACKAGE', 'The Simulation changed after export. Export a new manual package before importing a result.');
   }
 }
 
@@ -770,6 +778,7 @@ export async function recordSimulationEvaluation(args: {
   scenario: PublicSimScenario;
   pillars: CompetencyPillar[];
   selectedDisposition: string;
+  expectedSessionUpdatedAt?: number;
 }): Promise<{ certified: boolean; enrollment: EnrollmentDoc }> {
   const { user, track, version, scenario, pillars, selectedDisposition, evaluation } = args;
   if (
@@ -790,6 +799,7 @@ export async function recordSimulationEvaluation(args: {
     const [sessionSnap, userSnap, enrollmentSnap] = await tx.getAll(sRef, uRef, eRef);
     assertSessionEvaluable(sessionSnap);
     const freshSession = SimSessionDocSchema.parse({ ...sessionSnap.data(), id: sessionSnap.id });
+    assertExpectedSessionUpdatedAt(freshSession.updatedAt, args.expectedSessionUpdatedAt);
     if (
       freshSession.userId !== user.uid || freshSession.trackId !== track.id ||
       freshSession.scenarioId !== scenario.id || freshSession.versionId !== args.session.versionId

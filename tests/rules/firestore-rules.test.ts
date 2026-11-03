@@ -113,6 +113,8 @@ beforeEach(async () => {
     await setDoc(doc(admin, 'simSessions/s-doz'), { userId: 'agent-doz', partnerCohortId: 'DOZ' });
     await setDoc(doc(admin, 'simSessions/s-ths/events/e-ths'), { sessionId: 's-ths', payload: { private: true } });
     await setDoc(doc(admin, 'simSessions/s-doz/events/e-doz'), { sessionId: 's-doz', payload: { private: true } });
+    await setDoc(doc(admin, 'generationCheckpoints/checkpoint-synthetic'), { status: 'complete', synthetic: true });
+    await setDoc(doc(admin, 'simSessions/s-ths/manualJudgeTasks/current'), { taskType: 'judge', synthetic: true });
     await setDoc(doc(admin, 'simSyntheticOutbox/outbox-ths'), { sessionId: 's-ths', displayText: 'Synthetic THS message' });
     await setDoc(doc(admin, 'simSyntheticOutbox/outbox-doz'), { sessionId: 's-doz', displayText: 'Synthetic DOZ message' });
   });
@@ -319,5 +321,43 @@ describe('client write denial and active-user enforcement', () => {
     await assertFails(getDoc(doc(inactive, 'drillAttempts/attempt-ths')));
     await assertFails(getDoc(doc(inactive, 'reviewSchedules/schedule-ths')));
     await assertFails(getDoc(doc(inactive, 'simSyntheticOutbox/outbox-ths')));
+  });
+});
+
+describe('server-only generation checkpoints and manual judge tasks', () => {
+  const paths = [
+    'generationCheckpoints/checkpoint-synthetic',
+    'generationWorkingDrafts/track-synthetic',
+    'simSessions/s-ths/manualJudgeTasks/current',
+  ];
+
+  it.each([
+    ['learner', 'agent-ths', 'AGENT', 'THS'],
+    ['partner supervisor', 'sup-ths', 'PARTNER_SUPERVISOR', 'THS'],
+    ['trainer', 'trainer-1', 'TRAINER', 'INTERNAL'],
+    ['admin', 'admin-1', 'ADMIN', 'INTERNAL'],
+  ] as const)('denies %s document reads and writes', async (_label, uid, role, partnerCohortId) => {
+    const client = db(uid, role, partnerCohortId);
+
+    for (const path of paths) {
+      await assertFails(getDoc(doc(client, path)));
+      await assertFails(setDoc(doc(client, path), { synthetic: true, clientTampering: true }));
+    }
+  });
+
+  it('denies collection listing to internal ops', async () => {
+    const admin = db('admin-1', 'ADMIN', 'INTERNAL');
+
+    await assertFails(getDocs(collection(admin, 'generationCheckpoints')));
+    await assertFails(getDocs(collection(admin, 'simSessions/s-ths/manualJudgeTasks')));
+  });
+
+  it('denies inactive internal admins', async () => {
+    const inactiveAdmin = db('old-admin', 'ADMIN', 'INTERNAL', false);
+
+    for (const path of paths) {
+      await assertFails(getDoc(doc(inactiveAdmin, path)));
+      await assertFails(setDoc(doc(inactiveAdmin, path), { synthetic: true, clientTampering: true }));
+    }
   });
 });

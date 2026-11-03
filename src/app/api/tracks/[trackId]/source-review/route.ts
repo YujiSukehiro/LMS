@@ -292,10 +292,13 @@ async function applyReviewCommand(
           );
         }
       }
-      const openCritical = review.conflicts.find(
-        (conflict) => conflict.severity === 'critical' && (conflict.status === 'open' || conflict.status === 'sme_review'),
+      if (bundle.unresolvedSmeDecisionIds.length > 0) {
+        throw new SourceReviewError(409, 'SME_DECISION_REQUIRED', `Resolve ${bundle.unresolvedSmeDecisionIds.join(', ')} before bundle approval.`);
+      }
+      const openConflict = review.conflicts.find(
+        (conflict) => conflict.status === 'open' || conflict.status === 'sme_review',
       );
-      if (openCritical) throw new SourceReviewError(409, 'SME_DECISION_REQUIRED', `Resolve critical conflict ${openCritical.id} before bundle approval.`);
+      if (openConflict) throw new SourceReviewError(409, 'SME_DECISION_REQUIRED', `Resolve ${openConflict.severity} conflict ${openConflict.id} before bundle approval.`);
       const approved = SourceBundleSchema.parse({
         ...bundle,
         status: 'approved',

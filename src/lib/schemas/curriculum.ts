@@ -201,6 +201,25 @@ export const GenerationStepSchema = z.enum([
 ]);
 export type GenerationStep = z.infer<typeof GenerationStepSchema>;
 
+const GenerationBudgetMetricSchema = z.object({
+  used: z.number().nonnegative().nullable(),
+  limit: z.number().nonnegative().nullable(),
+  status: z.enum(['within_budget', 'exceeded', 'unknown', 'not_configured']),
+});
+export const GenerationBudgetReportSchema = z.object({
+  attempts: z.number().int().nonnegative(),
+  modelCalls: z.number().int().nonnegative(),
+  cacheHits: z.number().int().nonnegative(),
+  tokens: GenerationBudgetMetricSchema,
+  characters: GenerationBudgetMetricSchema.extend({
+    used: z.number().nonnegative(),
+    input: z.number().nonnegative(),
+    output: z.number().nonnegative(),
+  }),
+  duration: GenerationBudgetMetricSchema,
+});
+export type GenerationBudgetReport = z.infer<typeof GenerationBudgetReportSchema>;
+
 export const TrackDocSchema = z.object({
   id: z.string(),
   title: z.string().min(3).max(100),
@@ -212,6 +231,7 @@ export const TrackDocSchema = z.object({
     percent: z.number().min(0).max(100),
     message: z.string(),
   }),
+  generationBudgets: z.record(z.string(), GenerationBudgetReportSchema).optional(),
   sourcePdfStoragePath: z.string(),
   sourcePdfFileName: z.string(),
   sourcePageCount: z.number().int().positive(),

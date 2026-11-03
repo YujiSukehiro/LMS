@@ -16,13 +16,40 @@ import {
 
 const mocks = vi.hoisted(() => ({
   draftWrites: [] as TrackVersionDoc[],
+  workingDraftWrites: [] as TrackVersionDoc[],
   secretWrites: [] as unknown[],
   batchCommits: 0,
+  checkpoints: new Map<string, unknown>(),
+  budgetWrites: [] as Array<Record<string, unknown>>,
+  calls: { blueprint: 0, units: 0, simulations: 0 },
+  model: 'fixture-model',
+  generationProfile: {
+    baseUrl: 'http://127.0.0.1:11434',
+    structuredGeneration: { temperature: 0.2, maxRepairRetries: 2, numCtx: 16384, keepAlive: '15m' },
+  },
   loadSourceReview: vi.fn(),
 }));
 
 vi.mock('@/lib/firebase/admin', () => ({
   adminDb: {
+    collection: (name: string) => {
+      if (name !== 'generationCheckpoints' && name !== 'generationWorkingDrafts') {
+        throw new Error(`Unexpected collection ${name}`);
+      }
+      return {
+        doc: (id: string) => ({
+          get: async () => ({
+            exists: mocks.checkpoints.has(id),
+            data: () => structuredClone(mocks.checkpoints.get(id)),
+          }),
+          set: async (value: unknown) => {
+            if (name === 'generationCheckpoints') mocks.checkpoints.set(id, structuredClone(value));
+            else mocks.workingDraftWrites.push(structuredClone((value as { draft: TrackVersionDoc }).draft));
+          },
+          delete: async () => undefined,
+        }),
+      };
+    },
     batch: () => ({
       set: (ref: { kind: string }, value: unknown) => {
         if (ref.kind === 'draft') mocks.draftWrites.push(structuredClone(value) as TrackVersionDoc);
@@ -38,7 +65,11 @@ vi.mock('@/lib/ai/pipeline/track-store', () => ({
   GENERATION_HEARTBEAT_MS: 60_000,
   draftRef: () => ({ kind: 'draft', set: async (value: TrackVersionDoc) => { mocks.draftWrites.push(structuredClone(value)); } }),
   secretsRef: () => ({ kind: 'secrets' }),
-  trackRef: () => ({ update: async () => undefined }),
+  trackRef: () => ({
+    update: async (value: { generationBudgets?: Record<string, unknown> }) => {
+      if (value.generationBudgets) mocks.budgetWrites.push(structuredClone(value.generationBudgets));
+    },
+  }),
   estimateTrackMinutes: () => 10,
   loadSourcePages: async () => [{ pageNumber: 1, text: sourceText }],
   loadTrack: async () => track,
@@ -46,7 +77,9 @@ vi.mock('@/lib/ai/pipeline/track-store', () => ({
 }));
 
 vi.mock('@/lib/ai/gateway', () => ({
-  getActiveAiRuntime: () => ({ provider: 'replay', heavyModel: 'fixture-model', runtimeLabel: 'fixture' }),
+  getActiveAiRuntime: () => ({
+    provider: 'replay', heavyModel: mocks.model, runtimeLabel: 'fixture', generationProfile: mocks.generationProfile,
+  }),
   getLLMGateway: () => { throw new Error('A test gateway must be supplied.'); },
 }));
 
@@ -217,6 +250,7 @@ function gateway(mutateSecondUnit = false): LLMGateway {
     }): Promise<z.infer<T>> => {
       let raw: unknown;
       if (opts.schemaName === 'TrackBlueprint') {
+        mocks.calls.blueprint += 1;
         raw = {
           campaignCode: 'ED', globalSummary: 'This synthetic ED track teaches agents to identify themselves as AI and honor every opt-out request immediately.',
           competencyPillars: pillars.map(({ key, label, description }) => ({ key, label, description })),
@@ -224,12 +258,14 @@ function gateway(mutateSecondUnit = false): LLMGateway {
         };
       } else if (opts.schemaName === 'TrackUnitContent') {
         unitIndex += 1;
+        mocks.calls.units += 1;
         raw = unitGeneration(mutateSecondUnit && unitIndex === 2 ? (generated) => {
           generated.briefingCards[0].evidence = [evidence({
             excerpts: [{ documentId: 'ED', revisionId: 'ED-rev1', pageNumber: 1, exactText: 'This exact passage does not occur on the existing page.', fromApprovedTranscription: false }],
           })];
         } : undefined);
       } else if (opts.schemaName === 'SimScenarios') {
+        mocks.calls.simulations += 1;
         raw = { scenarios: [scenarioGeneration(1), scenarioGeneration(2)] };
       } else {
         throw new Error(`Unexpected schema ${opts.schemaName}`);
@@ -243,8 +279,16 @@ function gateway(mutateSecondUnit = false): LLMGateway {
 
 beforeEach(() => {
   mocks.draftWrites.length = 0;
+  mocks.workingDraftWrites.length = 0;
   mocks.secretWrites.length = 0;
   mocks.batchCommits = 0;
+  mocks.checkpoints.clear();
+  mocks.budgetWrites.length = 0;
+  mocks.calls = { blueprint: 0, units: 0, simulations: 0 };
+  mocks.model = 'fixture-model';
+  mocks.generationProfile.baseUrl = 'http://127.0.0.1:11434';
+  mocks.generationProfile.structuredGeneration.temperature = 0.2;
+  track.title = 'ED Track';
   mocks.loadSourceReview.mockReset();
   mocks.loadSourceReview.mockResolvedValue({ bundle, pages: [sourcePage()], rulePacks: [rulePack], assets: [], conflicts: [] });
 });
@@ -306,11 +350,12 @@ describe('generated evidence proposals', () => {
 });
 
 describe('source-aware generation checkpoints', () => {
-  it('persists source revision, inherited rules, and provenance on incremental and final drafts', async () => {
+  it('persists source revision, inherited rules, and provenance on working and final drafts', async () => {
     await runTrackGeneration('ED', () => undefined, gateway());
 
-    expect(mocks.draftWrites.length).toBeGreaterThanOrEqual(5);
-    for (const draft of mocks.draftWrites) {
+    expect(mocks.workingDraftWrites).toHaveLength(4);
+    expect(mocks.draftWrites).toHaveLength(1);
+    for (const draft of [...mocks.workingDraftWrites, ...mocks.draftWrites]) {
       expect(draft).toMatchObject({
         sourceBundleId: 'bundle-ED', sourceRevision: HASH, requiredRuleIds: ['shared-identity'],
         provenance: {
@@ -324,13 +369,100 @@ describe('source-aware generation checkpoints', () => {
     expect(secrets.scenarios[0].rubricCriteria[0].evidence?.[0].approvalStatus).toBe('draft');
   });
 
-  it('rejects invalid later-stage evidence and preserves the previous valid unit checkpoint', async () => {
+  it('rejects invalid later-stage evidence and preserves the previous valid working Unit checkpoint', async () => {
     await expect(runTrackGeneration('ED', () => undefined, gateway(true))).rejects.toThrow(/previous valid draft was preserved/);
 
-    expect(mocks.draftWrites).toHaveLength(2);
-    expect(mocks.draftWrites[0].units).toHaveLength(0);
-    expect(mocks.draftWrites[1].units).toHaveLength(1);
-    expect(mocks.draftWrites[1].sourceRevision).toBe(HASH);
+    expect(mocks.draftWrites).toHaveLength(0);
+    expect(mocks.workingDraftWrites).toHaveLength(2);
+    expect(mocks.workingDraftWrites[0].units).toHaveLength(0);
+    expect(mocks.workingDraftWrites[1].units).toHaveLength(1);
+    expect(mocks.workingDraftWrites[1].sourceRevision).toBe(HASH);
     expect(mocks.batchCommits).toBe(0);
+  });
+
+  it('resumes the real pipeline from valid exact-input checkpoints, records budgets, and rebuilds changed inputs', async () => {
+    const progress: string[] = [];
+    await expect(runTrackGeneration('ED', (event) => { progress.push(event.step); }, gateway(true)))
+      .rejects.toThrow(/previous valid draft was preserved/);
+
+    expect(mocks.calls).toEqual({ blueprint: 1, units: 2, simulations: 0 });
+    expect(mocks.checkpoints.size).toBe(2);
+    expect(mocks.workingDraftWrites.at(-1)?.units).toHaveLength(1);
+    expect(mocks.draftWrites).toHaveLength(0);
+    expect(mocks.batchCommits).toBe(0);
+    expect(progress.at(-1)).not.toBe('READY');
+
+    await runTrackGeneration('ED', (event) => { progress.push(event.step); }, gateway());
+
+    // Blueprint and Unit 1 came from checkpoints. Only the failed Unit 2, Unit 3, and Sims called the model again.
+    expect(mocks.calls).toEqual({ blueprint: 1, units: 4, simulations: 1 });
+    expect(mocks.checkpoints.size).toBe(5);
+    expect(mocks.draftWrites.at(-1)?.units).toHaveLength(3);
+    expect(mocks.draftWrites.at(-1)?.simScenarios).toHaveLength(2);
+    expect(mocks.batchCommits).toBe(1);
+    expect(progress.at(-1)).toBe('READY');
+
+    const budgets = mocks.budgetWrites.at(-1)!;
+    expect(Object.keys(budgets).sort()).toEqual(['blueprint', 'simulations', 'unit:u1', 'unit:u2', 'unit:u3']);
+    expect(budgets.blueprint).toMatchObject({ attempts: 0, modelCalls: 0, cacheHits: 1 });
+    expect(budgets['unit:u1']).toMatchObject({ attempts: 0, modelCalls: 0, cacheHits: 1 });
+    expect(budgets['unit:u2']).toMatchObject({ attempts: 1, modelCalls: 1, cacheHits: 0 });
+    expect(budgets.simulations).toMatchObject({ attempts: 1, modelCalls: 1, cacheHits: 0 });
+
+    track.title = 'ED Track changed source-generation input';
+    await runTrackGeneration('ED', () => undefined, gateway());
+
+    // The fixture returns an identical blueprint, but the title is effective Unit/Sim prompt metadata.
+    // Every descendant must therefore regenerate instead of reusing its previous canonical input.
+    expect(mocks.calls).toEqual({ blueprint: 2, units: 7, simulations: 2 });
+    expect(mocks.checkpoints.size).toBe(5);
+    expect(mocks.batchCommits).toBe(2);
+  });
+
+  it('invalidates every stage when only the runtime endpoint changes', async () => {
+    await runTrackGeneration('ED', () => undefined, gateway());
+    expect(mocks.calls).toEqual({ blueprint: 1, units: 3, simulations: 1 });
+
+    mocks.generationProfile.baseUrl = 'http://127.0.0.1:21434';
+    await runTrackGeneration('ED', () => undefined, gateway());
+
+    expect(mocks.calls).toEqual({ blueprint: 2, units: 6, simulations: 2 });
+    expect(mocks.checkpoints.size).toBe(5);
+    expect(mocks.draftWrites[1].provenance).toMatchObject({
+      provider: 'replay', model: 'fixture-model', runtime: { label: 'fixture', profileId: 'replay-local' },
+    });
+  });
+
+  it('invalidates every stage when only effective structured-generation settings change', async () => {
+    await runTrackGeneration('ED', () => undefined, gateway());
+    expect(mocks.calls).toEqual({ blueprint: 1, units: 3, simulations: 1 });
+
+    mocks.generationProfile.structuredGeneration.temperature = 0.3;
+    await runTrackGeneration('ED', () => undefined, gateway());
+
+    expect(mocks.calls).toEqual({ blueprint: 2, units: 6, simulations: 2 });
+    expect(mocks.checkpoints.size).toBe(5);
+    expect(mocks.draftWrites[1].provenance?.model).toBe('fixture-model');
+  });
+
+  it('invalidates cached output for a changed model and preserves the last complete draft on failure', async () => {
+    await runTrackGeneration('ED', () => undefined, gateway());
+    const complete = mocks.draftWrites[0];
+    expect(complete.provenance?.model).toBe('fixture-model');
+
+    mocks.model = 'fixture-model-v2';
+    await expect(runTrackGeneration('ED', () => undefined, gateway(true))).rejects.toThrow(/previous valid draft was preserved/);
+
+    expect(mocks.calls).toEqual({ blueprint: 2, units: 5, simulations: 1 });
+    expect(mocks.draftWrites).toEqual([complete]);
+    expect(mocks.workingDraftWrites.at(-1)?.units).toHaveLength(1);
+    expect(mocks.workingDraftWrites.at(-1)?.provenance?.model).toBe('fixture-model-v2');
+
+    await runTrackGeneration('ED', () => undefined, gateway());
+    expect(mocks.calls).toEqual({ blueprint: 2, units: 7, simulations: 2 });
+    expect(mocks.draftWrites).toHaveLength(2);
+    expect(mocks.draftWrites[1].provenance?.model).toBe('fixture-model-v2');
+    expect(mocks.draftWrites[1].units).toHaveLength(3);
+    expect(mocks.draftWrites[1].simScenarios).toHaveLength(2);
   });
 });

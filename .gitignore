@@ -10,6 +10,7 @@ firestore-debug.log
 ui-debug.log
 playwright-report/
 test-results/
+.playwright-browsers/
 coverage/
 .DS_Store
 demo-recordings/

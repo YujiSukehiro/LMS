@@ -92,6 +92,7 @@ function bundle(): SourceBundle {
     sharedRulePackIds: ['shared-pack'],
     precedencePolicyId: 'standard-meds-precedence-v1',
     conflictIds: [],
+    unresolvedSmeDecisionIds: [],
     status: 'approved',
     revisionHash: SOURCE_REVISION,
     approvedSourceRevision: SOURCE_REVISION,
@@ -232,10 +233,26 @@ describe('publication gates', () => {
     expect(report.issues).toContainEqual(expect.objectContaining({ code: 'RULE_COVERAGE_MISSING', affectedId: RULE_ID, blocking: true }));
   });
 
-  it('blocks an open critical SME conflict and accepts an explicit recorded resolution', () => {
-    const blocked = evaluatePublicationGates(input({ conflicts: [conflict()] }));
-    expect(blocked.issues).toContainEqual(expect.objectContaining({ code: 'SME_DECISION_REQUIRED', affectedId: 'DEMO-PRICE-CONFLICT-OPEN' }));
+  it('blocks a persisted pack-level SME register even when every other publication input is eligible', () => {
+    const report = evaluatePublicationGates(input({
+      bundle: { ...bundle(), status: 'approved', unresolvedSmeDecisionIds: ['SME-01', 'SME-10'] },
+    }));
+    expect(report.eligible).toBe(false);
+    expect(report.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'SME_DECISION_REQUIRED', affectedType: 'source', affectedId: 'SME-01', blocking: true }),
+      expect.objectContaining({ code: 'SME_DECISION_REQUIRED', affectedType: 'source', affectedId: 'SME-10', blocking: true }),
+    ]));
+  });
 
+  it.each(['critical', 'major', 'coaching'] as const)('blocks an open %s SME conflict', (severity) => {
+    const blocked = evaluatePublicationGates(input({ conflicts: [{ ...conflict(), severity }] }));
+    expect(blocked.eligible).toBe(false);
+    expect(blocked.issues).toContainEqual(expect.objectContaining({
+      code: 'SME_DECISION_REQUIRED', affectedId: 'DEMO-PRICE-CONFLICT-OPEN', severity, blocking: true,
+    }));
+  });
+
+  it('accepts an explicit recorded SME resolution', () => {
     // Keep resolved evidence on a different page so the test isolates conflict status rather than excerpt scope.
     const resolvedPages = [...pages(), { ...pages()[0], id: 'page-shared-15', pageNumber: 15, normalizedText: 'A conflicting synthetic price excerpt.' }];
     const resolved = evaluatePublicationGates(input({ pages: resolvedPages, conflicts: [conflict('resolved')] }));

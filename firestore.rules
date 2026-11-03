@@ -345,6 +345,11 @@ service cloud.firestore {
         allow read: if canReadSimSessionById(sessionId);
         allow write: if false;
       }
+
+      // Manual judge tasks contain privileged assessment material and are backend-only.
+      match /manualJudgeTasks/{taskId} {
+        allow read, write: if false;
+      }
     }
 
     // 9. Pre-Aggregated Analytics Rollups (`/analyticsRollups/{rollupId}`)
@@ -450,7 +455,19 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // 18. Default Deny Catch-All for Any Unmatched Path
+    // 18. Generation Checkpoints (`/generationCheckpoints/{checkpointId}`)
+    // Resume state can contain privileged prompts and source material; only the Admin SDK may access it.
+    match /generationCheckpoints/{checkpointId} {
+      allow read, write: if false;
+    }
+
+    // 19. Partial Generation Working Drafts (`/generationWorkingDrafts/{trackId}`)
+    // In-progress curriculum and source context are server-only and never learner-readable.
+    match /generationWorkingDrafts/{trackId} {
+      allow read, write: if false;
+    }
+
+    // 20. Default Deny Catch-All for Any Unmatched Path
     match /{document=**} {
       allow read, write: if false;
     }

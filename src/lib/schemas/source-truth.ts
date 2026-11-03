@@ -93,6 +93,8 @@ export const SourceBundleSchema = z.object({
   sharedRulePackIds: z.array(z.string().min(1)),
   precedencePolicyId: z.string().min(1).default('standard-meds-precedence-v1'),
   conflictIds: z.array(z.string().min(1)).default([]),
+  /** Pack-level decisions still awaiting an explicit SME resolution; separate from excerpt-backed conflicts. */
+  unresolvedSmeDecisionIds: z.array(z.string().min(1)).default([]),
   status: z.enum(['draft', 'needs_sme', 'approved', 'published']),
   revisionHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   approvedSourceRevision: z.string().nullable().default(null),

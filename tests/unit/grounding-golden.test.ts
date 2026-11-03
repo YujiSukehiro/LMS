@@ -175,6 +175,7 @@ describe('golden grounding — shared inheritance and exact evidence', () => {
     sharedRulePackIds: [pack.id],
     precedencePolicyId: 'standard-meds-precedence-v1',
     conflictIds: [],
+    unresolvedSmeDecisionIds: [],
     status: 'approved',
     revisionHash: HASH,
     approvedSourceRevision: HASH,

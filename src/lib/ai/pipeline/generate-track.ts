@@ -3,10 +3,14 @@
  * -> Pass 3 Sim Builder. Persists progress and the partial draft after each Unit, then writes the
  * complete draft TrackVersion and its secret rubrics. Server only.
  */
+import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import {
   DRAFT_VERSION_ID,
   EvalRubricsDocSchema,
+  PublicSimScenarioSchema,
+  SecretSimScenarioConfigSchema,
+  TrackUnitSchema,
   TrackVersionDocSchema,
   type GenerationStep,
   type TrackDoc,
@@ -55,6 +59,36 @@ import { loadSourceReview } from '@/lib/services/source-store';
 import { verifyClaimEvidence } from '@/lib/services/source-evidence';
 import type { ClaimEvidence, SourceConflict } from '@/lib/schemas/source-truth';
 import type { SourceReviewPromptContext } from '@/lib/ai/pipeline/source-budget';
+import {
+  GenerationReliabilityExecutor,
+  hashGenerationInput,
+  type GenerationBudgetReport,
+  type GenerationCheckpoint,
+  type GenerationCheckpointIdentity,
+  type GenerationCheckpointStore,
+} from '@/lib/ai/pipeline/generation-reliability';
+import { LocalRuntimeLimiter } from '@/lib/ai/local-runtime';
+
+const generationLimiter = new LocalRuntimeLimiter();
+const GENERATION_STAGE_TIMEOUT_MS = 180_000;
+const GENERATION_STAGE_CHARACTER_BUDGET = 2_000_000;
+
+class FirestoreGenerationCheckpointStore implements GenerationCheckpointStore {
+  private ref(identity: GenerationCheckpointIdentity) {
+    const { runId, trackId, stageKey } = identity;
+    const id = hashGenerationInput({ runId, trackId, stageKey }).replace('sha256:', '');
+    return adminDb.collection('generationCheckpoints').doc(`checkpoint_${id}`);
+  }
+
+  async getCheckpoint(identity: GenerationCheckpointIdentity): Promise<unknown> {
+    const snap = await this.ref(identity).get();
+    return snap.exists ? snap.data() : null;
+  }
+
+  async putCheckpoint(checkpoint: GenerationCheckpoint): Promise<void> {
+    await this.ref(checkpoint).set(checkpoint);
+  }
+}
 
 export type ProgressListener = (event: GenerateProgressEvent) => void;
 
@@ -167,23 +201,6 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
     if (pages.length === 0) throw new Error('This Track has no extracted Playbook pages. Upload the Playbook PDF again.');
     const source = await loadApprovedSourceContext(track);
 
-    // Pass 1: Blueprint
-    await report('BLUEPRINTING', 15, `Read ${pages.length} pages. Analyzing campaign rules...`);
-    const blueprintRaw = await gateway.generateStructured({
-      tier: 'heavy',
-      systemPrompt: buildBlueprintSystemPrompt(track.divisionId),
-      userPrompt: buildBlueprintUserPrompt({
-        trackTitle: track.title,
-        campaignCode: track.campaignCode,
-        divisionId: track.divisionId,
-        pages,
-        sourceReview: source ?? undefined,
-      }),
-      schema: buildBlueprintSchema(pages.length),
-      schemaName: BLUEPRINT_SCHEMA_NAME,
-    });
-    const blueprint = finalizeBlueprint(blueprintRaw, pages.length, track.campaignCode);
-    const pillarIds = blueprint.competencyPillars.map((pillar) => pillar.id);
     const createdAt = Date.now();
     const versionNumber = nextDraftVersionNumber(track);
     const runtime = getActiveAiRuntime();
@@ -196,6 +213,69 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
       runtime: { label: runtime.runtimeLabel ?? runtime.provider, profileId: `${runtime.provider}-local` },
       recordedAt: new Date(createdAt).toISOString(),
     });
+    // Runtime and authoring-contract identity is part of every stage hash. A cache hit can never
+    // be relabeled as output from a different provider/model/prompt/schema/runtime profile.
+    const cacheIdentity = {
+      contractVersion: 'staged-track-generation-2026-11-02-v1',
+      source: provenance.source,
+      provider: provenance.provider,
+      model: provenance.model,
+      prompt: provenance.prompt,
+      schema: provenance.schema,
+      runtime: provenance.runtime,
+      generationProfile: runtime.generationProfile,
+    };
+    const executor = new GenerationReliabilityExecutor(new FirestoreGenerationCheckpointStore(), generationLimiter);
+    const runId = `track-${trackId}`;
+    const budgets: Record<string, GenerationBudgetReport> = { ...(track.generationBudgets ?? {}) };
+    const stageConfig = {
+      runId,
+      trackId,
+      timeoutMs: GENERATION_STAGE_TIMEOUT_MS,
+      budgets: { maxCharacters: GENERATION_STAGE_CHARACTER_BUDGET, maxDurationMs: GENERATION_STAGE_TIMEOUT_MS },
+      provenance,
+    } as const;
+    const recordBudget = async (stageKey: string, budget: GenerationBudgetReport) => {
+      budgets[stageKey] = budget;
+      await trackRef(trackId).update({ generationBudgets: budgets, updatedAt: Date.now() });
+    };
+
+    // Pass 1: resume an exact-input blueprint checkpoint before making another model call.
+    await report('BLUEPRINTING', 15, `Read ${pages.length} pages. Analyzing campaign rules...`);
+    const blueprintResult = await executor.executeStage({
+      ...stageConfig,
+      stageKey: 'blueprint',
+      input: {
+        cacheIdentity,
+        templateVersion: source ? 'v2' : 'v1',
+        trackTitle: track.title,
+        campaignCode: track.campaignCode,
+        divisionId: track.divisionId,
+        pages,
+        sourceReview: source,
+      },
+      schema: z.custom<TrackBlueprint>((value) => Boolean(value && typeof value === 'object')),
+      task: async (_input, { signal }) => {
+        const raw = await gateway.generateStructured({
+          tier: 'heavy',
+          systemPrompt: buildBlueprintSystemPrompt(track.divisionId),
+          userPrompt: buildBlueprintUserPrompt({
+            trackTitle: track.title,
+            campaignCode: track.campaignCode,
+            divisionId: track.divisionId,
+            pages,
+            sourceReview: source ?? undefined,
+          }),
+          schema: buildBlueprintSchema(pages.length),
+          schemaName: BLUEPRINT_SCHEMA_NAME,
+          signal,
+        });
+        return { output: finalizeBlueprint(raw, pages.length, track.campaignCode) };
+      },
+    });
+    const blueprint = blueprintResult.output;
+    await recordBudget('blueprint', blueprintResult.budget);
+    const pillarIds = blueprint.competencyPillars.map((pillar) => pillar.id);
 
     const saveDraft = async (units: TrackUnit[], simScenarios: TrackVersionDoc['simScenarios']) => {
       const draft = TrackVersionDocSchema.parse({
@@ -212,7 +292,14 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
         publishedAt: null,
         createdAt,
       });
-      await draftRef(trackId).set(draft);
+      // Keep partial work separate from the last complete Studio draft. A failed rebuild must not
+      // replace a previously usable draft; the working copy is removed only after final commit.
+      await adminDb.collection('generationWorkingDrafts').doc(trackId).set({
+        schemaVersion: 1,
+        trackId,
+        draft,
+        updatedAt: Date.now(),
+      });
       return draft;
     };
 
@@ -223,45 +310,75 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
       `Mapped ${blueprint.units.length} Checkpoints. Generating Briefing Cards & Drills...`,
     );
 
-    // Pass 2: Unit Builder, one Unit at a time with only its mapped pages
+    // Pass 2: persist each finalized, evidence-checked Unit before starting the next one.
     const units: TrackUnit[] = [];
     const unitTotal = blueprint.units.length;
     for (const [index, outline] of blueprint.units.entries()) {
       const unitPages = selectPages(pages, outline.sourcePages);
       const allowedPages = [...new Set((source?.pages ?? unitPages).map((page) => page.pageNumber))];
       const ctx = { pillarIds, allowedPages, requireEvidence: source !== null };
-      const generated = await gateway.generateStructured({
-        tier: 'heavy',
-        systemPrompt: buildUnitSystemPrompt(track.divisionId),
-        userPrompt: buildUnitUserPrompt({
+      const stageKey = `unit:${outline.id}`;
+      const unitResult = await executor.executeStage({
+        ...stageConfig,
+        stageKey,
+        input: {
+          cacheIdentity,
+          templateVersion: source ? 'v2' : 'v1',
           trackTitle: track.title,
           campaignCode: blueprint.campaignCode,
           divisionId: track.divisionId,
+          outline,
           globalSummary: blueprint.globalSummary,
           pillars: blueprint.competencyPillars,
-          outline,
-          pages: unitPages,
-          sourceReview: source ?? undefined,
+          unitPages,
+          sourceReview: source,
           otherUnitTitles: blueprint.units.filter((other) => other.id !== outline.id).map((other) => other.title),
-        }),
-        schema: buildUnitGenerationSchema(ctx),
-        schemaName: UNIT_SCHEMA_NAME,
+        },
+        schema: TrackUnitSchema,
+        task: async (_input, { signal }) => {
+          const generated = await gateway.generateStructured({
+            tier: 'heavy',
+            systemPrompt: buildUnitSystemPrompt(track.divisionId),
+            userPrompt: buildUnitUserPrompt({
+              trackTitle: track.title,
+              campaignCode: blueprint.campaignCode,
+              divisionId: track.divisionId,
+              globalSummary: blueprint.globalSummary,
+              pillars: blueprint.competencyPillars,
+              outline,
+              pages: unitPages,
+              sourceReview: source ?? undefined,
+              otherUnitTitles: blueprint.units.filter((other) => other.id !== outline.id).map((other) => other.title),
+            }),
+            schema: buildUnitGenerationSchema(ctx),
+            schemaName: UNIT_SCHEMA_NAME,
+            signal,
+          });
+          const unit = finalizeUnit(outline, generated, ctx);
+          if (source) assertUnitEvidence(unit, source);
+          return { output: unit };
+        },
       });
-      const unit = finalizeUnit(outline, generated, ctx);
-      if (source) assertUnitEvidence(unit, source);
-      units.push(unit);
+      units.push(unitResult.output);
+      await recordBudget(stageKey, unitResult.budget);
       await saveDraft(units, []);
-      await report('BUILDING_UNITS', 30 + ((index + 1) * 45) / unitTotal, `Built Checkpoint ${index + 1}: ${outline.title}`);
+      await report(
+        'BUILDING_UNITS',
+        30 + ((index + 1) * 45) / unitTotal,
+        `${unitResult.cacheHit ? 'Resumed' : 'Built'} Checkpoint ${index + 1}: ${outline.title}`,
+      );
     }
 
-    // Pass 3: Sim Builder
+    // Pass 3: cache only fully finalized scenarios with server-verified evidence.
     await report('BUILDING_SIMS', 80, 'Creating Live Call Simulation personas & grading rubrics...');
     const allPageNumbers = [...new Set((source?.pages ?? pages).map((page) => page.pageNumber))];
     const simCtx = { pillarIds, allowedPages: allPageNumbers, requireEvidence: source !== null };
-    const simRaw = await gateway.generateStructured({
-      tier: 'heavy',
-      systemPrompt: buildSimSystemPrompt(track.divisionId),
-      userPrompt: buildSimUserPrompt({
+    const simResult = await executor.executeStage({
+      ...stageConfig,
+      stageKey: 'simulations',
+      input: {
+        cacheIdentity,
+        templateVersion: source ? 'v2' : 'v1',
         trackTitle: track.title,
         campaignCode: blueprint.campaignCode,
         divisionId: track.divisionId,
@@ -269,14 +386,36 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
         pillars: blueprint.competencyPillars,
         unitTitles: units.map((unit) => unit.title),
         pages,
-        sourceReview: source ?? undefined,
+        sourceReview: source,
         preferredPageOrder: pagesByCitation(units, pages),
-      }),
-      schema: buildSimGenerationSchema(simCtx),
-      schemaName: SIM_SCHEMA_NAME,
+      },
+      schema: z.array(z.object({ publicScenario: PublicSimScenarioSchema, secretConfig: SecretSimScenarioConfigSchema })),
+      task: async (_input, { signal }) => {
+        const raw = await gateway.generateStructured({
+          tier: 'heavy',
+          systemPrompt: buildSimSystemPrompt(track.divisionId),
+          userPrompt: buildSimUserPrompt({
+            trackTitle: track.title,
+            campaignCode: blueprint.campaignCode,
+            divisionId: track.divisionId,
+            globalSummary: blueprint.globalSummary,
+            pillars: blueprint.competencyPillars,
+            unitTitles: units.map((unit) => unit.title),
+            pages,
+            sourceReview: source ?? undefined,
+            preferredPageOrder: pagesByCitation(units, pages),
+          }),
+          schema: buildSimGenerationSchema(simCtx),
+          schemaName: SIM_SCHEMA_NAME,
+          signal,
+        });
+        const scenarios = finalizeScenarios(raw, simCtx);
+        if (source) assertScenarioEvidence(scenarios, source);
+        return { output: scenarios };
+      },
     });
-    const scenarios = finalizeScenarios(simRaw, simCtx);
-    if (source) assertScenarioEvidence(scenarios, source);
+    const scenarios = simResult.output;
+    await recordBudget('simulations', simResult.budget);
 
     await commitDraft({ track, trackId, blueprint, units, scenarios, versionNumber, createdAt, provenance, source });
     lastPercent = 100;
@@ -351,4 +490,5 @@ async function commitDraft(input: {
     updatedAt: now,
   });
   await batch.commit();
+  await adminDb.collection('generationWorkingDrafts').doc(input.trackId).delete().catch(() => undefined);
 }

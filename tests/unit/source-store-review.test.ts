@@ -382,6 +382,31 @@ describe('trainer source review gates', () => {
     expect(savedDraft.units[0].briefingCards[1].evidence).toEqual([]);
   });
 
+  it('rejects bundle approval for pack-level decisions and every open conflict severity', async () => {
+    const transcription = await command({
+      action: 'approve_transcription', documentId, revisionId, pageNumber: 1, text: transcriptionText,
+    });
+    expect(transcription.status).toBe(200);
+    const bundlePath = `tracks/${trackId}/sourceBundles/${bundleId}`;
+    const currentBundle = store.get(bundlePath) as SourceBundle;
+    const writesBeforeGates = writes.length;
+
+    store.set(bundlePath, { ...currentBundle, unresolvedSmeDecisionIds: ['SME-01'] });
+    const registerResponse = await command({ action: 'approve_bundle' });
+    expect(registerResponse.status).toBe(409);
+    expect((await registerResponse.json()).error).toBe('SME_DECISION_REQUIRED');
+    expect(writes).toHaveLength(writesBeforeGates);
+
+    store.set(bundlePath, { ...currentBundle, unresolvedSmeDecisionIds: [] });
+    const conflictPath = `${bundlePath}/conflicts/conflict-1`;
+    const currentConflict = SourceConflictSchema.parse(store.get(conflictPath));
+    store.set(conflictPath, { ...currentConflict, severity: 'major', status: 'open' });
+    const majorResponse = await command({ action: 'approve_bundle' });
+    expect(majorResponse.status).toBe(409);
+    expect((await majorResponse.json()).error).toBe('SME_DECISION_REQUIRED');
+    expect(writes).toHaveLength(writesBeforeGates);
+  });
+
   it('uses internal-ops authorization before reading review data', async () => {
     mockRequireAuth.mockResolvedValue({ ok: false, response: NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 }) });
     const response = await GET(new Request(`http://localhost/api/tracks/${trackId}/source-review`), { params });

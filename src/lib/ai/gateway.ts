@@ -1,18 +1,45 @@
 /** Environment factory for the replaceable LLMGateway provider boundary. */
 import type { LLMGateway } from '@/lib/ai/types';
 import { DEFAULT_GEMINI_FAST_MODEL, DEFAULT_GEMINI_HEAVY_MODEL, GeminiProvider } from '@/lib/ai/gemini-provider';
-import { DEFAULT_OLLAMA_FAST_MODEL, DEFAULT_OLLAMA_HEAVY_MODEL, OllamaProvider } from '@/lib/ai/ollama-provider';
-import { OpenAICompatibleProvider } from '@/lib/ai/openai-compatible-provider';
+import {
+  DEFAULT_OLLAMA_BASE_URL,
+  DEFAULT_OLLAMA_FAST_MODEL,
+  DEFAULT_OLLAMA_HEAVY_MODEL,
+  OLLAMA_KEEP_ALIVE,
+  OLLAMA_NUM_CTX,
+  OllamaProvider,
+  normalizeOllamaBaseUrl,
+} from '@/lib/ai/ollama-provider';
+import {
+  DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+  DEFAULT_OPENAI_COMPATIBLE_TIMEOUT_MS,
+  OpenAICompatibleProvider,
+} from '@/lib/ai/openai-compatible-provider';
 import { ReplayProvider } from '@/lib/ai/replay-provider';
+import { DEFAULT_LOCAL_RUNTIME_DEFAULTS, normalizeLoopbackBaseUrl } from '@/lib/ai/local-runtime';
+import { MAX_STRUCTURED_REPAIR_RETRIES } from '@/lib/ai/pipeline/structured-output';
 
 export type AiProviderName = 'ollama' | 'gemini' | 'replay' | 'openai_compatible' | 'manual_chat';
 export type GatewayProviderName = Exclude<AiProviderName, 'manual_chat'>;
+
+export interface ActiveAiGenerationProfile {
+  baseUrl?: string;
+  structuredGeneration?: {
+    temperature: number;
+    maxRepairRetries: number;
+    timeoutMs?: number;
+    numCtx?: number;
+    keepAlive?: string;
+  };
+}
 
 export interface ActiveAiRuntime {
   provider: AiProviderName;
   heavyModel: string;
   fastModel: string;
   runtimeLabel?: string;
+  /** Non-secret effective generation settings used only for exact-input cache identity. */
+  generationProfile: ActiveAiGenerationProfile;
 }
 
 function envValue(name: string): string | undefined {
@@ -49,20 +76,31 @@ export function getLLMGateway(): LLMGateway {
   return gateway;
 }
 
-/** Active provider and model names from local configuration only; no secrets or network calls. */
+function structuredGenerationProfile(
+  overrides: Partial<NonNullable<ActiveAiGenerationProfile['structuredGeneration']>> = {},
+): NonNullable<ActiveAiGenerationProfile['structuredGeneration']> {
+  return {
+    temperature: DEFAULT_LOCAL_RUNTIME_DEFAULTS.temperatureByTask.structuredGeneration,
+    maxRepairRetries: MAX_STRUCTURED_REPAIR_RETRIES,
+    ...overrides,
+  };
+}
+
+/** Active provider, models, and non-secret generation settings from local configuration only; no network calls. */
 export function getActiveAiRuntime(): ActiveAiRuntime {
   const provider = activeProviderName();
   if (provider === 'replay') {
-    return { provider, heavyModel: 'Demo replay', fastModel: 'Demo replay', runtimeLabel: 'Demo replay' };
+    return { provider, heavyModel: 'Demo replay', fastModel: 'Demo replay', runtimeLabel: 'Demo replay', generationProfile: {} };
   }
   if (provider === 'manual_chat') {
-    return { provider, heavyModel: 'External chat import', fastModel: 'Not available', runtimeLabel: 'Manual chat' };
+    return { provider, heavyModel: 'External chat import', fastModel: 'Not available', runtimeLabel: 'Manual chat', generationProfile: {} };
   }
   if (provider === 'gemini') {
     return {
       provider,
       heavyModel: envValue('GEMINI_HEAVY_MODEL') ?? DEFAULT_GEMINI_HEAVY_MODEL,
       fastModel: envValue('GEMINI_FAST_MODEL') ?? DEFAULT_GEMINI_FAST_MODEL,
+      generationProfile: { structuredGeneration: structuredGenerationProfile() },
     };
   }
   if (provider === 'openai_compatible') {
@@ -71,6 +109,10 @@ export function getActiveAiRuntime(): ActiveAiRuntime {
       heavyModel: envValue('OPENAI_COMPATIBLE_HEAVY_MODEL') ?? 'Not configured',
       fastModel: envValue('OPENAI_COMPATIBLE_FAST_MODEL') ?? 'Not configured',
       runtimeLabel: envValue('LOCAL_RUNTIME_LABEL') ?? 'Local AI',
+      generationProfile: {
+        baseUrl: normalizeLoopbackBaseUrl(envValue('OPENAI_COMPATIBLE_BASE_URL') ?? DEFAULT_OPENAI_COMPATIBLE_BASE_URL),
+        structuredGeneration: structuredGenerationProfile({ timeoutMs: DEFAULT_OPENAI_COMPATIBLE_TIMEOUT_MS }),
+      },
     };
   }
   return {
@@ -78,5 +120,9 @@ export function getActiveAiRuntime(): ActiveAiRuntime {
     heavyModel: envValue('OLLAMA_HEAVY_MODEL') ?? DEFAULT_OLLAMA_HEAVY_MODEL,
     fastModel: envValue('OLLAMA_FAST_MODEL') ?? DEFAULT_OLLAMA_FAST_MODEL,
     runtimeLabel: 'Ollama',
+    generationProfile: {
+      baseUrl: normalizeOllamaBaseUrl(envValue('OLLAMA_BASE_URL') ?? DEFAULT_OLLAMA_BASE_URL),
+      structuredGeneration: structuredGenerationProfile({ numCtx: OLLAMA_NUM_CTX, keepAlive: OLLAMA_KEEP_ALIVE }),
+    },
   };
 }

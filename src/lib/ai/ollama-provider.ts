@@ -21,9 +21,8 @@ import {
 export const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 export const DEFAULT_OLLAMA_HEAVY_MODEL = 'clef:27b-mxfp8';
 export const DEFAULT_OLLAMA_FAST_MODEL = 'clef-flash:9b-mxfp8';
-
-const KEEP_ALIVE = '15m';
-const NUM_CTX = 16384;
+export const OLLAMA_KEEP_ALIVE = '15m';
+export const OLLAMA_NUM_CTX = 16384;
 
 export interface OllamaProviderConfig {
   baseUrl?: string;
@@ -57,6 +56,10 @@ function normalizeModelName(name: string): string {
   return name.includes(':') ? name : `${name}:latest`;
 }
 
+export function normalizeOllamaBaseUrl(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
 export class OllamaProvider implements LLMGateway {
   readonly providerName = 'ollama' as const;
   readonly baseUrl: string;
@@ -66,7 +69,7 @@ export class OllamaProvider implements LLMGateway {
 
   constructor(config: OllamaProviderConfig = {}) {
     const baseUrl = config.baseUrl ?? nonEmpty(process.env.OLLAMA_BASE_URL) ?? DEFAULT_OLLAMA_BASE_URL;
-    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.baseUrl = normalizeOllamaBaseUrl(baseUrl);
     this.heavyModel = config.heavyModel ?? nonEmpty(process.env.OLLAMA_HEAVY_MODEL) ?? DEFAULT_OLLAMA_HEAVY_MODEL;
     this.fastModel = config.fastModel ?? nonEmpty(process.env.OLLAMA_FAST_MODEL) ?? DEFAULT_OLLAMA_FAST_MODEL;
     this.fetchImpl = config.fetchImpl ?? ((input, init) => fetch(input, init));
@@ -93,8 +96,8 @@ export class OllamaProvider implements LLMGateway {
         messages,
         stream: false,
         format,
-        keep_alive: KEEP_ALIVE,
-        options: { temperature: opts.temperature ?? 0.2, num_ctx: NUM_CTX },
+        keep_alive: OLLAMA_KEEP_ALIVE,
+        options: { temperature: opts.temperature ?? 0.2, num_ctx: OLLAMA_NUM_CTX },
       });
       const body = (await response.json()) as OllamaChatResponse;
       if (body.error) throw new Error(`Ollama returned an error for model "${model}": ${body.error}`);
@@ -120,7 +123,7 @@ export class OllamaProvider implements LLMGateway {
 
   async *streamChat(opts: StreamChatOptions): AsyncGenerator<string, void, unknown> {
     const model = this.modelFor(opts.tier);
-    const options: Record<string, number> = { temperature: opts.temperature ?? 0.6, num_ctx: NUM_CTX };
+    const options: Record<string, number> = { temperature: opts.temperature ?? 0.6, num_ctx: OLLAMA_NUM_CTX };
     if (opts.maxOutputTokens !== undefined) options.num_predict = opts.maxOutputTokens;
 
     const response = await this.post(
@@ -129,7 +132,7 @@ export class OllamaProvider implements LLMGateway {
         model,
         messages: opts.messages.map((turn: ChatTurn) => ({ role: turn.role, content: turn.content })),
         stream: true,
-        keep_alive: KEEP_ALIVE,
+        keep_alive: OLLAMA_KEEP_ALIVE,
         options,
       },
       opts.signal,

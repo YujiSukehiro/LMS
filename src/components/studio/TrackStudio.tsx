@@ -25,6 +25,8 @@ import { RegenerateItemButton } from './RegenerateItemButton';
 import { PublishDialog, type PublishCohortOption } from './PublishDialog';
 import { RevisedPlaybookDialog } from './RevisedPlaybookDialog';
 import { SourceReview } from './SourceReview';
+import { ManualJudgeExchange } from './ManualJudgeExchange';
+import { TrainerQaPanel } from './TrainerQaPanel';
 import { fetchDraftSecrets, patchTrackDraft, regenerateItem } from './api-client';
 import { issueTargetsKey, validateStudioDraft, type StudioIssue } from './validation';
 
@@ -275,7 +277,11 @@ export function TrackStudio({
 
         <div className="min-w-0">
           {mode === 'source' ? (
-            <SourceReview trackId={track.id} draft={{ ...draft, units, simScenarios: scenarios }} />
+            <div className="flex flex-col gap-5">
+              <SourceReview trackId={track.id} draft={{ ...draft, units, simScenarios: scenarios }} />
+              <ManualJudgeExchange />
+              <TrainerQaPanel trackId={track.id} />
+            </div>
           ) : mode === 'edit' ? (
             <div className="flex flex-col gap-4">
               <div className="pulse-card p-4">

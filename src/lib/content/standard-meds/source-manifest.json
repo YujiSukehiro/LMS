@@ -1,0 +1,884 @@
+{
+  "schemaVersion": 1,
+  "rawTextIncluded": false,
+  "sources": [
+    {
+      "code": "SM-00",
+      "documentId": "standard-meds-sm-00",
+      "revisionId": "sha256:9a491e183979d0bbf514f09d5425d972e135313c45a701fbe5e6763d5842ca71",
+      "trackId": null,
+      "role": "reference",
+      "fileName": "Standard Meds - 00 Training Hub Overview.pdf",
+      "relativePath": "demo-recordings/Standard Meds training PDFs/Standard Meds - 00 Training Hub Overview.pdf",
+      "sourceVersion": "supplied-pdf-unapproved",
+      "contentHash": "sha256:9a491e183979d0bbf514f09d5425d972e135313c45a701fbe5e6763d5842ca71",
+      "pageCount": 2,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "contentHash": "sha256:c42569d7bbdb68fd739f520a924f227d6edb1450a35d39cf5a9bcef81e038123",
+          "characterCount": 959,
+          "extractionFlags": [
+            "possible_reading_order_issue"
+          ]
+        },
+        {
+          "pageNumber": 2,
+          "contentHash": "sha256:5c6641ca62f1826844913c1b2eb9242372e53142628c3b202eb35eb4d3bbb51a",
+          "characterCount": 1107,
+          "extractionFlags": [
+            "possible_reading_order_issue"
+          ]
+        }
+      ],
+      "approvalStatus": "draft"
+    },
+    {
+      "code": "SM-01",
+      "documentId": "standard-meds-sm-01",
+      "revisionId": "sha256:298b78defe936ca12f7963df48e57e13d307080bd8a3441ce0a68411d462958e",
+      "trackId": "standard-meds-sm-01",
+      "role": "shared_foundation",
+      "fileName": "Standard Meds - 01 Neuropathy - NeuroCalmRx.pdf",
+      "relativePath": "demo-recordings/Standard Meds training PDFs/Standard Meds - 01 Neuropathy - NeuroCalmRx.pdf",
+      "sourceVersion": "supplied-pdf-unapproved",
+      "contentHash": "sha256:298b78defe936ca12f7963df48e57e13d307080bd8a3441ce0a68411d462958e",
+      "pageCount": 16,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "contentHash": "sha256:55b3fc1a4de52ef9a057435aa71067fba093a6f34c4e99b3b48f06169726abc6",
+          "characterCount": 1235,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 2,
+          "contentHash": "sha256:ff6f8943ef4fa538c1ab174754d26b5e23ead7b9859c75835676c42cfa32e211",
+          "characterCount": 2655,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 3,
+          "contentHash": "sha256:822ae091be6469e28e8fbc9a0637026d5a624d09f512e6f889af6bd3db42f6b8",
+          "characterCount": 1675,
+          "extractionFlags": [
+            "possible_reading_order_issue"
+          ]
+        },
+        {
+          "pageNumber": 4,
+          "contentHash": "sha256:6a2748bdb952df71611b7b18491be7ad53cc5a9ed642ff170a95421575c440d2",
+          "characterCount": 576,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 5,
+          "contentHash": "sha256:86edde401e143eb20d10648b0999d58e0e6ed1988d32f3f71d80a9de9d650a50",
+          "characterCount": 192,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 6,
+          "contentHash": "sha256:e808ba2c7c9ec667072298d3fb76b667c9c89ab8046ee137b936b2e78e6a693a",
+          "characterCount": 188,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 7,
+          "contentHash": "sha256:af8c2878b919870c205554ca3534b1c10df395de65ed3bf6118f1aa7085e32d6",
+          "characterCount": 232,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 8,
+          "contentHash": "sha256:74b5ada5eac1f7e20c98540ad8cf19ea2b1501b9ccb3a9fc8976034edf9d718f",
+          "characterCount": 298,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 9,
+          "contentHash": "sha256:278c9bfcd0499a4b9fcee9d2c9477bbca3d20cec251d9e8bdf8869235d90bb98",
+          "characterCount": 1717,
+          "extractionFlags": [
+            "possible_url_fragmentation"
+          ]
+        },
+        {
+          "pageNumber": 10,
+          "contentHash": "sha256:e69661500c00498e8f2c41bdb29d3a18311eab36098812908c3bc69b36f3f5ff",
+          "characterCount": 1624,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 11,
+          "contentHash": "sha256:68ca30866d041f13ba392ce0129439e783fbfc9ad1bc5d4096d1e71d2df2c6cc",
+          "characterCount": 1899,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 12,
+          "contentHash": "sha256:d49b2eabdabdf58ff5ebec33df6b99344037f6996dd7b597816731cbe4b6bdba",
+          "characterCount": 1457,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 13,
+          "contentHash": "sha256:46dcfcf23e5728ddf2802e45c818f29c013bbde7f6623ef84afc6b3fa541c12a",
+          "characterCount": 3174,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 14,
+          "contentHash": "sha256:81449a14ff16edfcbf900e95b59495342b98f576d8c46fdb294a4000ac6817db",
+          "characterCount": 2149,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 15,
+          "contentHash": "sha256:3d5b20931773ae295462f219b8d9297ce3e1df7591bc894f63c37b46a4170edf",
+          "characterCount": 1875,
+          "extractionFlags": [
+            "possible_url_fragmentation"
+          ]
+        },
+        {
+          "pageNumber": 16,
+          "contentHash": "sha256:9a2871167d6e1b252634f731d3a2ee0313e9062162d08bd802874ebc86c7f8af",
+          "characterCount": 1622,
+          "extractionFlags": []
+        }
+      ],
+      "approvalStatus": "draft"
+    },
+    {
+      "code": "SM-02",
+      "documentId": "standard-meds-sm-02",
+      "revisionId": "sha256:9e8aadecd87367ff9940af5c43fdbf234c8ccf84c0f032e9278629c908c73d5b",
+      "trackId": "standard-meds-sm-02",
+      "role": "product",
+      "fileName": "Standard Meds - 02 Anti-Aging Skin - LiftRx.pdf",
+      "relativePath": "demo-recordings/Standard Meds training PDFs/Standard Meds - 02 Anti-Aging Skin - LiftRx.pdf",
+      "sourceVersion": "supplied-pdf-unapproved",
+      "contentHash": "sha256:9e8aadecd87367ff9940af5c43fdbf234c8ccf84c0f032e9278629c908c73d5b",
+      "pageCount": 13,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "contentHash": "sha256:bf1b5a824f5697921bf82f648249e8d6df23dbd6aef817b0792be88802351def",
+          "characterCount": 1234,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 2,
+          "contentHash": "sha256:9541855018bcf08a258ba4f7437095d45e5f0844f7b5487b43bd8bd6515110bf",
+          "characterCount": 2597,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 3,
+          "contentHash": "sha256:ebb6fc5ea269f23dd3357dcebeda44829cfb546d160ed9607b2d825e4905cc50",
+          "characterCount": 1643,
+          "extractionFlags": [
+            "possible_reading_order_issue"
+          ]
+        },
+        {
+          "pageNumber": 4,
+          "contentHash": "sha256:14831a4998bdc9e372b6dfcc0d2b02d02d4111a951a12fab5b5300479285279d",
+          "characterCount": 955,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 5,
+          "contentHash": "sha256:b8386f604df5dea0190b210d3febb6a4bd060748dd285890ec78fd631b93259f",
+          "characterCount": 984,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 6,
+          "contentHash": "sha256:233048b900a13cd8be873c15ef1d6cb42d50e8b520bef0d2b15ea97f8e3d17ef",
+          "characterCount": 1619,
+          "extractionFlags": [
+            "possible_url_fragmentation"
+          ]
+        },
+        {
+          "pageNumber": 7,
+          "contentHash": "sha256:a5d377509278cdc2ae20621f1249e4982a754b60d7301e86a48fe8f1e2ee97a4",
+          "characterCount": 1638,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 8,
+          "contentHash": "sha256:0e945acb813e3cc6a7e1ec2e752c5f0d4349331b226d6c3350be37e2e75e25ef",
+          "characterCount": 1626,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 9,
+          "contentHash": "sha256:cbd0d8f4b5b6eabaa9c4073978d12f787e20525d93747c1375c5af3889389f22",
+          "characterCount": 2055,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 10,
+          "contentHash": "sha256:cc5ca9db2f420e472f5e9f2b8be6b2490aa5ae940c79810fffaa455d8b8aebde",
+          "characterCount": 3502,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 11,
+          "contentHash": "sha256:a04ac6113fe7ba17c283c1c0d13225dee94b5cc9cca1ffa93a9018ef0d25b71f",
+          "characterCount": 1816,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 12,
+          "contentHash": "sha256:4d433b690f4d4ffe479d0d4ab5e23ff433b320d4d523ed9c26cb32dcbcfcba2d",
+          "characterCount": 2432,
+          "extractionFlags": [
+            "possible_url_fragmentation"
+          ]
+        },
+        {
+          "pageNumber": 13,
+          "contentHash": "sha256:af0d88ce0045e32805c74622b03d1a473a571bc37c1f63f7c0c1a5327d5ac7e4",
+          "characterCount": 406,
+          "extractionFlags": []
+        }
+      ],
+      "approvalStatus": "draft"
+    },
+    {
+      "code": "SM-03",
+      "documentId": "standard-meds-sm-03",
+      "revisionId": "sha256:8b79b21f3a5dcd765894c7460b78db43763aba02ec88f234534a49741caed0f8",
+      "trackId": "standard-meds-sm-03",
+      "role": "product",
+      "fileName": "Standard Meds - 03 Erectile Dysfunction - QuattroRx TriShot.pdf",
+      "relativePath": "demo-recordings/Standard Meds training PDFs/Standard Meds - 03 Erectile Dysfunction - QuattroRx TriShot.pdf",
+      "sourceVersion": "supplied-pdf-unapproved",
+      "contentHash": "sha256:8b79b21f3a5dcd765894c7460b78db43763aba02ec88f234534a49741caed0f8",
+      "pageCount": 9,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "contentHash": "sha256:5a25434701b8d98d1cd92c4f58fb612685073e454874c3458854344775a85578",
+          "characterCount": 1089,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 2,
+          "contentHash": "sha256:a9c04e4067f0af3a8f28049a7adc2b12fdf75c7c315efd1b99e12b51634d696b",
+          "characterCount": 1899,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 3,
+          "contentHash": "sha256:d698183ee93dc4be64245bc19323e775561d389a75fb6e315857c23f9851ef22",
+          "characterCount": 1370,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 4,
+          "contentHash": "sha256:2b1bd393723742d1d70b9ade62a2c989ed380d63b745aa83c69392e5a31775d7",
+          "characterCount": 1561,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 5,
+          "contentHash": "sha256:f21f60f6c01af788530161fbb885db8d562025dea6f747b4ac8c5d4c9d09c4f0",
+          "characterCount": 2064,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 6,
+          "contentHash": "sha256:e73dabcbfd581c5c356746da7de549fc767479a12a833bc9075d1c8fbb4d6579",
+          "characterCount": 1830,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 7,
+          "contentHash": "sha256:5d8d8a501c895444eeb7f66e9da7ae9ee6c3fd0d3a0fd2d75a1459202e272e04",
+          "characterCount": 2482,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 8,
+          "contentHash": "sha256:f96478e4dd982229a578031da88aaaf63001760fe7e667c92f53db650b9e69e8",
+          "characterCount": 2502,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 9,
+          "contentHash": "sha256:5c3b95fb5d01f92bbcba6c49be0f96fe3ab2e5a5c11bd266d0a8577f8037031d",
+          "characterCount": 1678,
+          "extractionFlags": []
+        }
+      ],
+      "approvalStatus": "draft"
+    },
+    {
+      "code": "SM-04",
+      "documentId": "standard-meds-sm-04",
+      "revisionId": "sha256:f69381122254069d030856abf29f397968c040e095a0182e6a024496405255ee",
+      "trackId": "standard-meds-sm-04",
+      "role": "product",
+      "fileName": "Standard Meds - 04 Nail Fungus - ZoliraRx.pdf",
+      "relativePath": "demo-recordings/Standard Meds training PDFs/Standard Meds - 04 Nail Fungus - ZoliraRx.pdf",
+      "sourceVersion": "supplied-pdf-unapproved",
+      "contentHash": "sha256:f69381122254069d030856abf29f397968c040e095a0182e6a024496405255ee",
+      "pageCount": 10,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "contentHash": "sha256:2127cf5f1dd009a2a9dca5dbeb96d7c052f815fc8e5debdae1955322787f5a18",
+          "characterCount": 1085,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 2,
+          "contentHash": "sha256:1182a7432d9755157c0893c734ac29439ae6e8f97de54a6b12122d0c8276db8a",
+          "characterCount": 1910,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 3,
+          "contentHash": "sha256:e7d404afe1d0b01c480563767c2aff7ecb13e56ff0832d7b6b7d109c84f2123e",
+          "characterCount": 1520,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 4,
+          "contentHash": "sha256:9163386d9f72e54e91749d21e5d42a006d179ccd70388d64a31ef2447b294b04",
+          "characterCount": 1626,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 5,
+          "contentHash": "sha256:5d27d226fa5f6588631a352a88e388bb91624427cdc4a809a84bbc11b76090b3",
+          "characterCount": 1967,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 6,
+          "contentHash": "sha256:f73ae5b3fefecfea3ca7e2166834fe84350f432838de21469921a54315339ed9",
+          "characterCount": 1649,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 7,
+          "contentHash": "sha256:6e64f23bb22b5cc7a29029f71aba61c6c88123e16df2b85ae2e90b58e65cd2dd",
+          "characterCount": 1777,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 8,
+          "contentHash": "sha256:8dca95595d7eb515d5723765eb015ef92f4b3de0aa9eff73b3aaf8e14140ef5d",
+          "characterCount": 3143,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 9,
+          "contentHash": "sha256:46b6fc3c5420979778c38e002d6077bf18ba1bcedcf38fce7dc8a4cccc15d3c2",
+          "characterCount": 2441,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 10,
+          "contentHash": "sha256:bed51b4d678868f6b8e350a2f3c357f133e7fa0d4192c6673247cde57cf64358",
+          "characterCount": 1593,
+          "extractionFlags": []
+        }
+      ],
+      "approvalStatus": "draft"
+    },
+    {
+      "code": "SM-05",
+      "documentId": "standard-meds-sm-05",
+      "revisionId": "sha256:bf4ba658eb763d6ebe0200c535cac42336c811550e05d137bcde3559816eb9dc",
+      "trackId": "standard-meds-sm-05",
+      "role": "product",
+      "fileName": "Standard Meds - 05 Longevity - NAD+ Therapy.pdf",
+      "relativePath": "demo-recordings/Standard Meds training PDFs/Standard Meds - 05 Longevity - NAD+ Therapy.pdf",
+      "sourceVersion": "supplied-pdf-unapproved",
+      "contentHash": "sha256:bf4ba658eb763d6ebe0200c535cac42336c811550e05d137bcde3559816eb9dc",
+      "pageCount": 12,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "contentHash": "sha256:7f2e224d15b573b083a7b7233a3ec91e3219e9d1a7448d44cb373a3d5580f03c",
+          "characterCount": 1089,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 2,
+          "contentHash": "sha256:7d56ba48fa83c7d126bf6ac9972a5f2757b6e7bf12537d82b100e8d1585b4307",
+          "characterCount": 2354,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 3,
+          "contentHash": "sha256:841ff3eea40a5b8dac3db783d0e005461db636725b9c6fb6699791b5e66a31ad",
+          "characterCount": 1971,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 4,
+          "contentHash": "sha256:bf6a0cf18da5e4a7ce4316882b76367a4e06815cf979d2d88d041e3c08e5cdbb",
+          "characterCount": 1671,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 5,
+          "contentHash": "sha256:718cd3525e02144450a4a41da7914ba3a8ff521f9c9fe9fe12d28ddc1ba226ea",
+          "characterCount": 1745,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 6,
+          "contentHash": "sha256:95d8660cf0397388165492edb2974cc65200052cf5d006a1f835e711d8275766",
+          "characterCount": 2056,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 7,
+          "contentHash": "sha256:dec45fef5155077d3e02c72e9e071dded949ddfc276472435a5b4185435c56bd",
+          "characterCount": 1719,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 8,
+          "contentHash": "sha256:6e88b8af209f7e6d37870f48240742ea7324b3db47f143b1ed8b6ebaf4f08636",
+          "characterCount": 1773,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 9,
+          "contentHash": "sha256:07ca2a32ef8bf3455737dfa0428d115984240e6353638347b6cc6cba65338d4f",
+          "characterCount": 2797,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 10,
+          "contentHash": "sha256:7863a3281570dc4e7260096df190c6726c4a56ecf4f980d33e45962e6f3a1049",
+          "characterCount": 2593,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 11,
+          "contentHash": "sha256:a25c34ed1dfc832d788858d921c955ac7cfe19f9c29297a925930504f0b34a6b",
+          "characterCount": 2050,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 12,
+          "contentHash": "sha256:f1377cbd7dc65e32d1096f299bd26d884efece37af4c53ff74fe32fb1959bfe8",
+          "characterCount": 701,
+          "extractionFlags": []
+        }
+      ],
+      "approvalStatus": "draft"
+    },
+    {
+      "code": "SM-06",
+      "documentId": "standard-meds-sm-06",
+      "revisionId": "sha256:0ae35c89815e807d84dca674083e5efd842bf7a2051012c93b542993d5104772",
+      "trackId": "standard-meds-sm-06",
+      "role": "support",
+      "fileName": "Standard Meds - 06 Customer Support - All Products.pdf",
+      "relativePath": "demo-recordings/Standard Meds training PDFs/Standard Meds - 06 Customer Support - All Products.pdf",
+      "sourceVersion": "supplied-pdf-unapproved",
+      "contentHash": "sha256:0ae35c89815e807d84dca674083e5efd842bf7a2051012c93b542993d5104772",
+      "pageCount": 19,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "contentHash": "sha256:9879752b53abac87a625dbe88bd4b31183128bfa5b19148188ecfb6d888b1a3c",
+          "characterCount": 923,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 2,
+          "contentHash": "sha256:46f511890f00b7a6e133cc5bce1ed18080df379f41b45d0587ce6bb9b8eb312e",
+          "characterCount": 1615,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 3,
+          "contentHash": "sha256:f45d9aec83ede50594a0897073b9dc06e56df5fdd6ca4f997f3e62ddd2da5cd5",
+          "characterCount": 1255,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 4,
+          "contentHash": "sha256:a716c2efad37434c44a539d741357bcef8431165a82c5bdedb9fffee76d3e98c",
+          "characterCount": 1751,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 5,
+          "contentHash": "sha256:78d0271fbc6636bf351652e746fdc00a4b4ebd23d46dec80a4c00442df1149fd",
+          "characterCount": 1858,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 6,
+          "contentHash": "sha256:e0223129faa30a6eb1e941e4324ca870a3657cf2baf33c843af066724070833d",
+          "characterCount": 930,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 7,
+          "contentHash": "sha256:273f73471cf541f4dfd8df9a56422d933ce2106ce58734afaf532dd300451e8d",
+          "characterCount": 1301,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 8,
+          "contentHash": "sha256:d90383382edcbe06d03a81d1054a6ea9c3f8d2997ca7d374dfd5aed210f238d4",
+          "characterCount": 1669,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 9,
+          "contentHash": "sha256:b9a427943822306f1bd35d09b2c39ae92ea4a9c36ba2917df06445ca8cbb7377",
+          "characterCount": 2069,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 10,
+          "contentHash": "sha256:f954de5e4c2e20118e5e9b7b661af974d554450461a1348b6560d05c3e763f64",
+          "characterCount": 1490,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 11,
+          "contentHash": "sha256:5416658a20e169b5e5d5faad2257ee110223258ac7ae2900837e1510b630ad61",
+          "characterCount": 1860,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 12,
+          "contentHash": "sha256:f998ac05b33c51b29b4ec40f09c944ff251881ceceefc17594b4ff7209d19809",
+          "characterCount": 1627,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 13,
+          "contentHash": "sha256:f7d166e0a15aec5901e006d973170ce7fc96e23cadd3522f5881551d131fa3ba",
+          "characterCount": 1835,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 14,
+          "contentHash": "sha256:9181d5474003d98116967c916ef78db55670e34e2d93e016b996d27cfde84b68",
+          "characterCount": 556,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 15,
+          "contentHash": "sha256:5ef389b93a0c3b18c7b4a8cf7ed2d2952cdc1469394ce6ec4986067da1a673a8",
+          "characterCount": 1327,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 16,
+          "contentHash": "sha256:f5f11059df0f3c21ee7f4eb274c2d429681efdc9e0f5f3c05dcfd92d6af02cc0",
+          "characterCount": 1711,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 17,
+          "contentHash": "sha256:6fca054f5f61f5acf96b90baaee825ca68b39e0c1181be6794436dd3645b8b01",
+          "characterCount": 1566,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 18,
+          "contentHash": "sha256:72ff9bb535a94fb56dcc62dbe232b6286edd36a0b52f1a54c6e2276856c2850b",
+          "characterCount": 1499,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 19,
+          "contentHash": "sha256:fc72c85710f69644747925a39026b09b2aac5d1a6578e3f08ba1b7a2c8cc763e",
+          "characterCount": 726,
+          "extractionFlags": []
+        }
+      ],
+      "approvalStatus": "draft"
+    },
+    {
+      "code": "SM-07",
+      "documentId": "standard-meds-sm-07",
+      "revisionId": "sha256:88e3d9a3013997bbea3e8c4e3e4a986b56306109e7135074b0467dc88844d08f",
+      "trackId": "standard-meds-sm-07",
+      "role": "medical_chat",
+      "fileName": "Standard Meds - 07 Medical Chat - Pending Information.pdf",
+      "relativePath": "demo-recordings/Standard Meds training PDFs/Standard Meds - 07 Medical Chat - Pending Information.pdf",
+      "sourceVersion": "supplied-pdf-unapproved",
+      "contentHash": "sha256:88e3d9a3013997bbea3e8c4e3e4a986b56306109e7135074b0467dc88844d08f",
+      "pageCount": 22,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "contentHash": "sha256:b14d9f67eb6b5366b48e8a8d7f6d229c25ce624e9433e19eb1e3c00a81cdf507",
+          "characterCount": 1255,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 2,
+          "contentHash": "sha256:c17ff1abbdb3d77ec2a8f7860605f01b944b6fd0265258e37dbb275e24943881",
+          "characterCount": 2281,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 3,
+          "contentHash": "sha256:7c53116303bc62d5c6711428f1d6e8da43368d69120e1c720f40b8c42d5d2679",
+          "characterCount": 1800,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 4,
+          "contentHash": "sha256:a3e9e40d9b83edfe43f9a1102316ea2db60d1901882af6cb926fffb1381119a8",
+          "characterCount": 1956,
+          "extractionFlags": [
+            "possible_reading_order_issue"
+          ]
+        },
+        {
+          "pageNumber": 5,
+          "contentHash": "sha256:621baaba924907e13293c66d2f7e3183c0ab4bcde5effc2dba7b17be4f9e0b7c",
+          "characterCount": 1340,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 6,
+          "contentHash": "sha256:14b8bad10e001ae13a90c763fb329f52f4ae97e8a1fc777617e146330dab96e5",
+          "characterCount": 1124,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 7,
+          "contentHash": "sha256:eb59c3fc59f2acb773cbc1697a4566d5192f413445d07d2c667b16ce53ddcf31",
+          "characterCount": 947,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 8,
+          "contentHash": "sha256:780a0a28e67c55c50cb1104a2a7f8e2440c5027c3b1cb3ec20b7730afe372963",
+          "characterCount": 1304,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 9,
+          "contentHash": "sha256:9a538a24883a80fa3f5ed0e75645d289fb893df6031c45cfbbdc460413a817ed",
+          "characterCount": 1323,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 10,
+          "contentHash": "sha256:2da3f0f2254b30bcae438a2ffd247def82b3b4ab403984ffc36164a124ca5ea3",
+          "characterCount": 991,
+          "extractionFlags": [
+            "manual_transcription_required"
+          ]
+        },
+        {
+          "pageNumber": 11,
+          "contentHash": "sha256:017845e9651c7a5b5ae42a02868ae338d060d91a786b48d355feb37f8fa6582b",
+          "characterCount": 763,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 12,
+          "contentHash": "sha256:2a666e99290a38cffdbb0a39b290baae6844ffcca1c2fddf7129a1ac3fceaf32",
+          "characterCount": 1439,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 13,
+          "contentHash": "sha256:a70ff57858f658e40695c4b238c5e2237c6dc22a964b9c79ad1cf3e849dddce0",
+          "characterCount": 1945,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 14,
+          "contentHash": "sha256:055e902b6233f4d5606f0dbba1c40081c77cba423d1ffc62ee0dbec09d1b447f",
+          "characterCount": 2154,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 15,
+          "contentHash": "sha256:9e303e52fab71b3825b0463b0c5a1ee4736d2c44d810ac7424af96f0e1be06da",
+          "characterCount": 1602,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 16,
+          "contentHash": "sha256:1be64e2ffc0c2dc894e2579bc3441fec61495f7082909e7850b0a93402619e81",
+          "characterCount": 2393,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 17,
+          "contentHash": "sha256:0da715aa91800819d602edc30cb5d23f9aacad396329f475178265008a0f83fb",
+          "characterCount": 2307,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 18,
+          "contentHash": "sha256:f8a2eff38d7e3d3b30da74892b282a3569ffac0187b358e3f610fe3d1cb0ac13",
+          "characterCount": 2507,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 19,
+          "contentHash": "sha256:ac86e9214b0cc2f31b4ccf33768a455e61e0bca9055fb2a9c5489f6231cf9349",
+          "characterCount": 2626,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 20,
+          "contentHash": "sha256:f01ce80c64bf0c931d2aa7881eed3fe62e41486b1a6e71f1aaf774fad562f70e",
+          "characterCount": 2103,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 21,
+          "contentHash": "sha256:7b143507ad65c96bc53cc4ac8c87c833cd49e898edabf4095257d6420465f576",
+          "characterCount": 2281,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 22,
+          "contentHash": "sha256:f05859afc8b082a7a34cd7658589aa1f21c556101c9b8488855947350b7e3813",
+          "characterCount": 575,
+          "extractionFlags": []
+        }
+      ],
+      "approvalStatus": "draft"
+    },
+    {
+      "code": "SM-08",
+      "documentId": "standard-meds-sm-08",
+      "revisionId": "sha256:af2022e0521b8e4e4f7454d519a368e3ea6e95e77c3f37bf102515429c8500bb",
+      "trackId": "standard-meds-sm-08",
+      "role": "renewals",
+      "fileName": "Standard Meds - 08 Renewals - Failed Payment.pdf",
+      "relativePath": "demo-recordings/Standard Meds training PDFs/Standard Meds - 08 Renewals - Failed Payment.pdf",
+      "sourceVersion": "supplied-pdf-unapproved",
+      "contentHash": "sha256:af2022e0521b8e4e4f7454d519a368e3ea6e95e77c3f37bf102515429c8500bb",
+      "pageCount": 17,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "contentHash": "sha256:198b00c31d02e264c14d8ca863cfee0422858cfbc01443ff309bc0cc3b3dbaf7",
+          "characterCount": 1180,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 2,
+          "contentHash": "sha256:d52fe7c3caf33c3a364fb01717f79477fb966b3271be4a37a8fd73bba724761a",
+          "characterCount": 2288,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 3,
+          "contentHash": "sha256:27ad45935acebac2092416545f17f4a218cfdbaaa35008c83096fd6db076cfdc",
+          "characterCount": 1781,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 4,
+          "contentHash": "sha256:170099a06b131b67d50fd4f3143dfc834b56e019dd33c31f7d765bd36abcb509",
+          "characterCount": 1530,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 5,
+          "contentHash": "sha256:45824ef0a0809d6920092b07c4a0abe5eea3c6684a513c1d40435759ab349270",
+          "characterCount": 2144,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 6,
+          "contentHash": "sha256:8952237b505edf0e50cfdf2a15ff56ce5471de570d398f731675acd164090317",
+          "characterCount": 1530,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 7,
+          "contentHash": "sha256:a7d2b6ce69a3ef1cb0c63f92ca008750813aa29b8579cdbd8c240c5cc41fd5dc",
+          "characterCount": 2217,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 8,
+          "contentHash": "sha256:d632a53c0dfaf771f0a0db3423deac0e72183192a77a8aadfec09c0d563484e5",
+          "characterCount": 1815,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 9,
+          "contentHash": "sha256:8004e6a74d62fdf77f8f14b7ae2f0da01c20c67c449c3b14bffc457d58ce3872",
+          "characterCount": 1333,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 10,
+          "contentHash": "sha256:4e1b56a391786a3d91a74b613dd956d49c6c307839e66d14ff001458eaf67625",
+          "characterCount": 479,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 11,
+          "contentHash": "sha256:3d75a6cf26e0cad89a400aac43c404035943b71e2353556198d83a05ba4b1d8b",
+          "characterCount": 714,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 12,
+          "contentHash": "sha256:705db7de0c42710c5a051038a147bbbe89977bb6f070d14d34b84bbf35ae8146",
+          "characterCount": 1172,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 13,
+          "contentHash": "sha256:417ebc93f07657f483185e4a0ca1723dded3d66081b2462b3cbf0b8b7af53806",
+          "characterCount": 2127,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 14,
+          "contentHash": "sha256:bb871315b20c19e79fc8efa3698442a0f145c6afa5e53721d19e8fd9e704fd87",
+          "characterCount": 2740,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 15,
+          "contentHash": "sha256:9df6e272154548d4985bed3a2318cfc865458e157ca9d918b6c8881cd40f592d",
+          "characterCount": 2124,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 16,
+          "contentHash": "sha256:1ea49ed71777a1072ca843a699045b8f506375774ffdc2a93a988e0c63490a86",
+          "characterCount": 2181,
+          "extractionFlags": []
+        },
+        {
+          "pageNumber": 17,
+          "contentHash": "sha256:b8647600f3aeb62b35f9d8f79c6456e7fc018c2aac22292af5946c94f6b2fe42",
+          "characterCount": 13,
+          "extractionFlags": [
+            "low_text_density",
+            "manual_transcription_required"
+          ]
+        }
+      ],
+      "approvalStatus": "draft"
+    }
+  ]
+}
