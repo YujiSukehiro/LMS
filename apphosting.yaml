@@ -56,8 +56,8 @@ env:
     value: "15"
     availability:
       - RUNTIME
-  # Uncomment after running: npx -y firebase-tools@latest apphosting:secrets:set GEMINI_API_KEY
-  # - variable: GEMINI_API_KEY
-  #   secret: GEMINI_API_KEY
-  #   availability:
-  #     - RUNTIME
+  # Value lives in Cloud Secret Manager (set with apphosting:secrets:set GEMINI_API_KEY); never commit it.
+  - variable: GEMINI_API_KEY
+    secret: GEMINI_API_KEY
+    availability:
+      - RUNTIME

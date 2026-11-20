@@ -32,7 +32,7 @@ export const TRAINING_POLICY: TrainingPolicyConfig = {
 export interface ApprovalGateEntry {
   id: string;
   title: string;
-  status: 'PENDING_CONNOR';
+  status: 'PENDING_CONNOR' | 'APPROVED';
   currentDefault: string;
   pausedScope: string;
   codeLocation: string;
@@ -66,7 +66,7 @@ export const APPROVAL_GATES: readonly ApprovalGateEntry[] = [
   {
     id: 'GATE-04',
     title: 'Hosted Gemini AI certification eligibility',
-    status: 'PENDING_CONNOR',
+    status: 'APPROVED',
     currentDefault: 'allowHostedAiForCertification = true (approved 2026-11-20; hosted_ai, local_ai and manual_chat certify)',
     pausedScope: 'Adding hosted_ai to LIVE_SESSION_SOURCES and EVALUATION_SOURCES for cloud production certification',
     codeLocation: 'src/lib/policy/training-policy.ts, src/lib/services/certification.ts',

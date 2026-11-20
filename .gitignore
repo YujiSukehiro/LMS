@@ -23,3 +23,6 @@ mlx-runtime/*
 
 # Local review dumps (multi-MB source concatenations); never deploy or commit.
 _gemini_review/
+
+# Local-only secrets (for example the Gemini key file used once for apphosting:secrets:set). Never commit.
+.secrets/
