@@ -82,10 +82,10 @@ Screenshots: `test-results/sweep2/` (every route × 4 viewports) and `test-resul
 
 ## Decisions for Connor before rollout
 
-1. **GATE-04: Can Gemini-scored practice certify?** `apphosting.yaml` sets `AI_PROVIDER=gemini`, and
-   `allowHostedAiForCertification=false`. As configured, **no learner can ever certify in production**; every pass is
-   coaching only (learners now see that). Flip `TRAINING_POLICY.allowHostedAiForCertification` to `true`, or run a
-   local/manual judge path in production.
+1. **GATE-04: approved 2026-11-20.** `allowHostedAiForCertification = true`. Gemini (`hosted_ai`) evidence is now kept
+   as `hosted_ai` end to end (it was being relabelled `imported_legacy`, which blocked certification even with the
+   flag on). Flipping the flag back to `false` blocks hosted runs with the explicit reason
+   `hosted_ai_certification_disabled` and shows learners a "coaching only" note.
 2. **Gemini key.** The `GEMINI_API_KEY` secret block in `apphosting.yaml` is commented out, so every AI feature in
    production returns "The AI caller is not available right now". Run
    `npx firebase-tools apphosting:secrets:set GEMINI_API_KEY` and uncomment the block.

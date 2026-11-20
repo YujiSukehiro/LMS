@@ -106,9 +106,8 @@ function buildVerbalQaFixtures(
     kind: 'golden_pass',
     steps: draftQAFixtureSteps('golden_pass', scenario, safePassDisposition),
     expectedDisposition: safePassDisposition,
-    expectedGateResults: outbound
-      ? draftExpectedGateResults('golden_pass', scenario)
-      : [{ ruleId: 'opt_out', status: 'not_observed' }],
+    // opt_out is not evaluated unless the customer opts out, so it can never be the inbound pass expectation.
+    expectedGateResults: draftExpectedGateResults('golden_pass', scenario),
   };
 
   const failFixture: ScenarioQAFixture = outbound
@@ -125,6 +124,8 @@ function buildVerbalQaFixtures(
         title: 'Verbal golden critical fail',
         kind: 'golden_critical_fail',
         steps: [
+          // Inbound scenarios start ready_to_dial; answering (`dial`) must come before any in-call action.
+          { action: { type: 'dial' } },
           { action: { type: 'set_opt_out' } },
           { learnerUtterance: 'Synthetic learner turn: continuing without suppression.' },
           { action: { type: 'wrap_up', disposition: 'Not interested' } },
@@ -157,4 +158,45 @@ export function ensureVerbalSecretDefaults(
       ? buildVerbalQaFixtures(ensureVerbalScenarioDefaults(scenario), expectedDisposition)
       : existingFixtures,
   });
+}
+
+function hasBothQaFixtures(secret: SecretSimScenarioConfig | undefined): boolean {
+  const fixtures = secret?.qaFixtures ?? [];
+  return fixtures.some((fixture) => fixture.kind === 'golden_pass') && fixtures.some((fixture) => fixture.kind === 'golden_critical_fail');
+}
+
+/**
+ * Bring Verbal Practice scenarios and their secret configs to a publishable shape: canonical context,
+ * verbal evidence requirements, and scripted golden-pass / critical-fail QA fixtures.
+ *
+ * With `onlyIncomplete`, scenarios that already have context, evidence requirements and both fixtures are
+ * left exactly as the trainer saved them; only incomplete pairs (for example Tracks generated before
+ * fixtures were created at build time) are normalized. `changed` reports whether anything was rewritten.
+ */
+export function normalizeVerbalScenarioPairs<S extends SecretSimScenarioConfig>(args: {
+  scenarios: readonly PublicSimScenario[];
+  secrets: readonly S[];
+  defaults: VerbalScenarioDefaultsContext;
+  onlyIncomplete?: boolean;
+}): { scenarios: PublicSimScenario[]; secrets: SecretSimScenarioConfig[]; changed: boolean } {
+  const secretById = new Map(args.secrets.map((secret) => [secret.scenarioId, secret]));
+  let changed = false;
+  const normalizedIds = new Set<string>();
+  const scenarios = args.scenarios.map((scenario) => {
+    const complete = Boolean(scenario.context && scenario.evidenceRequirements) && hasBothQaFixtures(secretById.get(scenario.id));
+    if (args.onlyIncomplete && complete) return scenario;
+    normalizedIds.add(scenario.id);
+    const next = ensureVerbalScenarioDefaults(scenario, args.defaults);
+    if (JSON.stringify(next) !== JSON.stringify(scenario)) changed = true;
+    return next;
+  });
+  const scenarioById = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+  const secrets = args.secrets.map((secret) => {
+    const scenario = scenarioById.get(secret.scenarioId);
+    if (!scenario || !normalizedIds.has(secret.scenarioId)) return secret;
+    const next = ensureVerbalSecretDefaults(scenario, secret);
+    if (JSON.stringify(next) !== JSON.stringify(secret)) changed = true;
+    return next;
+  });
+  return { scenarios, secrets, changed };
 }

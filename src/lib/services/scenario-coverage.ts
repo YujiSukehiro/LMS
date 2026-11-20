@@ -16,6 +16,14 @@ export function scenarioCoverageDocId(learnerId: string, trackId: string, versio
   return `coverage_${learnerId}_${trackId}_${versionId}_${scenarioId}`;
 }
 
+/**
+ * Evidence provenance for a session source. Live AI and manual sources pass through unchanged (hosted_ai included,
+ * so policy decides eligibility rather than a silent relabel); anything else is unverified legacy.
+ */
+export function scenarioEvidenceProvenance(source: string | undefined): ScenarioAttemptEvidence['provenance'] {
+  return source === 'local_ai' || source === 'hosted_ai' || source === 'manual_chat' ? source : 'imported_legacy';
+}
+
 export function scenarioAttemptEvidence(session: SimSessionDoc): ScenarioAttemptEvidence {
   const source = session.provenance?.source;
   const gates = session.evaluation?.gateResults ?? session.gateResults ?? [];
@@ -28,8 +36,7 @@ export function scenarioAttemptEvidence(session: SimSessionDoc): ScenarioAttempt
       .map((gate) => gate.ruleId))],
     workflowComplete: session.scenarioState?.wrapUpComplete === true && !gates.some((gate) => gate.status === 'fail'),
     dispositionValid: session.evaluation?.dispositionCorrect === true && session.evaluation.dispositionValidation?.valid === true,
-    // The stored compatibility schema has no hosted_ai value; those attempts remain ineligible in the pure cross-check.
-    provenance: source === 'local_ai' || source === 'manual_chat' ? source : 'imported_legacy',
+    provenance: scenarioEvidenceProvenance(source),
   });
 }
 

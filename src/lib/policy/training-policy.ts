@@ -11,6 +11,8 @@ export interface TrainingPolicyConfig {
   requireDispositionInVerbalPractice: boolean;
   /** GATE-03: Whether correct initial Checkpoint drills satisfy rule mastery in one sitting without waiting 10m/1d. */
   allowSameSittingRuleMastery: boolean;
+  /** GATE-03: Whether a due spaced review (a day or more after the first sitting) satisfies rule mastery. */
+  allowSpacedReviewAsMastery: boolean;
   /** GATE-04: Whether Gemini (`hosted_ai`) simulation evaluations may grant official Track certification. */
   allowHostedAiForCertification: boolean;
   /** GATE-05: Whether learner Track visibility also enforces `user.divisionIds` in addition to Cohort assignment. */
@@ -21,7 +23,9 @@ export const TRAINING_POLICY: TrainingPolicyConfig = {
   simulationInteractionMode: 'verbal_only',
   requireDispositionInVerbalPractice: false,
   allowSameSittingRuleMastery: false,
-  allowHostedAiForCertification: false,
+  allowSpacedReviewAsMastery: true,
+  // GATE-04 approved by Connor 2026-11-20: production runs Gemini, so hosted_ai sessions may certify.
+  allowHostedAiForCertification: true,
   enforceLearnerDivisionVisibility: false,
 };
 
@@ -63,7 +67,7 @@ export const APPROVAL_GATES: readonly ApprovalGateEntry[] = [
     id: 'GATE-04',
     title: 'Hosted Gemini AI certification eligibility',
     status: 'PENDING_CONNOR',
-    currentDefault: 'allowHostedAiForCertification = false (only local_ai and manual_chat certify)',
+    currentDefault: 'allowHostedAiForCertification = true (approved 2026-11-20; hosted_ai, local_ai and manual_chat certify)',
     pausedScope: 'Adding hosted_ai to LIVE_SESSION_SOURCES and EVALUATION_SOURCES for cloud production certification',
     codeLocation: 'src/lib/policy/training-policy.ts, src/lib/services/certification.ts',
   },

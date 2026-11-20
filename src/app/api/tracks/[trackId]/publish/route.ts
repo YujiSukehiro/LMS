@@ -18,6 +18,8 @@ import {
   selectCurrentCertification,
 } from '@/lib/services/learning-evidence';
 import { runScenarioQAFixture } from '@/lib/services/scenario-state';
+import { normalizeVerbalScenarioPairs } from '@/lib/services/verbal-defaults';
+import { VERBAL_ONLY } from '@/lib/policy/training-policy';
 import { loadSourceReview, SourceBundleNotFoundError } from '@/lib/services/source-store';
 import type { PublicationGateReport } from '@/lib/schemas/source-truth';
 import { ALL_COHORTS_ID, INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
@@ -90,9 +92,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
       if (isGenerationRunning(track) || track.generationProgress.step !== 'READY') {
         throw new PublishError(409, 'NOT_READY', 'The Track build is not complete. Finish the build before you publish.');
       }
-      const draft = await loadVersion(trackId, DRAFT_VERSION_ID, tx);
-      if (!draft) throw new PublishError(409, 'NO_DRAFT', 'This Track has no draft to publish.');
-      const secrets = await loadSecrets(trackId, DRAFT_VERSION_ID, tx);
+      const storedDraft = await loadVersion(trackId, DRAFT_VERSION_ID, tx);
+      if (!storedDraft) throw new PublishError(409, 'NO_DRAFT', 'This Track has no draft to publish.');
+      const storedSecrets = await loadSecrets(trackId, DRAFT_VERSION_ID, tx);
+      // Verbal Practice has no Studio QA editor: backfill canonical context and QA fixtures for scenarios that
+      // lack them (Tracks built before fixtures were generated) instead of failing SCENARIO_GOLDEN_PASS_REQUIRED.
+      // Complete, trainer-saved scenarios are left untouched.
+      const backfill = VERBAL_ONLY
+        ? normalizeVerbalScenarioPairs({
+            scenarios: storedDraft.simScenarios,
+            secrets: storedSecrets?.scenarios ?? [],
+            defaults: {
+              divisionId: track.divisionId,
+              product: track.title,
+              sourceRevision: storedDraft.sourceRevision ?? null,
+              curriculumVersion: storedDraft.versionId,
+            },
+            onlyIncomplete: true,
+          })
+        : null;
+      const draft = backfill?.changed ? TrackVersionDocSchema.parse({ ...storedDraft, simScenarios: backfill.scenarios }) : storedDraft;
+      const secrets = backfill?.changed && storedSecrets
+        ? EvalRubricsDocSchema.parse({ ...storedSecrets, scenarios: backfill.secrets })
+        : storedSecrets;
 
       if (draft.units.length === 0) throw new PublishError(400, 'VALIDATION_FAILED', 'Add at least one Unit before you publish.');
       if (draft.simScenarios.length === 0) {
@@ -240,7 +262,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
 
       tx.set(versionRef(trackId, versionId), published);
       tx.set(secretsRef(trackId, versionId), publishedSecrets);
-      tx.update(draftRef(trackId), { versionNumber: versionNumber + 1 });
+      if (backfill?.changed) {
+        tx.set(draftRef(trackId), TrackVersionDocSchema.parse({ ...draft, versionNumber: versionNumber + 1 }));
+        if (secrets) tx.set(secretsRef(trackId, DRAFT_VERSION_ID), secrets);
+      } else {
+        tx.update(draftRef(trackId), { versionNumber: versionNumber + 1 });
+      }
       tx.update(trackRef(trackId), {
         status: 'PUBLISHED',
         publishedVersionId: versionId,

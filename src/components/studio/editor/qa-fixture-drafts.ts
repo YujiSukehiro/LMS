@@ -40,6 +40,11 @@ function dispositionSteps(scenario: PublicSimScenario, disposition: Disposition,
   }
 }
 
+function reachesPatient(scenario: PublicSimScenario): boolean {
+  const contact = scenario.context?.contactState;
+  return contact !== 'third_party' && contact !== 'voicemail';
+}
+
 export function draftQAFixtureSteps(kind: ScenarioQAFixture['kind'], scenario: PublicSimScenario, disposition: Disposition): Step[] {
   const requirements = scenario.evidenceRequirements;
   const outbound = scenario.context?.direction !== 'inbound';
@@ -48,17 +53,29 @@ export function draftQAFixtureSteps(kind: ScenarioQAFixture['kind'], scenario: P
   const learner = Array.from({ length: turns }, (_, index) => ({ learnerUtterance: LEARNER_TURNS[index % LEARNER_TURNS.length] }));
   const note = action({ type: 'note', text: 'Synthetic QA note: call outcome recorded.' });
 
+  // Inbound calls still start in pre_call/ready_to_dial (see createInitialScenarioState); answering the call is the
+  // `dial` transition, so every inbound script dials after its inspections and before any in-call step.
+  const answerInbound = outbound ? [] : [...inspections.map((inspectionId) => action({ type: 'inspect', inspectionId })), action({ type: 'dial' })];
+  const disclosure =
+    !outbound && scenario.context?.queue === 'renewals' ? [action({ type: 'record_disclosure' })] : [];
+
   if (kind === 'golden_critical_fail') {
     // Outbound: dialing before the local-time inspection is a deterministic critical failure.
     if (outbound) return [action({ type: 'dial' }), ...learner, note, action({ type: 'wrap_up', disposition })];
-    return [...learner, action({ type: 'wrap_up', disposition })];
+    return [...answerInbound, ...learner, action({ type: 'wrap_up', disposition })];
   }
 
   const workflowIds = new Set(requirements?.requiredWorkflowActions ?? []);
   const wrapUp = new Set(requirements?.requiredWrapUpEvidence ?? []);
   const steps: Step[] = [
-    ...inspections.map((inspectionId) => action({ type: 'inspect', inspectionId })),
-    ...(outbound ? [action({ type: 'dial' }), action({ type: 'record_disclosure' })] : []),
+    ...(outbound
+      ? [...inspections.map((inspectionId) => action({ type: 'inspect', inspectionId })), action({ type: 'dial' }), action({ type: 'record_disclosure' })]
+      : [
+          ...answerInbound,
+          ...disclosure,
+          // Verify before any account detail so identity-privacy queues record a clean pass.
+          ...(reachesPatient(scenario) ? [action({ type: 'verify_identity' })] : []),
+        ]),
     ...learner,
     ...[...workflowIds].map((actionId) => action({ type: 'workflow', actionId })),
     ...dispositionSteps(scenario, disposition, workflowIds),
@@ -75,7 +92,12 @@ export function draftExpectedGateResults(kind: ScenarioQAFixture['kind'], scenar
   const outbound = scenario.context?.direction !== 'inbound';
   if (kind === 'golden_pass') {
     if (requiredGates.length > 0) return requiredGates.map((ruleId) => ({ ruleId, status: 'pass' as const }));
-    return [{ ruleId: 'local_time', status: outbound ? ('pass' as const) : ('not_observed' as const) }];
+    if (outbound) return [{ ruleId: 'local_time', status: 'pass' as const }];
+    // Inbound has no local-time gate. Recovery queues always evaluate offer_limit; every other queue
+    // evaluates identity_privacy, which the draft script satisfies with verify_identity.
+    return scenario.context?.queue === 'recovery'
+      ? [{ ruleId: 'offer_limit', status: 'not_observed' as const }]
+      : [{ ruleId: 'identity_privacy', status: 'pass' as const }];
   }
   return [{ ruleId: outbound ? 'local_time' : requiredGates[0] ?? 'local_time', status: 'fail' as const }];
 }

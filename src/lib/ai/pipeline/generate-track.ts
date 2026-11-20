@@ -3,6 +3,8 @@
  * -> Pass 3 Sim Builder. Persists progress and the partial draft after each Unit, then writes the
  * complete draft TrackVersion and its secret rubrics. Server only.
  */
+import { normalizeVerbalScenarioPairs } from '@/lib/services/verbal-defaults';
+import { VERBAL_ONLY } from '@/lib/policy/training-policy';
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import {
@@ -1217,7 +1219,21 @@ async function commitDraft(input: {
   reviewNotes?: string[];
 }): Promise<void> {
   const now = Date.now();
-  const simScenarios = input.scenarios.map((pair) => pair.publicScenario);
+  // Verbal Practice hides the Studio QA editor, so a freshly built Track must already carry canonical
+  // verbal context and scripted QA fixtures; otherwise publishing needs a dummy edit first.
+  const verbal = VERBAL_ONLY
+    ? normalizeVerbalScenarioPairs({
+        scenarios: input.scenarios.map((pair) => pair.publicScenario),
+        secrets: input.scenarios.map((pair) => pair.secretConfig),
+        defaults: {
+          divisionId: input.track.divisionId,
+          product: input.track.title,
+          sourceRevision: input.source?.sourceRevision ?? null,
+          curriculumVersion: DRAFT_VERSION_ID,
+        },
+      })
+    : null;
+  const simScenarios = verbal ? verbal.scenarios : input.scenarios.map((pair) => pair.publicScenario);
   const draft = TrackVersionDocSchema.parse({
     versionId: DRAFT_VERSION_ID,
     trackId: input.trackId,
@@ -1240,7 +1256,7 @@ async function commitDraft(input: {
   const secrets = EvalRubricsDocSchema.parse({
     trackId: input.trackId,
     versionId: DRAFT_VERSION_ID,
-    scenarios: input.scenarios.map((pair) => pair.secretConfig),
+    scenarios: verbal ? verbal.secrets : input.scenarios.map((pair) => pair.secretConfig),
     updatedAt: now,
   });
   const batch = adminDb.batch();

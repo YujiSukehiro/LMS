@@ -317,7 +317,7 @@ export function evaluateKnowledgeMastery(args: {
   // toward mastery by default (as GATE-03 in docs/CONNOR_APPROVAL_LOG.md describes). Gating it on
   // allowSameSittingRuleMastery left learners who finish every Checkpoint in one sitting with no reachable mastery
   // evidence: the Retention Hub only re-serves the same Drill, which can never be classified varied_retrieval.
-  const allowSpaced = args.masteryPolicy?.allowSpacedReviewAsMastery ?? true;
+  const allowSpaced = args.masteryPolicy?.allowSpacedReviewAsMastery ?? TRAINING_POLICY.allowSpacedReviewAsMastery;
   for (const ruleId of args.blueprint.requiredRuleIds) {
     const supportingAttempts = eligibleAttempts.filter(
       (attempt) =>
@@ -443,8 +443,16 @@ export function evaluateScenarioSessionEvidence(args: {
   }
   if (isReplaySession(session)) reasons.add('replay_excluded');
   const sessionSource = session.provenance?.source;
-  if (!isAllowedLiveSessionSource(sessionSource)) reasons.add('session_provenance_unverified');
-  if (!isAllowedEvaluationSource(session.evaluation?.provenance?.source)) {
+  const evaluationSource = session.evaluation?.provenance?.source;
+  const hostedAiBlocked = !TRAINING_POLICY.allowHostedAiForCertification &&
+    (sessionSource === 'hosted_ai' || evaluationSource === 'hosted_ai' || evidence.provenance === 'hosted_ai');
+  // GATE-04: a hosted (Gemini) run is genuine live evidence; when policy disallows it, say so explicitly instead of
+  // reporting it as unverified or legacy.
+  if (hostedAiBlocked) reasons.add('hosted_ai_certification_disabled');
+  if (!isAllowedLiveSessionSource(sessionSource) && !(hostedAiBlocked && sessionSource === 'hosted_ai')) {
+    reasons.add('session_provenance_unverified');
+  }
+  if (!isAllowedEvaluationSource(evaluationSource) && !(hostedAiBlocked && evaluationSource === 'hosted_ai')) {
     reasons.add('evaluation_provenance_unverified');
   }
   if (evidence.provenance === 'imported_legacy') {

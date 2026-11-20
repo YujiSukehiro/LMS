@@ -143,7 +143,8 @@ export const ScenarioAttemptEvidenceSchema = z.object({
   criticalFailureRuleIds: z.array(z.string().min(1)),
   workflowComplete: z.boolean(),
   dispositionValid: z.boolean(),
-  provenance: z.enum(['local_ai', 'manual_chat', 'imported_legacy']),
+  /** `hosted_ai` (Gemini) is kept as-is; whether it certifies is TRAINING_POLICY.allowHostedAiForCertification. */
+  provenance: z.enum(['local_ai', 'hosted_ai', 'manual_chat', 'imported_legacy']),
 });
 export type ScenarioAttemptEvidence = z.infer<typeof ScenarioAttemptEvidenceSchema>;
 

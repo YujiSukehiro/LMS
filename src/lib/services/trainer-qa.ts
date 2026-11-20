@@ -1,4 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
+import { scenarioEvidenceProvenance } from './scenario-coverage';
 import type { SimSessionDoc } from '@/lib/schemas/analytics';
 import {
   DRAFT_VERSION_ID,
@@ -147,7 +148,7 @@ function scenarioEvidence(session: SimSessionDoc) {
       .map((gate) => gate.ruleId))],
     workflowComplete: session.scenarioState?.wrapUpComplete === true && !gates.some((gate) => gate.status === 'fail'),
     dispositionValid: session.evaluation?.dispositionCorrect === true && session.evaluation.dispositionValidation?.valid === true,
-    provenance: source === 'local_ai' || source === 'manual_chat' ? source : 'imported_legacy',
+    provenance: scenarioEvidenceProvenance(source),
   });
 }
 
