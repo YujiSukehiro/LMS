@@ -7,7 +7,7 @@
  * Only git-tracked text files are included, so .env.local, node_modules, build output and binaries never leak.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -65,6 +65,8 @@ function run(label, cmd, args) {
   return `=== ${label} ===\n${output}\n${result.status === 0 ? '' : `(exit ${result.status})\n`}\n`;
 }
 
+// Start fresh so Finder's created/modified dates and the file list always reflect this run.
+rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
 let diagnostics = run('GIT STATUS & RECENT COMMITS', 'sh', ['-c', 'git status && git log --oneline -10']);
