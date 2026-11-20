@@ -14,8 +14,8 @@ import {
 } from '@/lib/ai/types';
 import { runStructuredRepairLoop, toGeminiJsonSchema, toJsonSchema } from '@/lib/ai/pipeline/structured-output';
 
-export const DEFAULT_GEMINI_HEAVY_MODEL = 'gemini-2.5-flash';
-export const DEFAULT_GEMINI_FAST_MODEL = 'gemini-2.5-flash-lite';
+export const DEFAULT_GEMINI_HEAVY_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_GEMINI_FAST_MODEL = 'gemini-3.5-flash-lite';
 
 export interface GeminiProviderConfig {
   apiKey?: string;
