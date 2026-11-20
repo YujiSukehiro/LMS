@@ -78,7 +78,7 @@ export async function SupervisorHome({ user }: { user: SessionUser }) {
         {agents.length === 0 ? (
           <EmptyState icon={<Users aria-hidden className="size-6" />} title="No agents in this Cohort yet" />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-pulse-border-subtle text-left">

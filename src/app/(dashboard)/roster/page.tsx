@@ -162,13 +162,13 @@ export default async function RosterPage({
   const canManageSuperAdmin = actor.role === 'SUPER_ADMIN';
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="pulse-label">Roster</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">Agents, Supervisors &amp; Staff</h1>
           <p className="mt-1 text-sm text-pulse-secondary">
-            Manage RBAC roles, invite internal staff, rotate Cohort join codes, and deactivate access in 1 click.
+            Roles and access, staff invites, and Cohort join codes.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -198,16 +198,16 @@ export default async function RosterPage({
             <BootstrapCohortsButton />
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {cohorts.map((cohort) => (
-              <article key={cohort.id} className="pulse-card flex flex-col gap-3 p-4">
+              <article key={cohort.id} className="pulse-card flex flex-col gap-2 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <h3 className="font-semibold">{cohort.name}</h3>
                     <p className="pulse-metric text-xs text-pulse-muted">{cohort.id}</p>
                   </div>
                   <div className="text-right">
-                    <p className="pulse-metric text-xl font-semibold">{cohort.activeAgentCount}</p>
+                    <p className="pulse-metric text-lg font-semibold leading-none">{cohort.activeAgentCount}</p>
                     <p className="text-xs text-pulse-muted">active Agents</p>
                   </div>
                 </div>
@@ -218,7 +218,7 @@ export default async function RosterPage({
                     </span>
                   ))}
                 </div>
-                <div className="mt-auto space-y-2 border-t border-pulse-border-subtle pt-3">
+                <div className="mt-auto space-y-1.5 border-t border-pulse-border-subtle pt-2">
                   <div className="flex items-center justify-between gap-2">
                     {cohort.joinCode && cohort.joinCodeEnabled ? (
                       <>
@@ -252,17 +252,17 @@ export default async function RosterPage({
             Pending Staff &amp; Supervisor Invites
             <span className="pulse-metric text-sm font-normal text-pulse-muted">{pendingInvites.length} pending</span>
           </h2>
-          <div tabIndex={0} role="region" aria-labelledby="invites-heading" className="pulse-card overflow-x-auto">
+          <div tabIndex={0} role="region" aria-labelledby="invites-heading" className="pulse-card relative overflow-x-auto">
             <table className="w-full min-w-[780px] text-left text-sm">
               <thead>
                 <tr className="border-b border-pulse-border-subtle">
-                  <th scope="col" className="pulse-label px-4 py-3">Name</th>
-                  <th scope="col" className="pulse-label px-4 py-3">Email</th>
-                  <th scope="col" className="pulse-label px-4 py-3">Role</th>
-                  <th scope="col" className="pulse-label px-4 py-3">Cohort</th>
-                  <th scope="col" className="pulse-label px-4 py-3">Divisions</th>
-                  <th scope="col" className="pulse-label px-4 py-3">Expires</th>
-                  <th scope="col" className="pulse-label px-4 py-3 text-right">Action</th>
+                  <th scope="col" className="pulse-label px-3 py-2">Name</th>
+                  <th scope="col" className="pulse-label px-3 py-2">Email</th>
+                  <th scope="col" className="pulse-label px-3 py-2">Role</th>
+                  <th scope="col" className="pulse-label px-3 py-2">Cohort</th>
+                  <th scope="col" className="pulse-label px-3 py-2">Divisions</th>
+                  <th scope="col" className="pulse-label px-3 py-2">Expires</th>
+                  <th scope="col" className="pulse-label px-3 py-2 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -270,17 +270,17 @@ export default async function RosterPage({
                   const lockedInvite = invite.role === 'SUPER_ADMIN' && !canManageSuperAdmin;
                   return (
                     <tr key={invite.id} className="border-b border-pulse-border-subtle last:border-0">
-                      <th scope="row" className="px-4 py-3 font-medium">
+                      <th scope="row" className="px-3 py-2 font-medium">
                         {invite.displayName}
                       </th>
-                      <td className="px-4 py-3 text-pulse-secondary">{invite.email ?? invite.lcNumber ?? '—'}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2 text-pulse-secondary">{invite.email ?? invite.lcNumber ?? '—'}</td>
+                      <td className="px-3 py-2">
                         <span className={cn('pulse-pill', ROLE_PILL[invite.role])}>{ROLE_LABELS[invite.role]}</span>
                       </td>
-                      <td className="px-4 py-3 text-pulse-secondary">
+                      <td className="px-3 py-2 text-pulse-secondary">
                         {cohortNames.get(invite.partnerCohortId) ?? invite.partnerCohortId}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1">
                           {invite.divisionIds.map((divisionId) => (
                             <span key={divisionId} className={cn('pulse-pill', DIVISION_PILL[divisionId])}>
@@ -289,8 +289,8 @@ export default async function RosterPage({
                           ))}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-xs text-pulse-muted">{formatExpiry(invite.expiresAt)}</td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-3 py-2 text-xs text-pulse-muted">{formatExpiry(invite.expiresAt)}</td>
+                      <td className="px-3 py-2 text-right">
                         {lockedInvite ? (
                           <span className="text-xs text-pulse-muted">Super Admin only</span>
                         ) : (
@@ -322,18 +322,18 @@ export default async function RosterPage({
           />
         </div>
 
-        <div tabIndex={0} role="region" aria-labelledby="users-heading" className="pulse-card overflow-x-auto">
-          <table className="w-full min-w-[960px] text-left text-sm">
+        <div tabIndex={0} role="region" aria-labelledby="users-heading" className="pulse-card relative overflow-x-auto">
+          <table className="w-full min-w-[900px] text-left text-sm">
             <thead>
               <tr className="border-b border-pulse-border-subtle">
-                <th scope="col" className="pulse-label px-4 py-3">Name</th>
-                <th scope="col" className="pulse-label px-4 py-3">LC Number / Email</th>
-                <th scope="col" className="pulse-label px-4 py-3">Role</th>
-                <th scope="col" className="pulse-label px-4 py-3">Cohort</th>
-                <th scope="col" className="pulse-label px-4 py-3">Divisions</th>
-                <th scope="col" className="pulse-label px-4 py-3 text-right" title="Blended Drill and Simulation score; not certification readiness">Training score</th>
-                <th scope="col" className="pulse-label px-4 py-3">Status</th>
-                <th scope="col" className="pulse-label px-4 py-3 text-right">Actions</th>
+                <th scope="col" className="pulse-label px-3 py-2">Name</th>
+                <th scope="col" className="pulse-label px-3 py-2">LC Number / Email</th>
+                <th scope="col" className="pulse-label px-3 py-2">Role</th>
+                <th scope="col" className="pulse-label px-3 py-2">Cohort</th>
+                <th scope="col" className="pulse-label px-3 py-2">Divisions</th>
+                <th scope="col" className="pulse-label px-3 py-2 text-right" title="Blended Drill and Simulation score; not certification readiness">Training score</th>
+                <th scope="col" className="pulse-label px-3 py-2">Status</th>
+                <th scope="col" className="pulse-label px-3 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -352,11 +352,11 @@ export default async function RosterPage({
                       key={row.uid}
                       className={cn('border-b border-pulse-border-subtle last:border-0', !row.active && 'opacity-60')}
                     >
-                      <th scope="row" className="px-4 py-3 font-medium">
+                      <th scope="row" className="px-3 py-2 font-medium">
                         {row.displayName}
                         {isSelf ? <span className="ml-2 text-xs font-normal text-pulse-muted">(you)</span> : null}
                       </th>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         {row.lcNumber ? (
                           <span className="pulse-metric">{row.lcNumber}</span>
                         ) : (
@@ -368,13 +368,13 @@ export default async function RosterPage({
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <span className={cn('pulse-pill', ROLE_PILL[row.role])}>{ROLE_LABELS[row.role]}</span>
                       </td>
-                      <td className="px-4 py-3 text-pulse-secondary">
+                      <td className="px-3 py-2 text-pulse-secondary">
                         {cohortNames.get(row.partnerCohortId) ?? row.partnerCohortId}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1">
                           {row.divisionIds.length === 0 ? (
                             <span className="text-pulse-muted">None</span>
@@ -387,19 +387,19 @@ export default async function RosterPage({
                           )}
                         </div>
                       </td>
-                      <td className={cn('pulse-metric px-4 py-3 text-right font-semibold', readinessClass(row.readiness))}>
+                      <td className={cn('pulse-metric px-3 py-2 text-right font-semibold', readinessClass(row.readiness))}>
                         {row.readiness}%
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <span className={cn('pulse-pill', row.active ? 'pulse-pill-emerald' : 'pulse-pill-crimson')}>
                           {row.active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-3 py-2 text-right">
                         {locked ? (
                           <span className="text-xs text-pulse-muted">{isSelf ? 'Your account' : 'Super Admin only'}</span>
                         ) : (
-                          <div className="flex flex-wrap justify-end gap-1.5">
+                          <div className="flex flex-nowrap items-center justify-end gap-1">
                             <EditUserPermissionsDialog
                               user={row}
                               cohorts={cohortChoices}

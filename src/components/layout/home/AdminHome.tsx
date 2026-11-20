@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ArrowRight, Award, BookOpen, ChartColumn, Gauge, Headset, Layers, Trophy, Users } from 'lucide-react';
 import type { SessionUser } from '@/lib/schemas/domain';
-import { TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { SIM_COPY, TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { DivisionIdSchema } from '@/lib/schemas/domain';
 import {
   loadAllCohortRollups,
@@ -104,7 +104,7 @@ export async function AdminHome({ user }: { user: SessionUser }) {
                     <dd className="pulse-metric text-sm font-semibold">{rollup?.totalUnitCompletions ?? 0}</dd>
                   </div>
                   <div>
-                    <dt className="text-pulse-muted">Sim pass</dt>
+                    <dt className="text-pulse-muted">{SIM_COPY.short} pass</dt>
                     <dd className="pulse-metric text-sm font-semibold">{formatPct(simPassRate(rollup))}</dd>
                   </div>
                 </dl>
@@ -115,7 +115,7 @@ export async function AdminHome({ user }: { user: SessionUser }) {
       </section>
 
       <section className="pulse-card flex flex-col gap-4 p-4 md:p-5">
-        <SectionHeader title="Cohort leaderboard" description="Ranked by mean CompetencyPillar score." />
+        <SectionHeader title="Cohort leaderboard" description="Ranked by average skill score." />
         {leaderboard.length === 0 ? (
           <EmptyState
             icon={<Trophy aria-hidden className="size-6" />}
@@ -141,7 +141,7 @@ export async function AdminHome({ user }: { user: SessionUser }) {
                     />
                     <span className={cn('pulse-metric text-right font-semibold', BAND_TEXT_CLASS[band])}>{formatPct(row.readiness)}</span>
                     <span className="pulse-metric hidden text-right text-xs text-pulse-muted md:block">{row.certifications} certified</span>
-                    <span className="pulse-metric hidden text-right text-xs text-pulse-muted md:block">{formatPct(row.passRate)} sim pass</span>
+                    <span className="pulse-metric hidden text-right text-xs text-pulse-muted md:block">{formatPct(row.passRate)} {SIM_COPY.short.toLowerCase()} pass</span>
                   </Link>
                 </li>
               );

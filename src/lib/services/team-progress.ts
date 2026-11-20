@@ -9,6 +9,7 @@
  */
 import type { EnrollmentDoc } from '@/lib/schemas/analytics';
 import type { CertificationDoc } from '@/lib/schemas/learning';
+import { SIM_COPY } from '@/lib/policy/training-policy';
 
 export const PROGRESS_STAGES = ['not_started', 'learning', 'checkpoints_done', 'certified', 'needs_recert'] as const;
 export type LadderStage = (typeof PROGRESS_STAGES)[number];
@@ -17,7 +18,7 @@ export type ProgressStage = LadderStage | 'not_assigned' | 'archived';
 export const STAGE_LABELS: Record<ProgressStage, string> = {
   not_started: 'Not started',
   learning: 'Learning',
-  checkpoints_done: 'Ready for sim',
+  checkpoints_done: `Ready for ${SIM_COPY.short.toLowerCase()}`,
   certified: 'Certified',
   needs_recert: 'Needs recert',
   not_assigned: 'Not assigned',

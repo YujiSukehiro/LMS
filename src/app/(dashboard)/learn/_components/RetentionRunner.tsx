@@ -253,9 +253,9 @@ export function RetentionRunner({
     : 'All Assigned Tracks';
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 pb-14">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 pb-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link href="/" className="inline-flex w-fit items-center gap-1.5 text-sm text-pulse-muted hover:text-pulse-primary">
+        <Link href="/" className="inline-flex w-fit items-center gap-1.5 text-xs text-pulse-muted hover:text-pulse-primary">
           <ArrowLeft aria-hidden className="size-4" />
           Back to Home
         </Link>
@@ -268,22 +268,19 @@ export function RetentionRunner({
             }}
             className="text-xs font-medium text-pulse-muted hover:text-pulse-primary"
           >
-            View Queue Summary
+            Exit to queue
           </button>
         ) : null}
       </div>
 
-      <header className="pulse-card p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="pulse-label flex items-center gap-1.5">
-              <Brain aria-hidden className="size-3.5 text-pulse-indigo" />
-              Spaced Knowledge Retention
-            </p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight">Keep-Sharp Review</h1>
-            <p className="mt-1 text-sm text-pulse-muted">
-              Lock in Playbook rules at spaced 1, 3, and 7 day intervals — pure verbal &amp; rule recall.
-            </p>
+      <header className="pulse-card px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="flex items-center gap-2 text-lg font-bold tracking-tight">
+              <Brain aria-hidden className="size-4 text-pulse-indigo" />
+              Keep-Sharp Review
+            </h1>
+            <p className="text-xs text-pulse-muted">Short recall drills at 1, 3 and 7 days so Playbook rules stick.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <span className={cn('pulse-pill pulse-metric', queue.summary.dueCount > 0 && 'pulse-pill-amber')}>
@@ -295,7 +292,7 @@ export function RetentionRunner({
         </div>
 
         {queue.trackSummaries.length > 1 && phase === 'idle' ? (
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-pulse-border-subtle pt-4" aria-label="Filter by Track">
+          <div className="mt-3 flex flex-wrap gap-1.5 border-t border-pulse-border-subtle pt-3" aria-label="Filter by Track">
             <button
               type="button"
               onClick={() => setSelectedTrackId(null)}
@@ -326,7 +323,7 @@ export function RetentionRunner({
       </header>
 
       {phase === 'idle' ? (
-        <section className="pulse-card-elevated flex flex-col gap-5 p-6">
+        <section className="pulse-card flex flex-col gap-4 p-5">
           {visibleDue.length > 0 ? (
             <>
               <div className="space-y-2">
@@ -335,15 +332,13 @@ export function RetentionRunner({
                   <span className="pulse-metric">{visibleDue.length}</span> review drill
                   {visibleDue.length === 1 ? '' : 's'} ready now
                 </h2>
-                <p className="text-sm text-pulse-secondary">
-                  Answering scheduled reviews correctly advances each rule toward mastery and unlocks retention-gated Track certification.
-                </p>
+                <p className="text-sm text-pulse-secondary">Each correct answer moves that rule to its next review and counts toward certification.</p>
               </div>
               <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
                   onClick={() => startBatch(visibleDue, 'due')}
-                  className="pulse-btn pulse-btn-primary px-6 py-3"
+                  className="pulse-btn pulse-btn-primary px-5 py-2.5"
                 >
                   <Sparkles aria-hidden className="size-4" />
                   Start Due Review ({visibleDue.length})
@@ -383,7 +378,7 @@ export function RetentionRunner({
               <p className="pulse-label">No scheduled reviews yet</p>
               <h2 className="text-xl font-bold text-pulse-primary">Complete a Checkpoint first</h2>
               <p className="text-sm text-pulse-secondary">
-                Once you complete drills inside an assigned Track Checkpoint, they automatically schedule here for 1, 3, and 7 day retention checks.
+                Drills you answer in a Checkpoint come back here after 1, 3 and 7 days.
               </p>
               <Link href="/" className="pulse-btn pulse-btn-primary mt-1">
                 Browse My Tracks <ArrowRight aria-hidden className="size-4" />
@@ -416,26 +411,26 @@ export function RetentionRunner({
             key={`${currentItem.trackId}:${currentItem.drill.id}:${position}`}
             aria-busy={submitting}
             className={cn(
-              'pulse-card-elevated pulse-slide-up p-5 sm:p-7',
+              'pulse-card pulse-slide-up p-4 sm:p-5',
               phase === 'feedback' && (itemResponse?.correct ? 'border-pulse-emerald/60' : 'border-pulse-amber/60'),
             )}
           >
-            <header className="mb-4 flex flex-wrap items-center gap-2">
+            <header className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
               <DivisionPill divisionId={currentItem.divisionId} short />
-              <span className="pulse-pill">{currentItem.unitTitle}</span>
-              <span className="pulse-pill">{DRILL_KIND_LABELS[currentItem.drill.kind]}</span>
-              <span className="pulse-pill pulse-pill-indigo">{currentItem.pillarLabel}</span>
+              <span className="min-w-0 truncate text-pulse-muted">
+                {currentItem.unitTitle} · {currentItem.pillarLabel} · {DRILL_KIND_LABELS[currentItem.drill.kind]}
+              </span>
               {currentItem.isOverdue ? (
-                <span className="pulse-pill pulse-pill-amber ml-auto">Due for Retention</span>
+                <span className="pulse-pill pulse-pill-amber ml-auto">Due</span>
               ) : (
-                <span className="pulse-pill ml-auto">Ahead of Schedule</span>
+                <span className="pulse-pill ml-auto">Early</span>
               )}
             </header>
 
             <h2
               ref={promptRef}
               tabIndex={-1}
-              className="mb-5 text-lg font-semibold leading-snug text-pulse-primary outline-none sm:text-xl"
+              className="mb-4 text-lg font-semibold leading-snug text-pulse-primary outline-none"
             >
               {currentItem.drill.prompt}
             </h2>

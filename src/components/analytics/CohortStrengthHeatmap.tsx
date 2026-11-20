@@ -20,7 +20,7 @@ export interface HeatmapRow {
 /** Cohort (or Agent) × CompetencyPillar strength heatmap. */
 export function CohortStrengthHeatmap({ rows, caption }: { rows: HeatmapRow[]; caption: string }) {
   return (
-    <div className="pulse-cq overflow-x-auto">
+    <div className="pulse-cq relative overflow-x-auto">
       <table className="w-full min-w-[760px] border-separate border-spacing-1 text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead>

@@ -100,3 +100,14 @@ export const APPROVAL_GATES: readonly ApprovalGateEntry[] = [
     codeLocation: 'firestore.rules, apphosting.yaml',
   },
 ] as const;
+
+/** True when Simulations are verbal conversations only (no dialer, CRM or disposition UI). */
+export const VERBAL_ONLY = TRAINING_POLICY.simulationInteractionMode === 'verbal_only';
+
+/**
+ * Learner- and staff-facing names for the Simulation step. Use these instead of hard-coding
+ * "Live Call Sim" so copy never mentions dialer-era features while `verbal_only` is active.
+ */
+export const SIM_COPY = VERBAL_ONLY
+  ? { singular: 'Verbal Practice', plural: 'Verbal Practice scenarios', short: 'Practice', shortPlural: 'Practice' }
+  : { singular: 'Live Call Sim', plural: 'Live Call Sims', short: 'Sim', shortPlural: 'Sims' };

@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { Headset, Mic, MicOff, SendHorizontal, UserRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { voiceErrorMessage } from './voice-errors';
 
 export interface TranscriptMessage {
   id: string;
@@ -44,10 +45,25 @@ interface SpeechRecognitionLike {
   interimResults: boolean;
   lang: string;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
+  abort?: () => void;
+}
+
+/** Detach handlers before stopping so a late result can never write into an unmounted or disabled composer. */
+function disposeRecognition(recognition: SpeechRecognitionLike | null) {
+  if (!recognition) return;
+  recognition.onresult = null;
+  recognition.onerror = null;
+  recognition.onend = null;
+  try {
+    if (recognition.abort) recognition.abort();
+    else recognition.stop();
+  } catch {
+    // Already stopped.
+  }
 }
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 
@@ -76,6 +92,7 @@ export function TranscriptChat({
   const [draft, setDraft] = useState('');
   const [speechSupported, setSpeechSupported] = useState(false);
   const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -86,7 +103,7 @@ export function TranscriptChat({
   useEffect(() => {
     setSpeechSupported(getSpeechRecognitionCtor() !== null);
     return () => {
-      recognitionRef.current?.stop();
+      disposeRecognition(recognitionRef.current);
       recognitionRef.current = null;
     };
   }, []);
@@ -105,7 +122,8 @@ export function TranscriptChat({
   useEffect(() => {
     if (!composerDisabled) textareaRef.current?.focus({ preventScroll: true });
     if (composerDisabled && listening) {
-      recognitionRef.current?.stop();
+      disposeRecognition(recognitionRef.current);
+      recognitionRef.current = null;
       setListening(false);
     }
   }, [composerDisabled, listening]);
@@ -120,7 +138,9 @@ export function TranscriptChat({
     const content = draft.trim();
     if (!content || composerDisabled) return;
     if (listening) {
-      recognitionRef.current?.stop();
+      // Drop any late dictation result so it cannot reappear in the cleared composer after sending.
+      disposeRecognition(recognitionRef.current);
+      recognitionRef.current = null;
       setListening(false);
     }
     sendLockRef.current = true;
@@ -137,6 +157,8 @@ export function TranscriptChat({
     }
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) return;
+    disposeRecognition(recognitionRef.current);
+    setVoiceError(null);
     const recognition = new Ctor();
     recognition.continuous = false;
     recognition.interimResults = false;
@@ -152,13 +174,21 @@ export function TranscriptChat({
         setDraft((prev) => `${prev ? `${prev.trimEnd()} ` : ''}${spoken}`.slice(0, maxLength));
       }
     };
-    recognition.onerror = () => setListening(false);
-    recognition.onend = () => setListening(false);
+    recognition.onerror = (event) => {
+      setVoiceError(voiceErrorMessage(event?.error));
+      setListening(false);
+    };
+    recognition.onend = () => {
+      if (recognitionRef.current === recognition) recognitionRef.current = null;
+      setListening(false);
+    };
     recognitionRef.current = recognition;
     setListening(true);
     try {
       recognition.start();
     } catch {
+      recognitionRef.current = null;
+      setVoiceError(voiceErrorMessage('unknown'));
       setListening(false);
     }
   };
@@ -220,7 +250,10 @@ export function TranscriptChat({
             name="reply"
             ref={textareaRef}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              if (voiceError) setVoiceError(null);
+            }}
             onKeyDown={onKeyDown}
             disabled={composerDisabled}
             maxLength={maxLength}
@@ -235,7 +268,8 @@ export function TranscriptChat({
               onClick={toggleVoice}
               disabled={composerDisabled}
               aria-pressed={listening}
-              aria-label="Voice dictation"
+              aria-label={listening ? 'Stop voice dictation' : 'Start voice dictation'}
+              title={listening ? 'Stop dictation' : 'Dictate your reply'}
               className={cn(
                 'pulse-btn h-[3.25rem] min-w-[3.25rem] px-3',
                 listening && 'border-pulse-crimson text-pulse-crimson',
@@ -253,6 +287,11 @@ export function TranscriptChat({
             <SendHorizontal aria-hidden className="size-4" />
           </button>
         </div>
+        {voiceError ? (
+          <p role="alert" className="mt-1.5 text-xs text-pulse-amber">
+            {voiceError}
+          </p>
+        ) : null}
         <p id={hintId} className="mt-1.5 flex justify-between gap-2 text-xs text-pulse-muted">
           <span>
             {composerNote ?? (

@@ -196,7 +196,7 @@ export function BulkImportDialog({
                     <p className="pulse-label mb-2">
                       Preview · {validRows.length} ready{invalidCount > 0 ? ` · ${invalidCount} with errors` : ''}
                     </p>
-                    <div className="overflow-x-auto rounded-pulse-md border border-pulse-border-subtle">
+                    <div className="relative overflow-x-auto rounded-pulse-md border border-pulse-border-subtle">
                       <table className="w-full min-w-[720px] text-left text-xs">
                         <thead className="bg-pulse-surface-2">
                           <tr>

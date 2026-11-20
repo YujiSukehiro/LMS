@@ -313,7 +313,11 @@ export function evaluateKnowledgeMastery(args: {
   const evidenceAttemptIds = new Set<string>();
 
   const allowInitial = args.masteryPolicy?.allowInitialCorrect ?? TRAINING_POLICY.allowSameSittingRuleMastery;
-  const allowSpaced = args.masteryPolicy?.allowSpacedReviewAsMastery ?? TRAINING_POLICY.allowSameSittingRuleMastery;
+  // A due spaced_review is at least a day after the first sitting, so it is delayed, independent recall and counts
+  // toward mastery by default (as GATE-03 in docs/CONNOR_APPROVAL_LOG.md describes). Gating it on
+  // allowSameSittingRuleMastery left learners who finish every Checkpoint in one sitting with no reachable mastery
+  // evidence: the Retention Hub only re-serves the same Drill, which can never be classified varied_retrieval.
+  const allowSpaced = args.masteryPolicy?.allowSpacedReviewAsMastery ?? true;
   for (const ruleId of args.blueprint.requiredRuleIds) {
     const supportingAttempts = eligibleAttempts.filter(
       (attempt) =>

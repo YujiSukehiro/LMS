@@ -20,3 +20,6 @@ mlx-runtime/*
 !mlx-runtime/start.sh
 !mlx-runtime/stop.sh
 !mlx-runtime/status.sh
+
+# Local review dumps (multi-MB source concatenations); never deploy or commit.
+_gemini_review/

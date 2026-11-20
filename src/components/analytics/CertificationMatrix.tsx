@@ -123,7 +123,7 @@ export function CertificationMatrix({
           </p>
         </div>
       ) : (
-        <div className="pulse-cq max-h-[520px] overflow-auto rounded-pulse-md border border-pulse-border-subtle">
+        <div className="pulse-cq max-h-[520px] relative overflow-auto rounded-pulse-md border border-pulse-border-subtle">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="sticky top-0 z-10 bg-pulse-surface-1">
               <tr className="border-b border-pulse-border-subtle">

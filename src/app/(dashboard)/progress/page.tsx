@@ -170,8 +170,7 @@ export default async function TeamProgressPage({
         <p className="pulse-label">Team Progress · {scopeLabel}</p>
         <h1 className="mt-1 text-2xl font-bold tracking-tight">Who is ready to take calls?</h1>
         <p className="mt-1 max-w-3xl text-sm text-pulse-muted">
-          Pick a Track. Every agent is a card in one column, from Not started to Certified. Stuck agents, failed sims, and
-          expiring certificates show first.
+          One card per agent. Agents who are stuck, failing or expiring show first.
         </p>
       </div>
       {internal ? <AwaitingJudgeQueue rows={awaitingJudge} now={Date.now()} /> : null}

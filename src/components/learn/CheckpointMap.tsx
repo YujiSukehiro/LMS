@@ -185,8 +185,8 @@ export function CheckpointMap({
           <p className="mt-0.5 text-sm text-pulse-muted">
             {TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
               ? simUnlocked
-                ? 'Practice handling a realistic caller verbally in your own words. Pass a scenario and keep Playbook rules sharp to earn Campaign Certified.'
-                : 'Unlocks when every Checkpoint is complete. Pass a verbal scenario and keep Playbook rules sharp to earn Campaign Certified.'
+                ? 'Talk a realistic caller through the scenario in your own words. Pass it to move toward certification.'
+                : 'Unlocks when every Checkpoint is complete.'
               : simUnlocked
                 ? 'Handle a realistic caller in your own words, then log the disposition. Pass one scenario to earn Campaign Certified.'
                 : 'Unlocks when every Checkpoint is complete. Pass one scenario to earn Campaign Certified.'}

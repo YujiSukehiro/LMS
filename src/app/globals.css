@@ -207,6 +207,11 @@ body {
   outline-offset: 2px;
 }
 
+/* Headings and panels focused by script (tabindex=-1) move the screen reader, not the keyboard: no ring. */
+[tabindex='-1']:focus-visible {
+  outline: none;
+}
+
 ::selection {
   background: color-mix(in srgb, var(--pulse-indigo) 40%, transparent);
 }

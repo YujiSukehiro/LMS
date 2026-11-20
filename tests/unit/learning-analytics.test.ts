@@ -143,14 +143,14 @@ describe('current-version learning analytics', () => {
     expect(result.upcomingReviews.map((review) => review.id)).toEqual(['future']);
     expect(result.recency).toEqual({ lastEligibleAttemptAt: NOW, curriculumVersion: 'v1' });
     expect(result.evidenceRefs.initialKnowledgeAttemptIds).toEqual(['initial-privacy', 'initial-optout']);
-    expect(result.evidenceRefs.masteryAttemptIds).toEqual(['varied-privacy']);
+    expect(result.evidenceRefs.masteryAttemptIds).toEqual(['varied-privacy', 'retention-privacy']);
     expect(result.evidenceRefs.complianceSessionIds).toEqual(['session-critical']);
     expect(result.evidenceRefs.attemptIds).not.toContain('imported-optout');
     expect(result.evidenceRefs.attemptIds).not.toContain('historical-optout');
     expect(result).not.toHaveProperty('readinessScore');
   });
 
-  it('requires varied retrieval for mastery, not initial or same-item spaced evidence', () => {
+  it('counts delayed spaced or varied retrieval for mastery, never same-sitting initial answers', () => {
     const initialAttempts = allPassingEvidence().drillAttempts;
     const initialOnly = buildLearningAnalytics(analyticsInput({ drillAttempts: initialAttempts }));
     expect(initialOnly.initialKnowledge).toEqual({ correct: 2, total: 2, ratio: 1 });
@@ -163,11 +163,19 @@ describe('current-version learning analytics', () => {
       attemptKind: 'spaced_review' as const,
       firstIndependent: false,
     }));
+    // GATE-03 default: a due spaced review (a day or more later) is delayed, independent recall and masters the rule,
+    // so learners who finish every Checkpoint in one sitting can still reach certification through the Retention Hub.
     const spacedOnly = buildLearningAnalytics(analyticsInput({ drillAttempts: spacedAttempts }));
-    expect(spacedOnly.currentMastery).toEqual({ mastered: 0, total: 2, ratio: 0 });
-    expect(spacedOnly.outstandingRuleIds).toEqual(['rule-privacy', 'rule-optout']);
-    expect(spacedOnly.evidenceRefs.masteryAttemptIds).toEqual([]);
+    expect(spacedOnly.currentMastery).toEqual({ mastered: 2, total: 2, ratio: 1 });
+    expect(spacedOnly.outstandingRuleIds).toEqual([]);
+    expect(spacedOnly.evidenceRefs.masteryAttemptIds).toEqual(['attempt-privacy-spaced', 'attempt-optout-spaced']);
     expect(spacedOnly.evidenceRefs.retentionAttemptIds).toEqual(['attempt-privacy-spaced', 'attempt-optout-spaced']);
+
+    const strictVariedOnly = buildLearningAnalytics(analyticsInput({
+      drillAttempts: spacedAttempts,
+      masteryPolicy: { allowSpacedReviewAsMastery: false },
+    }));
+    expect(strictVariedOnly.currentMastery).toEqual({ mastered: 0, total: 2, ratio: 0 });
 
     const variedAttempts = initialAttempts.map((attempt) => ({
       ...attempt,
@@ -180,7 +188,12 @@ describe('current-version learning analytics', () => {
     }));
     expect(withVaried.initialKnowledge).toEqual({ correct: 2, total: 2, ratio: 1 });
     expect(withVaried.currentMastery).toEqual({ mastered: 2, total: 2, ratio: 1 });
-    expect(withVaried.evidenceRefs.masteryAttemptIds).toEqual(['attempt-privacy-varied', 'attempt-optout-varied']);
+    expect(withVaried.evidenceRefs.masteryAttemptIds).toEqual([
+      'attempt-privacy-spaced',
+      'attempt-privacy-varied',
+      'attempt-optout-spaced',
+      'attempt-optout-varied',
+    ]);
     expect(withVaried.evidenceRefs.retentionAttemptIds).toEqual(['attempt-privacy-spaced', 'attempt-optout-spaced']);
   });
 

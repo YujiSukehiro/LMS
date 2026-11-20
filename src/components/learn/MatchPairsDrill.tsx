@@ -141,8 +141,8 @@ export function MatchPairsDrill({
           {result
             ? 'Server-graded pairs shown above.'
             : keyColumn === 'left'
-              ? 'Pick a trigger on the left (keys 1–4), then its match on the right.'
-              : 'Now pick its match on the right (keys 1–4). Esc clears.'}
+              ? `Pick a trigger on the left (keys 1–${leftItems.length}), then its match on the right.`
+              : `Now pick its match on the right (keys 1–${rightItems.length}). Esc clears.`}
         </span>
         <span className="pulse-metric">{Object.keys(matches).length}/{drill.leftOptions.length} paired</span>
       </div>

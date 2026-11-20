@@ -39,7 +39,7 @@ function scoreChipClass(score: number): string {
   return 'pulse-pill-crimson';
 }
 
-/** AI coach scorecard shown after a Live Call Sim is evaluated. */
+/** Scorecard: score and status, then what to fix (lowest scores first), with the next action in the header. */
 export function ScorecardView({
   evaluation,
   certified,
@@ -59,6 +59,9 @@ export function ScorecardView({
     eligibilityReasons.length > 0 && evaluation.autoFailedReason === eligibilityReasons.join(' ');
   const autoFailed = Boolean(evaluation.autoFailedReason) && !legacyEligibilityOnly;
   const isDemoReplay = demoReplay || evaluation.provenance?.source === 'replay';
+  // GATE-04: cloud-scored practice is coaching only unless Connor allows hosted AI to certify.
+  const hostedNotCounted =
+    !isDemoReplay && evaluation.provenance?.source === 'hosted_ai' && !TRAINING_POLICY.allowHostedAiForCertification;
   const tone: ScoreTone = evaluation.passed ? 'emerald' : autoFailed ? 'crimson' : 'amber';
   const status = isDemoReplay
     ? 'DEMO REPLAY'
@@ -68,9 +71,30 @@ export function ScorecardView({
         : 'PASSED'
       : 'RETRY RECOMMENDED';
   const toneText = tone === 'emerald' ? 'text-pulse-emerald' : tone === 'crimson' ? 'text-pulse-crimson' : 'text-pulse-amber';
+  const sortedCriteria = [...evaluation.criterionResults].sort((a, b) => Number(a.score) - Number(b.score));
+  const missed = sortedCriteria.filter((criterion) => Number(criterion.score) < 100);
+  const met = sortedCriteria.filter((criterion) => Number(criterion.score) >= 100);
+  const retryPrimary = !evaluation.passed;
+  const actions =
+    onRetry || backHref ? (
+      <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 @2xl:flex-col @2xl:items-stretch">
+        {onRetry ? (
+          <button type="button" className={cn('pulse-btn', retryPrimary && 'pulse-btn-primary')} onClick={onRetry}>
+            <RotateCcw aria-hidden className="size-4" />
+            {retryPrimary ? 'Try again' : 'Practice again'}
+          </button>
+        ) : null}
+        {backHref ? (
+          <Link href={backHref} className={cn('pulse-btn', !retryPrimary && 'pulse-btn-primary')}>
+            <MapIcon aria-hidden className="size-4" />
+            {backLabel}
+          </Link>
+        ) : null}
+      </div>
+    ) : null;
 
   return (
-    <section aria-label="Simulation scorecard" className="pulse-cq flex flex-col gap-5">
+    <section aria-label="Simulation scorecard" className="pulse-cq flex flex-col gap-3">
       {isDemoReplay ? (
         <div role="status" className="rounded-pulse-lg border border-pulse-amber/50 bg-pulse-amber/10 p-4">
           <p className="font-bold text-pulse-amber">Demo replay</p>
@@ -79,22 +103,30 @@ export function ScorecardView({
           </p>
         </div>
       ) : null}
-      <div className="pulse-card-elevated flex flex-col items-center gap-6 p-6 @2xl:flex-row @2xl:items-center">
-        <ScoreGauge scorePct={score} tone={tone} statusLabel={status} thresholdPct={passThreshold} />
+      <div className="pulse-card flex flex-col items-center gap-4 p-4 @2xl:flex-row @2xl:items-center">
+        <ScoreGauge scorePct={score} tone={tone} statusLabel={status} thresholdPct={passThreshold} size={116} />
         <div className="min-w-0 flex-1 text-center @2xl:text-left">
-          <p className={cn('pulse-metric text-2xl font-bold', toneText)} aria-live="polite">
+          <p className={cn('pulse-metric text-xl font-bold', toneText)} aria-live="polite">
             {score}% — {status}
           </p>
-          <p className="mt-1 text-xs text-pulse-muted">
-            Pass threshold <span className="pulse-metric">{passThreshold}%</span>
+          <p className="mt-0.5 flex flex-wrap items-center justify-center gap-2 text-xs text-pulse-muted @2xl:justify-start">
+            <span>
+              Pass at <span className="pulse-metric">{passThreshold}%</span>
+            </span>
+            {missed.length > 0 ? (
+              <span>
+                · <span className="pulse-metric">{missed.length}</span> of{' '}
+                <span className="pulse-metric">{evaluation.criterionResults.length}</span> criteria to improve
+              </span>
+            ) : null}
+            {certified ? (
+              <span className="pulse-pill pulse-pill-emerald">
+                <Award aria-hidden className="size-3.5" />
+                Certified
+              </span>
+            ) : null}
           </p>
-          {certified ? (
-            <p className="pulse-pill pulse-pill-emerald mt-3">
-              <Award aria-hidden className="size-3.5" />
-              Campaign Certified
-            </p>
-          ) : null}
-          <p className="mt-3 text-sm leading-relaxed text-pulse-secondary">{evaluation.summaryFeedback}</p>
+          <p className="mt-2 text-sm leading-relaxed text-pulse-secondary">{evaluation.summaryFeedback}</p>
           {TRAINING_POLICY.simulationInteractionMode !== 'verbal_only' || TRAINING_POLICY.requireDispositionInVerbalPractice ? (
             <p
               className={cn(
@@ -114,7 +146,16 @@ export function ScorecardView({
             </p>
           ) : null}
         </div>
+        {actions}
       </div>
+
+      {hostedNotCounted ? (
+        <p role="note" className="flex items-start gap-2 rounded-pulse-md border border-pulse-border bg-pulse-surface-2 px-3 py-2 text-sm text-pulse-secondary">
+          <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-amber" />
+          This practice was scored by cloud AI, so it is coaching only and does not count toward certification yet. Ask your
+          Trainer how certification is scored for this Track.
+        </p>
+      ) : null}
 
       {autoFailed ? (
         <div role="alert" className="flex gap-3 rounded-pulse-lg border border-pulse-crimson/50 bg-pulse-crimson/10 p-4">
@@ -141,7 +182,7 @@ export function ScorecardView({
       ) : null}
 
       {evaluation.strengthsHighlighted.length > 0 || evaluation.coachingImprovements.length > 0 ? (
-        <div className="grid gap-4 @2xl:grid-cols-2">
+        <div className="grid gap-3 @2xl:grid-cols-2">
           {evaluation.strengthsHighlighted.length > 0 ? (
             <div className="pulse-card p-4">
               <p className="pulse-label flex items-center gap-1.5 text-pulse-emerald">
@@ -176,13 +217,13 @@ export function ScorecardView({
       ) : null}
 
       <div>
-        <h3 className="pulse-label mb-3">Criterion-by-Criterion Breakdown</h3>
-        <ol className="flex flex-col gap-3">
-          {evaluation.criterionResults.map((criterion) => {
+        <h3 className="pulse-label mb-2">{missed.length > 0 ? 'What to fix' : 'Every criterion met'}</h3>
+        <ol className="flex flex-col gap-2">
+          {missed.map((criterion) => {
             const criterionScore = Number(criterion.score);
             const pillarLabel = pillarLabels?.[criterion.competencyPillarId];
             return (
-              <li key={criterion.criterionId} className="pulse-card p-4">
+              <li key={criterion.criterionId} className="pulse-card p-3.5">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-semibold text-pulse-primary">{criterion.criterionLabel}</p>
@@ -193,18 +234,18 @@ export function ScorecardView({
                   </span>
                 </div>
                 {criterion.agentQuoteEvidence ? (
-                  <blockquote className="mt-3 flex gap-2 rounded-pulse-md border-l-2 border-pulse-border bg-pulse-bg px-3 py-2 text-sm italic text-pulse-secondary">
+                  <blockquote className="mt-2 flex gap-2 rounded-pulse-md border-l-2 border-pulse-border bg-pulse-bg px-3 py-2 text-sm italic text-pulse-secondary">
                     <MessageSquareQuote aria-hidden className="mt-0.5 size-4 shrink-0 not-italic text-pulse-muted" />
                     <span>&ldquo;{criterion.agentQuoteEvidence}&rdquo;</span>
                   </blockquote>
                 ) : null}
                 {criterion.coachingNote ? (
-                  <p className="mt-3 text-sm leading-relaxed text-pulse-secondary">{criterion.coachingNote}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-pulse-secondary">{criterion.coachingNote}</p>
                 ) : null}
                 {criterionScore < 100 && criterion.betterResponseExample ? (
-                  <div className="mt-3 rounded-pulse-md border border-pulse-emerald/40 bg-pulse-emerald/10 p-3">
+                  <div className="mt-2 rounded-pulse-md border border-pulse-emerald/40 bg-pulse-emerald/10 px-3 py-2">
                     <p className="pulse-label flex items-center gap-1.5 text-pulse-emerald">
-                      <Lightbulb aria-hidden className="size-3.5" /> Better Response Example
+                      <Lightbulb aria-hidden className="size-3.5" /> Try saying
                     </p>
                     <p className="mt-1 text-sm text-pulse-primary">&ldquo;{criterion.betterResponseExample}&rdquo;</p>
                   </div>
@@ -213,24 +254,25 @@ export function ScorecardView({
             );
           })}
         </ol>
+        {met.length > 0 ? (
+          <details className="group mt-2 pulse-card px-3.5 py-2.5" open={missed.length === 0}>
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-pulse-secondary">
+              <CircleCheck aria-hidden className="size-4 text-pulse-emerald" />
+              <span className="pulse-metric">{met.length}</span> met
+              <span className="text-xs font-normal text-pulse-muted group-open:hidden">· show</span>
+            </summary>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {met.map((criterion) => (
+                <li key={criterion.criterionId} className="text-sm">
+                  <p className="font-medium text-pulse-primary">{criterion.criterionLabel}</p>
+                  {criterion.coachingNote ? <p className="text-xs text-pulse-muted">{criterion.coachingNote}</p> : null}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
       </div>
 
-      {onRetry || backHref ? (
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {backHref ? (
-            <Link href={backHref} className="pulse-btn">
-              <MapIcon aria-hidden className="size-4" />
-              {backLabel}
-            </Link>
-          ) : null}
-          {onRetry ? (
-            <button type="button" className="pulse-btn pulse-btn-primary" onClick={onRetry}>
-              <RotateCcw aria-hidden className="size-4" />
-              Retry Simulation
-            </button>
-          ) : null}
-        </div>
-      ) : null}
     </section>
   );
 }

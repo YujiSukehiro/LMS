@@ -72,7 +72,7 @@ export function DrillEditor({
       />
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField
-          label="CompetencyPillar"
+          label="Skill area"
           value={drill.competencyPillarId}
           options={pillars.map((p) => ({ value: p.id, label: p.label }))}
           onChange={(v) => onChange({ ...drill, competencyPillarId: v })}

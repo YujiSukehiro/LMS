@@ -49,6 +49,13 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
     : evidence.analytics.currentMastery.ratio * 100;
   const bestScores = isPreview ? {} : await loadBestScenarioScores(ctx.user.uid, trackId);
 
+  const ruleLabels: Record<string, string> = {};
+  for (const unit of units) {
+    for (const drill of unit.drills) {
+      for (const ruleId of drill.ruleIds ?? []) ruleLabels[ruleId] ??= unit.title;
+    }
+  }
+
   const mapUnits: CheckpointMapUnit[] = units.map((unit, index) => ({
     id: unit.id,
     title: unit.title,
@@ -68,8 +75,8 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
   }));
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 pb-12">
-      <Link href="/" className="inline-flex w-fit items-center gap-1.5 text-sm text-pulse-muted hover:text-pulse-primary">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 pb-12">
+      <Link href="/" className="inline-flex w-fit items-center gap-1.5 text-xs text-pulse-muted hover:text-pulse-primary">
         <ArrowLeft aria-hidden className="size-4" />
         All Tracks
       </Link>
@@ -86,7 +93,7 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
       {isPreview ? (
         <p className="flex items-start gap-2 rounded-pulse-md border border-pulse-amber/40 bg-pulse-amber/10 px-4 py-3 text-sm text-pulse-amber">
           <Eye aria-hidden className="mt-0.5 size-4 shrink-0" />
-          Preview only — you are playing the draft TrackVersion. Progress is not recorded and every Checkpoint is open.
+          Draft preview. Progress is not saved and every Checkpoint is open.
         </p>
       ) : null}
       {legacyEvidenceOnly ? (
@@ -95,57 +102,60 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
           version of the Track. A Trainer must publish a new version with assessment rules; your next attempts will then count.
         </p>
       ) : null}
-      {evidence ? (
-        <LearningEvidencePanel
-          analytics={evidence.analytics}
-          certification={evidence.certification}
-          scenarioCoverage={evidence.scenarioCoverage}
-          scenarioLabels={evidence.scenarioLabels}
-        />
-      ) : null}
-
-      {!isPreview &&
-      evidence &&
-      (evidence.analytics.delayedRetention.due > 0 || evidence.analytics.upcomingReviews.length > 0) ? (
-        <section
-          aria-label="Track Knowledge Retention"
-          className="pulse-card flex flex-wrap items-center justify-between gap-3 px-4 py-3.5"
-        >
-          <div className="flex items-start gap-2.5">
-            <Brain aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
-            <div>
-              <p className="text-sm font-semibold text-pulse-primary">
-                {evidence.analytics.delayedRetention.due > 0
-                  ? `${evidence.analytics.delayedRetention.due} retention review drill${evidence.analytics.delayedRetention.due === 1 ? '' : 's'} due now for this Track`
-                  : `${evidence.analytics.upcomingReviews.length} upcoming Keep-Sharp retention drill${evidence.analytics.upcomingReviews.length === 1 ? '' : 's'}`}
-              </p>
-              <p className="text-xs text-pulse-muted">Practice spaced rule recall anytime without waiting on the calendar.</p>
-            </div>
-          </div>
-          <Link
-            href={`/learn/review?trackId=${encodeURIComponent(trackId)}`}
-            className="pulse-btn pulse-btn-primary text-xs"
-          >
-            Open Retention Review <ArrowRight aria-hidden className="size-3.5" />
-          </Link>
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section aria-labelledby="checkpoint-path-heading" className="min-w-0">
+          <h2 id="checkpoint-path-heading" className="pulse-label mb-3">
+            Checkpoint Path · <span className="pulse-metric">{completedUnitIds.filter((id) => units.some((u) => u.id === id)).length}</span>/
+            <span className="pulse-metric">{units.length}</span> complete
+          </h2>
+          <CheckpointMap
+            trackId={trackId}
+            units={mapUnits}
+            scenarios={mapScenarios}
+            simUnlocked={unitsComplete || staffAccess}
+            certified={certified}
+            hrefSuffix={previewSuffix(isPreview)}
+            staffAccess={staffAccess}
+          />
         </section>
-      ) : null}
+        <aside className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-20">
+          {!isPreview &&
+          evidence &&
+          (evidence.analytics.delayedRetention.due > 0 || evidence.analytics.upcomingReviews.length > 0) ? (
+            <section
+              aria-label="Track Knowledge Retention"
+              className="pulse-card flex flex-wrap items-center justify-between gap-3 px-4 py-2.5"
+            >
+              <div className="flex items-start gap-2.5">
+                <Brain aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
+                <div>
+                  <p className="text-sm font-semibold text-pulse-primary">
+                    {evidence.analytics.delayedRetention.due > 0
+                      ? `${evidence.analytics.delayedRetention.due} review${evidence.analytics.delayedRetention.due === 1 ? '' : 's'} due for this Track`
+                      : `${evidence.analytics.upcomingReviews.length} review${evidence.analytics.upcomingReviews.length === 1 ? '' : 's'} scheduled`}
+                  </p>
+                </div>
+              </div>
+              <Link
+                href={`/learn/review?trackId=${encodeURIComponent(trackId)}`}
+                className={evidence.analytics.delayedRetention.due > 0 ? 'pulse-btn pulse-btn-primary text-xs' : 'pulse-btn text-xs'}
+              >
+                Review now <ArrowRight aria-hidden className="size-3.5" />
+              </Link>
+            </section>
+          ) : null}
 
-      <section aria-labelledby="checkpoint-path-heading">
-        <h2 id="checkpoint-path-heading" className="pulse-label mb-4">
-          Checkpoint Path · <span className="pulse-metric">{completedUnitIds.filter((id) => units.some((u) => u.id === id)).length}</span>/
-          <span className="pulse-metric">{units.length}</span> complete
-        </h2>
-        <CheckpointMap
-          trackId={trackId}
-          units={mapUnits}
-          scenarios={mapScenarios}
-          simUnlocked={unitsComplete || staffAccess}
-          certified={certified}
-          hrefSuffix={previewSuffix(isPreview)}
-          staffAccess={staffAccess}
-        />
-      </section>
+          {evidence ? (
+            <LearningEvidencePanel
+              analytics={evidence.analytics}
+              certification={evidence.certification}
+              scenarioCoverage={evidence.scenarioCoverage}
+              scenarioLabels={evidence.scenarioLabels}
+              ruleLabels={ruleLabels}
+            />
+          ) : null}
+        </aside>
+      </div>
     </div>
   );
 }

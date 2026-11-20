@@ -14,7 +14,7 @@ function versionLabel(track: TrackDoc): string {
 export function TrackCatalogTable({ tracks }: { tracks: TrackDoc[] }) {
   const now = Date.now();
   return (
-    <div className="pulse-card overflow-x-auto">
+    <div className="pulse-card relative overflow-x-auto">
       <table className="w-full min-w-[820px] text-sm">
         <thead>
           <tr className="border-b border-pulse-border-subtle text-left">

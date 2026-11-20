@@ -125,7 +125,7 @@ test.describe('LogiCall Pulse usable verbal & retention product flows', () => {
     await expect(page).toHaveURL(/\/learn\/demo-mvp-retention$/);
     const trackRetention = page.getByRole('region', { name: 'Track Knowledge Retention' });
     await expect(trackRetention).toBeVisible();
-    await trackRetention.getByRole('link', { name: /Open Retention Review/i }).click();
+    await trackRetention.getByRole('link', { name: /Review now/i }).click();
     await expect(page).toHaveURL(/\/learn\/review\?trackId=demo-mvp-retention/);
 
     monitor.assertClean();

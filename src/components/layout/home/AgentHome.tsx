@@ -37,18 +37,17 @@ export async function AgentHome({ user }: { user: SessionUser }) {
   const sorted = [...tracks].sort((a, b) => order(a) - order(b));
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="pulse-label">My Tracks</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight">Welcome back, {firstName}</h1>
-          <p className="mt-1 text-sm text-pulse-muted">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Welcome back, {firstName}</h1>
+          <p className="mt-0.5 text-sm text-pulse-muted">
             {TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
-              ? 'Complete each Checkpoint, pass Verbal Practice, and keep Playbook rules sharp through spaced retention.'
-              : 'Complete each Checkpoint, then pass a Live Call Sim to become Campaign Certified.'}
+              ? 'Finish your Checkpoints, pass Verbal Practice, and keep rules fresh with short reviews.'
+              : 'Finish each Checkpoint, then pass a Live Call Sim to get certified.'}
           </p>
         </div>
-        <Link href={`/analytics/agents/${encodeURIComponent(user.uid)}`} className="pulse-btn">
+        <Link href={`/analytics/agents/${encodeURIComponent(user.uid)}`} className="pulse-btn text-sm">
           <Radar aria-hidden className="size-4" />
           My Readiness Passport
         </Link>
@@ -85,7 +84,7 @@ export async function AgentHome({ user }: { user: SessionUser }) {
       <section
         aria-label="Knowledge Retention"
         className={cn(
-          'pulse-card-elevated flex flex-wrap items-center justify-between gap-4 p-5',
+          'pulse-card flex flex-wrap items-center justify-between gap-3 px-4 py-3',
           retention.summary.dueCount > 0 && 'border-pulse-amber/40',
         )}
       >
@@ -94,7 +93,7 @@ export async function AgentHome({ user }: { user: SessionUser }) {
             <Brain aria-hidden className="size-3.5 text-pulse-indigo" />
             Knowledge Retention
           </p>
-          <h2 className="text-lg font-bold text-pulse-primary">
+          <h2 className="text-base font-semibold text-pulse-primary">
             {retention.summary.dueCount > 0 ? (
               <>
                 <span className="pulse-metric">{retention.summary.dueCount}</span> spaced review drill
@@ -111,10 +110,10 @@ export async function AgentHome({ user }: { user: SessionUser }) {
               <>
                 <span className="pulse-metric">{retention.summary.scheduledCount}</span> active schedule
                 {retention.summary.scheduledCount === 1 ? '' : 's'} ·{' '}
-                <span className="pulse-metric">{retention.summary.masteredCount}</span> mastered on the 1 → 3 → 7 day ladder.
+                <span className="pulse-metric">{retention.summary.masteredCount}</span> fully retained (1, 3 and 7 day reviews).
               </>
             ) : (
-              'Complete any Track Checkpoint to unlock 1, 3, and 7 day spaced retention reviews.'
+              'Finish a Checkpoint to start short review drills.'
             )}
           </p>
         </div>

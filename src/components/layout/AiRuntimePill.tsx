@@ -59,7 +59,17 @@ export function AiRuntimePill({ runtime, role, className }: { runtime: AiRuntime
       title={capabilityTitle || health?.error || `${baseLabel}: heavy tier ${runtime.heavyModel}, fast tier ${runtime.fastModel}`}
       data-runtime-status={health?.status ?? (runtime.provider === 'replay' ? 'demo' : runtime.provider === 'manual_chat' ? 'manual' : 'unknown')}
     >
-      <Cpu aria-hidden className={cn('size-3.5', health?.status === 'blocked' ? 'text-pulse-crimson' : runtime.provider === 'replay' ? 'text-pulse-amber' : 'text-pulse-emerald')} />
+      <Cpu
+        aria-hidden
+        className={cn(
+          'size-3.5',
+          health?.status === 'blocked'
+            ? 'text-pulse-crimson'
+            : health?.status === 'degraded' || health?.status === 'not_configured' || runtime.provider === 'replay'
+              ? 'text-pulse-amber'
+              : 'text-pulse-emerald',
+        )}
+      />
       <span className="sr-only">AI runtime:</span>
       {label}
     </span>

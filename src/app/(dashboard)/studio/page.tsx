@@ -6,6 +6,7 @@ import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import { loadAllTracks } from '@/components/analytics/server-data';
 import { EmptyState } from '@/components/analytics/KpiStrip';
 import { TrackCatalogTable } from '@/components/studio/TrackCatalogTable';
+import { SIM_COPY } from '@/lib/policy/training-policy';
 
 export const metadata: Metadata = { title: 'Track Studio' };
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,7 @@ export default async function StudioCatalogPage() {
         <EmptyState
           icon={<Layers aria-hidden className="size-6" />}
           title="No Tracks yet"
-          body="Upload a Playbook PDF. Pulse builds the Checkpoints, Drills and Live Call Sims for you."
+          body={`Upload a Playbook PDF. Pulse builds the Checkpoints, Drills and ${SIM_COPY.plural} for you.`}
           action={
             <Link href="/studio/new" className="pulse-btn pulse-btn-primary">
               <Plus aria-hidden className="size-4" />

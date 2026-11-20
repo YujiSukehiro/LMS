@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { SIM_COPY, TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { AlertTriangle, CheckCircle2, ChevronDown, CircleDashed, Clock, Download, ShieldCheck, Users, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { STAGE_LABELS, stageRank, type ProgressCell } from '@/lib/services/team-progress';
@@ -32,7 +32,7 @@ type ColumnId = 'not_started' | 'learning' | 'checkpoints_done' | 'certified';
 const COLUMNS: Array<{ id: ColumnId; label: string; icon: LucideIcon; tone: string; tile: string; avatar: string }> = [
   { id: 'not_started', label: 'Not started', icon: CircleDashed, tone: 'text-pulse-secondary', tile: 'bg-pulse-surface-2', avatar: 'bg-pulse-indigo/10 text-pulse-indigo-text' },
   { id: 'learning', label: 'Learning', icon: Clock, tone: 'text-pulse-amber', tile: 'bg-pulse-amber/10', avatar: 'bg-pulse-indigo/10 text-pulse-indigo-text' },
-  { id: 'checkpoints_done', label: 'Ready for sim', icon: CheckCircle2, tone: 'text-pulse-indigo-text', tile: 'bg-pulse-indigo/10', avatar: 'bg-pulse-indigo/10 text-pulse-indigo-text' },
+  { id: 'checkpoints_done', label: `Ready for ${SIM_COPY.short.toLowerCase()}`, icon: CheckCircle2, tone: 'text-pulse-indigo-text', tile: 'bg-pulse-indigo/10', avatar: 'bg-pulse-indigo/10 text-pulse-indigo-text' },
   { id: 'certified', label: 'Certified', icon: ShieldCheck, tone: 'text-pulse-emerald', tile: 'bg-pulse-emerald/10', avatar: 'bg-pulse-emerald/15 text-pulse-emerald' },
 ];
 
@@ -189,8 +189,7 @@ export function TeamProgressBoard({ tracks, agents }: { tracks: BoardTrack[]; ag
         {track.unitCount} checkpoint{track.unitCount === 1 ? '' : 's'} + {track.simCount}{' '}
         {TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
           ? `Verbal Practice${track.simCount === 1 ? '' : ' scenarios'}`
-          : `Live Call Sim${track.simCount === 1 ? '' : 's'}`}. Each card is
-        one agent; cards move right as they progress. Cards with a problem come first and get a colored edge.
+          : `Live Call Sim${track.simCount === 1 ? '' : 's'}`}.
       </p>
 
       {/* Columns */}
@@ -284,7 +283,7 @@ function AgentCard({
       subline = cell.nextUnitIndex !== null ? `Checkpoint ${cell.nextUnitIndex + 1} of ${cell.unitsDone.length} next` : 'Finishing checkpoints';
       break;
     case 'checkpoints_done':
-      subline = cell.simPassed ? `Sim passed${cell.bestSimPct !== null ? ` ${Math.round(cell.bestSimPct)}%` : ''}` : `All ${cell.unitsDone.length} checkpoints done`;
+      subline = cell.simPassed ? `${SIM_COPY.short} passed${cell.bestSimPct !== null ? ` ${Math.round(cell.bestSimPct)}%` : ''}` : `All ${cell.unitsDone.length} checkpoints done`;
       break;
     case 'certified':
       subline = cell.detail;

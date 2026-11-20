@@ -9,7 +9,6 @@ import {
   Headset,
   LoaderCircle,
   MessageSquareText,
-  Mic,
   PhoneCall,
   RotateCcw,
   TriangleAlert,
@@ -406,9 +405,9 @@ export function SimulationRunner({
   const isStreaming = streamingText !== null;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-12">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 pb-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link href={mapHref} className="inline-flex items-center gap-1.5 text-sm text-pulse-muted hover:text-pulse-primary">
+        <Link href={mapHref} className="inline-flex items-center gap-1.5 text-xs text-pulse-muted hover:text-pulse-primary">
           <ArrowLeft aria-hidden className="size-4" />
           {trackTitle}
         </Link>
@@ -489,7 +488,7 @@ export function SimulationRunner({
             }
             restoreDraft={restoreDraft}
             demoReplay={demoReplay}
-            className={cn('h-[min(64vh,42rem)]', phase === 'grading' && 'opacity-60')}
+            className={cn('h-[max(22rem,calc(100dvh-21rem))]', phase === 'grading' && 'opacity-60')}
           />
           {simEnded && phase === 'live' && !pickerOpen ? (
             <div className="flex justify-end">
@@ -503,15 +502,12 @@ export function SimulationRunner({
       ) : null}
 
       {phase === 'awaiting_trainer' && pendingReview ? (
-        <section aria-label="Scorecard pending" role="status" className="pulse-card-elevated flex flex-col gap-4 p-6">
+        <section aria-label="Scorecard pending" role="status" className="pulse-card flex flex-col gap-3 p-4">
           <div className="flex items-start gap-3">
             <ClipboardCheck aria-hidden className="mt-0.5 size-6 shrink-0 text-pulse-indigo" />
             <div>
-              <p className="text-lg font-semibold">Your verbal practice was saved</p>
+              <p className="text-base font-semibold">Practice saved — scorecard pending</p>
               <p className="mt-1 text-sm text-pulse-secondary">{pendingReview.message}</p>
-              <p className="mt-2 text-xs text-pulse-muted">
-                Your conversation transcript is recorded. A Trainer will add your coaching scorecard.
-              </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -580,62 +576,51 @@ function IntroCard({
   resumeTurnCount: number | null;
 }) {
   return (
-    <section aria-labelledby="sim-intro-heading" className="pulse-card-elevated pulse-cq overflow-hidden">
-      <div className="flex flex-col gap-5 p-6">
-        <div className="flex flex-wrap items-center gap-2">
-          {campaignCode ? (
-            <span className="pulse-metric rounded-pulse-sm border border-pulse-border bg-pulse-bg px-1.5 py-0.5 text-xs font-semibold">
-              {campaignCode}
-            </span>
-          ) : null}
-          <span className={cn('pulse-pill', DIVISION_PILL_CLASS[divisionId])}>{VERBAL_CHANNEL_LABELS[divisionId]}</span>
-          <DifficultyBadge difficulty={scenario.difficulty} />
-        </div>
-        <div className="flex items-start gap-4">
-          <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-pulse-indigo text-pulse-on-accent">
-            <Headset aria-hidden className="size-7" />
+    <section aria-labelledby="sim-intro-heading" className="pulse-card pulse-cq overflow-hidden">
+      <div className="flex flex-col gap-4 p-5">
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-pulse-indigo text-pulse-on-accent">
+            <Headset aria-hidden className="size-5" />
           </span>
-          <div className="min-w-0">
-            <p className="pulse-label">Verbal Practice</p>
-            <h1 id="sim-intro-heading" className="mt-0.5 text-2xl font-bold tracking-tight">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {campaignCode ? <span className="pulse-metric text-xs font-semibold text-pulse-secondary">{campaignCode}</span> : null}
+              <span className={cn('pulse-pill', DIVISION_PILL_CLASS[divisionId])}>{VERBAL_CHANNEL_LABELS[divisionId]}</span>
+              <DifficultyBadge difficulty={scenario.difficulty} />
+            </div>
+            <h1 id="sim-intro-heading" className="mt-1 text-xl font-bold tracking-tight">
               {scenario.title}
             </h1>
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-pulse-muted">
-              <UserRound aria-hidden className="size-4" /> {scenario.counterpartyRoleLabel}
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-pulse-muted">
+              <span className="inline-flex items-center gap-1.5">
+                <UserRound aria-hidden className="size-3.5" /> {scenario.counterpartyRoleLabel}
+              </span>
+              <span>
+                Up to <span className="pulse-metric text-pulse-secondary">{scenario.maxTurns}</span> turns
+              </span>
+              <span>
+                Pass at <span className="pulse-metric text-pulse-secondary">{scenario.passScoreThreshold}%</span>
+              </span>
             </p>
           </div>
         </div>
 
-        <div className="rounded-pulse-md border border-pulse-border bg-pulse-bg p-4">
-          <p className="pulse-label mb-1">Scenario Brief</p>
+        <div className="rounded-pulse-md border border-pulse-border-subtle bg-pulse-bg px-3.5 py-3">
+          <p className="pulse-label mb-1">Scenario brief</p>
           <p className="text-sm leading-relaxed text-pulse-secondary">{scenario.contextTicketSummary}</p>
         </div>
 
-        <dl className="grid grid-cols-2 gap-3">
-          <div className="rounded-pulse-md border border-pulse-border-subtle bg-pulse-surface-1 p-3">
-            <dt className="pulse-label">Max Turns</dt>
-            <dd className="pulse-metric mt-1 text-lg font-bold">{scenario.maxTurns}</dd>
-          </div>
-          <div className="rounded-pulse-md border border-pulse-border-subtle bg-pulse-surface-1 p-3">
-            <dt className="pulse-label">Pass Score</dt>
-            <dd className="pulse-metric mt-1 text-lg font-bold">{scenario.passScoreThreshold}%</dd>
-          </div>
-        </dl>
-
-        <ul className="space-y-1.5 text-sm text-pulse-secondary">
-          <li className="flex gap-2">
-            <MessageSquareText aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
-            Respond in your own words — type or use voice dictation, just as you would speak on a live call.
-          </li>
-          <li className="flex gap-2">
-            <Mic aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
-            Graded strictly on verbal accuracy, required spoken disclosures, and Playbook knowledge.
-          </li>
-        </ul>
+        <p className="flex items-start gap-2 text-sm text-pulse-secondary">
+          <MessageSquareText aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
+          <span>
+            Answer in your own words, typed or dictated with the mic. You are scored on what you say and the Playbook rules you
+            follow.
+          </span>
+        </p>
 
         <button
           type="button"
-          className="pulse-btn pulse-btn-primary self-start px-6 py-3 text-base"
+          className="pulse-btn pulse-btn-primary self-start px-5 py-2.5"
           onClick={onStart}
           disabled={starting}
         >

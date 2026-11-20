@@ -24,12 +24,14 @@ import {
 import { cleanActorReply } from '@/lib/services/sim-actor-output';
 import {
   SIM_AI_UNAVAILABLE_MID_CALL_MESSAGE,
+  simAiUnavailableError,
   assertSimAiAvailable,
   toSimAiUnavailable,
 } from '@/lib/services/sim-ai-availability';
 import { errorResponse, parseJsonBody } from '@/lib/services/route-helpers';
 import { findStoredTurn, type StoredTurn } from '@/lib/services/sim-message-idempotency';
 import { createSimEndStreamFilter } from '@/lib/services/sim-end-filter';
+import { createStreamWatchdog } from '@/lib/services/stream-watchdog';
 import {
   countSimSessionsTowardLimitToday,
   createSimulationProvenance,
@@ -49,6 +51,10 @@ export const maxDuration = 120;
 /** A caller reply is 1-3 short spoken sentences; a tight budget keeps a small local model from rambling. */
 const ACTOR_MAX_OUTPUT_TOKENS = 160;
 const ACTOR_TEMPERATURE = 0.6;
+/** No token for this long means the model runtime has stalled. */
+const ACTOR_IDLE_TIMEOUT_MS = 45_000;
+/** Hard cap on one caller reply (well inside maxDuration). */
+const ACTOR_TOTAL_TIMEOUT_MS = 100_000;
 
 /**
  * POST /api/simulations/[sessionId]/message
@@ -169,7 +175,11 @@ export async function POST(
 
   // ---- Stream the Actor reply ----
   const llmAbort = new AbortController();
-  const onClientAbort = () => llmAbort.abort();
+  let clientGone = false;
+  const onClientAbort = () => {
+    clientGone = true;
+    llmAbort.abort();
+  };
   if (req.signal.aborted) llmAbort.abort();
   else req.signal.addEventListener('abort', onClientAbort, { once: true });
 
@@ -178,7 +188,7 @@ export async function POST(
     async start(controller) {
       let closed = false;
       const send = (event: string, data: unknown) => {
-        if (closed || llmAbort.signal.aborted) return;
+        if (closed || clientGone) return;
         try {
           controller.enqueue(encoder.encode(sseFrame(event, data)));
         } catch {
@@ -195,6 +205,11 @@ export async function POST(
         }
       };
 
+      const watchdog = createStreamWatchdog({
+        idleMs: ACTOR_IDLE_TIMEOUT_MS,
+        totalMs: ACTOR_TOTAL_TIMEOUT_MS,
+        onTimeout: () => llmAbort.abort(new DOMException('The AI caller stopped responding.', 'TimeoutError')),
+      });
       try {
         const filter = createSimEndStreamFilter();
         let replyText = '';
@@ -206,6 +221,7 @@ export async function POST(
           signal: llmAbort.signal,
         });
         for await (const chunk of tokens) {
+          watchdog.touch();
           if (llmAbort.signal.aborted) break;
           const safe = filter.push(chunk);
           if (safe) {
@@ -213,7 +229,9 @@ export async function POST(
             send('token', { token: safe });
           }
         }
+        if (watchdog.timedOut) throw simAiUnavailableError(SIM_AI_UNAVAILABLE_MID_CALL_MESSAGE);
         if (llmAbort.signal.aborted) return; // Client left: do not save a partial reply.
+        watchdog.stop();
 
         const tail = filter.flush();
         if (tail) {
@@ -322,8 +340,10 @@ export async function POST(
         const done: SimDoneEvent & { reply: string } = { simEnded, turnCount: prepared.nextTurnCount, reply };
         send('done', done);
       } catch (error) {
-        if (!llmAbort.signal.aborted) {
-          const mapped = toSimAiUnavailable(error, SIM_AI_UNAVAILABLE_MID_CALL_MESSAGE) ?? error;
+        if (!clientGone) {
+          const mapped = watchdog.timedOut
+            ? simAiUnavailableError(SIM_AI_UNAVAILABLE_MID_CALL_MESSAGE)
+            : (toSimAiUnavailable(error, SIM_AI_UNAVAILABLE_MID_CALL_MESSAGE) ?? error);
           const message = isServiceError(mapped)
             ? mapped.message
             : 'The caller could not answer because of a server error. Send your message again.';
@@ -331,11 +351,13 @@ export async function POST(
           send('error', isServiceError(mapped) ? { message, code: mapped.code } : { message });
         }
       } finally {
+        watchdog.stop();
         req.signal.removeEventListener('abort', onClientAbort);
         close();
       }
     },
     cancel() {
+      clientGone = true;
       llmAbort.abort();
     },
   });

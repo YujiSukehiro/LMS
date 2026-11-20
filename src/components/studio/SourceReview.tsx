@@ -325,7 +325,7 @@ export function SourceReview({
       <section className="pulse-card p-5">
         <SectionTitle icon={<GitBranch aria-hidden className="size-4" />} title="Documents, hashes & inheritance" />
         {review.bundle ? (
-          <div className="mt-3 overflow-x-auto">
+          <div className="mt-3 relative overflow-x-auto">
             <table className="w-full min-w-[52rem] text-left text-xs">
               <thead className="text-pulse-muted"><tr><th className="py-2 pr-3">Order</th><th className="py-2 pr-3">Document / role</th><th className="py-2 pr-3">Version</th><th className="py-2 pr-3">Revision</th><th className="py-2 pr-3">SHA-256 content hash</th><th className="py-2">State</th></tr></thead>
               <tbody className="divide-y divide-pulse-border-subtle">

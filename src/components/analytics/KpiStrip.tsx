@@ -19,17 +19,17 @@ const TONE_CLASS: Record<NonNullable<KpiItem['tone']>, string> = {
 
 export function KpiStrip({ items, className }: { items: KpiItem[]; className?: string }) {
   return (
-    <dl className={cn('grid grid-cols-2 gap-3 md:grid-cols-4', className)}>
+    <dl className={cn('grid grid-cols-2 gap-2 md:grid-cols-4', className)}>
       {items.map((item) => (
-        <div key={item.label} className="pulse-card flex flex-col gap-1.5 px-4 py-3.5">
+        <div key={item.label} className="pulse-card flex min-w-0 flex-col gap-0.5 px-3.5 py-2.5">
           <dt className="pulse-label flex items-center gap-1.5">
             {item.icon}
             {item.label}
           </dt>
-          <dd className={cn('pulse-metric text-2xl font-semibold', TONE_CLASS[item.tone ?? 'default'])}>
+          <dd className={cn('pulse-metric text-xl font-semibold', TONE_CLASS[item.tone ?? 'default'])}>
             {item.value}
           </dd>
-          {item.hint ? <dd className="text-xs text-pulse-muted">{item.hint}</dd> : null}
+          {item.hint ? <dd className="truncate text-xs text-pulse-muted">{item.hint}</dd> : null}
         </div>
       ))}
     </dl>

@@ -41,6 +41,7 @@ import { MissedRulesTable } from '@/components/analytics/MissedRulesTable';
 import { EmptyState, KpiStrip, SectionHeader } from '@/components/analytics/KpiStrip';
 import { formatPct } from '@/components/analytics/strength';
 import { cohortLabel } from '@/components/layout/labels';
+import { SIM_COPY } from '@/lib/policy/training-policy';
 
 export const metadata: Metadata = { title: 'Analytics' };
 export const dynamic = 'force-dynamic';
@@ -266,12 +267,12 @@ export default async function AnalyticsPage({
             icon: <BookOpen aria-hidden className="size-3.5" />,
           },
           {
-            label: 'Sim Attempts',
+            label: `${SIM_COPY.short} attempts`,
             value: String(kpiRollup?.totalSimAttempts ?? 0),
             icon: <Headset aria-hidden className="size-3.5" />,
           },
           {
-            label: 'Sim Pass Rate',
+            label: `${SIM_COPY.short} pass rate`,
             value: formatPct(passRate),
             hint: `${kpiRollup?.totalSimPasses ?? 0} passed`,
             icon: <Target aria-hidden className="size-3.5" />,
@@ -282,24 +283,24 @@ export default async function AnalyticsPage({
 
       <section className="pulse-card flex flex-col gap-4 p-4 md:p-5">
         <SectionHeader
-          title="Cohort × CompetencyPillar Strength Heatmap"
+          title="Skill strength by Cohort"
           description={
             cohort
               ? 'Cohort average first, then each agent in the Cohort. Hover a cell for the sample count.'
-              : 'Mean first-try Drill and Live Call Sim criterion scores. Select a Cohort row to see its agents.'
+              : `Average first-try Drill and ${SIM_COPY.singular} scores per skill. Select a Cohort to see its agents.`
           }
         />
         {heatmapRows.length === 0 ? (
-          <EmptyState title="No strength data yet" body="Scores appear after agents complete Checkpoints and Live Call Sims." />
+          <EmptyState title="No strength data yet" body={`Scores appear after agents complete Checkpoints and ${SIM_COPY.plural}.`} />
         ) : (
-          <CohortStrengthHeatmap rows={heatmapRows} caption="Strength by Cohort and CompetencyPillar" />
+          <CohortStrengthHeatmap rows={heatmapRows} caption="Skill strength by Cohort" />
         )}
       </section>
 
       <section className="pulse-card flex flex-col gap-4 p-4 md:p-5">
         <SectionHeader
-          title="Campaign Certification Matrix"
-          description="Current versioned training certification. Live-call authorization is a separate operational decision."
+          title="Certification by agent"
+          description="Training certification on the current Track version. Live-call sign-off is a separate decision."
         />
         <CertificationMatrix
           agents={matrixAgents}
@@ -315,8 +316,8 @@ export default async function AnalyticsPage({
 
       <section className="pulse-card flex flex-col gap-4 p-4 md:p-5">
         <SectionHeader
-          title="Playbook Gap Detector"
-          description="The Drills that agents miss most on the first try. Many misses can mean the Playbook rule is not clear."
+          title="Most-missed Drills"
+          description="First-try misses. A high count often means the Playbook rule is unclear."
         />
         <MissedRulesTable rows={missed} trackTitles={trackTitles} linkToStudio={internal} />
       </section>

@@ -21,6 +21,7 @@ import { DivisionPill } from '@/components/layout/DivisionPill';
 import { CohortBadge } from '@/components/layout/CohortBadge';
 import { formatDate, pillarLabel } from '@/components/layout/labels';
 import { cn } from '@/lib/utils';
+import { SIM_COPY } from '@/lib/policy/training-policy';
 
 export const metadata: Metadata = { title: 'Agent Learning Evidence' };
 export const dynamic = 'force-dynamic';
@@ -143,7 +144,7 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
         <section className="pulse-card flex flex-col gap-3 p-4 md:p-5">
-          <SectionHeader title="Skill Radar" description="Mean score per CompetencyPillar across Drills and Live Call Sims." />
+          <SectionHeader title="Skill Radar" description={`Average score per skill across Drills and ${SIM_COPY.plural}.`} />
           <div className="flex justify-center">
             <SkillRadarSvg values={radarValues} agentName={agent.displayName} />
           </div>
@@ -189,7 +190,7 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
 
           <section className="pulse-card flex flex-col gap-3 p-4 md:p-5">
             <SectionHeader
-              title="First-try Drill accuracy vs. Live Call Sim score"
+              title={`First-try Drill accuracy vs. ${SIM_COPY.singular} score`}
               description="A large gap shows knowledge that the agent does not yet apply on a call."
             />
             {comparison.length === 0 ? (
@@ -203,7 +204,7 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.title}</span>
                     </div>
                     <ComparisonBar label="Drills (first try)" value={row.drillAccuracy} />
-                    <ComparisonBar label="Live Call Sim (best)" value={row.simScore} />
+                    <ComparisonBar label={`${SIM_COPY.singular} (best)`} value={row.simScore} />
                   </li>
                 ))}
               </ul>
@@ -213,9 +214,9 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
       </div>
 
       <section className="flex flex-col gap-3">
-        <SectionHeader title="Live Call Sim transcripts" description="Select a session to read the transcript and the scorecard." />
+        <SectionHeader title={`${SIM_COPY.singular} transcripts`} description="Select a session to read the transcript and the scorecard." />
         {learnerSessions.length === 0 ? (
-          <EmptyState icon={<MessageSquare aria-hidden className="size-6" />} title="No evaluated Live Call Sims yet" />
+          <EmptyState icon={<MessageSquare aria-hidden className="size-6" />} title={`No graded ${SIM_COPY.plural} yet`} />
         ) : (
           <div className="flex flex-col gap-2">
             {learnerSessions.map((session) => (

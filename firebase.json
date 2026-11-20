@@ -26,7 +26,8 @@
       "firestore-debug.log",
       "ui-debug.log",
       "tests",
-      "docs"
+      "docs",
+      "_gemini_review"
     ]
   },
   "emulators": {

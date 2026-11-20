@@ -72,12 +72,12 @@ export function ResetPasswordDialog({
     <>
       <button
         type="button"
-        className="pulse-btn px-2.5 py-1 text-xs"
+        className="pulse-btn size-8 min-h-0 p-0"
         aria-label={`Reset password for ${displayName}`}
+        title="Reset password"
         onClick={open}
       >
         <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-        Reset password
       </button>
 
       <dialog ref={dialogRef} className="pulse-dialog text-left" aria-labelledby={titleId}>

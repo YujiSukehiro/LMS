@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { SIM_COPY } from '@/lib/policy/training-policy';
 import { useRouter } from 'next/navigation';
 import { Check, CircleAlert, LoaderCircle, RotateCw } from 'lucide-react';
 import {
@@ -22,9 +23,9 @@ interface StepperStage {
 
 const STAGES: StepperStage[] = [
   { id: 'extract', label: 'Extract Playbook', steps: ['UPLOADING', 'EXTRACTING_PDF'] },
-  { id: 'pillars', label: 'Detect CompetencyPillars', steps: ['BLUEPRINTING'] },
+  { id: 'pillars', label: 'Detect skill areas', steps: ['BLUEPRINTING'] },
   { id: 'units', label: 'Build Checkpoints', steps: ['BUILDING_UNITS'] },
-  { id: 'sims', label: 'Build Live Call Sims', steps: ['BUILDING_SIMS'] },
+  { id: 'sims', label: `Build ${SIM_COPY.plural}`, steps: ['BUILDING_SIMS'] },
   { id: 'ready', label: 'Ready', steps: ['READY'] },
 ];
 

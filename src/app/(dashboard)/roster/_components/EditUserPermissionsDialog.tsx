@@ -105,12 +105,12 @@ export function EditUserPermissionsDialog({
     <>
       <button
         type="button"
-        className="pulse-btn px-2.5 py-1 text-xs"
+        className="pulse-btn px-2 py-1 text-xs"
         aria-label={`Edit access for ${user.displayName}`}
         onClick={open}
       >
         <Shield className="h-3.5 w-3.5" aria-hidden="true" />
-        Edit access
+        Access
       </button>
 
       <dialog ref={dialogRef} className="pulse-dialog text-left" aria-labelledby={titleId}>

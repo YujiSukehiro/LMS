@@ -37,7 +37,7 @@ export function RosterFilters({
       </label>
       <select
         id="roster-cohort-filter"
-        className="pulse-select"
+        className="pulse-select w-auto min-w-36 py-1.5 text-sm"
         value={cohort}
         onChange={(event) => update('cohort', event.target.value)}
       >
@@ -53,7 +53,7 @@ export function RosterFilters({
       </label>
       <select
         id="roster-status-filter"
-        className="pulse-select"
+        className="pulse-select w-auto min-w-36 py-1.5 text-sm"
         value={status}
         onChange={(event) => update('status', event.target.value)}
       >

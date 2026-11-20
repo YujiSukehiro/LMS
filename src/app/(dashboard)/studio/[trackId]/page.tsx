@@ -8,6 +8,7 @@ import { loadCohortOptions, loadDraftWithSecrets, loadTrack, trackNeedsBuild } f
 import { GenerationStepper } from '@/components/studio/GenerationStepper';
 import { newTrackViewFor } from '@/components/studio/generation-view';
 import { TrackStudio } from '@/components/studio/TrackStudio';
+import { SIM_COPY } from '@/lib/policy/training-policy';
 
 export const metadata: Metadata = { title: 'Track Studio' };
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,7 @@ export default async function TrackStudioPage({ params }: { params: Promise<{ tr
             This Track has no draft yet
           </p>
           <p className="text-sm text-pulse-secondary">
-            The build did not finish. Start the build again to create the Checkpoints and Live Call Sims from the Playbook.
+            The build did not finish. Start the build again to create the Checkpoints and {SIM_COPY.plural} from the Playbook.
           </p>
           <GenerationStepper trackId={track.id} trackTitle={track.title} initialProgress={track.generationProgress} />
         </div>

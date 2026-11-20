@@ -24,8 +24,14 @@ function withJavaPath(env = process.env) {
     ...env,
     PATH: pathValue,
     XDG_CONFIG_HOME: env.XDG_CONFIG_HOME ?? '/tmp/fb-cfg',
-    NEXT_FONT_GOOGLE_MOCKED_RESPONSES:
-      env.NEXT_FONT_GOOGLE_MOCKED_RESPONSES ?? path.join(ROOT, 'scripts', 'next-font-mock.cjs'),
+    // Mocked fonts are for --offline runs only. A mocked build writes placeholder .woff2 files into .next that
+    // later `next start` runs serve as broken fonts ("OTS parsing error"), so online runs fetch the real fonts.
+    ...(process.argv.includes('--offline') || env.NEXT_FONT_GOOGLE_MOCKED_RESPONSES
+      ? {
+          NEXT_FONT_GOOGLE_MOCKED_RESPONSES:
+            env.NEXT_FONT_GOOGLE_MOCKED_RESPONSES ?? path.join(ROOT, 'scripts', 'next-font-mock.cjs'),
+        }
+      : {}),
   };
 }
 

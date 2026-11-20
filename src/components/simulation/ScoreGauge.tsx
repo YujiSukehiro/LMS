@@ -69,11 +69,11 @@ export function ScoreGauge({ scorePct, tone, statusLabel, thresholdPct, size = 1
         ) : null}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-        <span className="pulse-metric text-4xl font-bold" style={{ color }}>
+        <span className={cn('pulse-metric font-bold', size < 140 ? 'text-2xl' : 'text-4xl')} style={{ color }}>
           {score}%
         </span>
         {statusLabel ? (
-          <span className="mt-1 max-w-[75%] text-[0.65rem] font-bold uppercase leading-tight tracking-wider" style={{ color }}>
+          <span className="mt-0.5 max-w-[70%] text-[0.6rem] font-bold uppercase leading-tight tracking-wider" style={{ color }}>
             {statusLabel}
           </span>
         ) : null}

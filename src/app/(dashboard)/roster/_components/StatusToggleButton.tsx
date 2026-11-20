@@ -42,11 +42,12 @@ export function StatusToggleButton({ uid, displayName, active }: { uid: string; 
     <>
       <button
         type="button"
-        className={active ? 'pulse-btn pulse-btn-danger px-2.5 py-1 text-xs' : 'pulse-btn px-2.5 py-1 text-xs'}
+        className={active ? 'pulse-btn pulse-btn-danger size-8 min-h-0 p-0' : 'pulse-btn size-8 min-h-0 p-0'}
+        title={active ? 'Deactivate' : 'Reactivate'}
+        aria-label={`${active ? 'Deactivate' : 'Reactivate'} ${displayName}`}
         onClick={open}
       >
         {active ? <UserX className="h-3.5 w-3.5" aria-hidden="true" /> : <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />}
-        {active ? 'Deactivate' : 'Reactivate'}
       </button>
       <dialog ref={dialogRef} className="pulse-dialog text-left" aria-labelledby={`status-title-${uid}`}>
         <div className="p-6">

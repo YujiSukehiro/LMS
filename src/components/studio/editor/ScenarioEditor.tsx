@@ -301,7 +301,7 @@ function SecretEditor({
                 />
                 <div className="grid gap-3 md:grid-cols-2">
                   <SelectField
-                    label="CompetencyPillar"
+                    label="Skill area"
                     value={criterion.competencyPillarId}
                     options={pillars.map((p) => ({ value: p.id, label: p.label }))}
                     onChange={(v) => setCriterion(criterion.id, { competencyPillarId: v })}
