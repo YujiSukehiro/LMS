@@ -233,7 +233,7 @@ export function BriefingDeck({ cards, onComplete, completeLabel = 'Start Drills'
         <button type="button" className="pulse-btn pulse-btn-primary" onClick={advance}>
           {isLast ? completeLabel : 'Next'}
           <ArrowRight aria-hidden className="size-4" />
-          <kbd className="pulse-kbd hidden border-white/30 bg-transparent text-white/80 @md:inline-flex">Enter</kbd>
+          <kbd className="pulse-kbd hidden border-pulse-on-accent/30 bg-transparent text-pulse-on-accent/80 @md:inline-flex">Enter</kbd>
         </button>
       </nav>
     </section>

@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 860" width="1280" height="860" font-family="Plus Jakarta Sans, system-ui, sans-serif">
+  <defs>
+    <style>
+      .h1{font-size:26px;font-weight:700;fill:#0f172a}
+      .h2{font-size:15px;font-weight:700;fill:#0f172a}
+      .t{font-size:13px;fill:#334155}
+      .n{font-size:13px;font-weight:600;fill:#0f172a}
+      .s{font-size:12px;fill:#5b6b82}
+      .xs{font-size:11px;fill:#5b6b82}
+      .lab{font-size:10.5px;font-weight:700;letter-spacing:1px;fill:#5b6b82}
+    </style>
+    <filter id="sh" x="-5%" y="-5%" width="110%" height="130%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#1e293b" flood-opacity="0.10"/></filter>
+  </defs>
+  <rect width="1280" height="860" fill="#f6f7fb"/>
+
+  <rect width="220" height="860" fill="#fff"/><rect x="219" width="1" height="860" fill="#e3e8f0"/>
+  <rect x="16" y="14" width="32" height="32" rx="8" fill="#eef0fd"/><path d="M22 31h5l3-8 4 14 3-6h5" stroke="#4f46e5" stroke-width="2" fill="none"/>
+  <text x="58" y="34" class="h2" font-size="14">LogiCall Pulse</text>
+  <text x="48" y="104" class="t">Home</text>
+  <rect x="12" y="122" width="196" height="36" rx="8" fill="#f1f4f9"/><rect x="12" y="128" width="3" height="24" rx="1.5" fill="#4f46e5"/>
+  <text x="48" y="145" class="n">Team Progress</text>
+  <text x="48" y="186" class="t">Analytics</text>
+
+  <text x="248" y="62" class="lab">CONCEPT B · NEEDS ATTENTION FIRST</text>
+  <text x="248" y="96" class="h1">Good morning, Lucia. 3 agents need you today.</text>
+  <text x="248" y="120" class="t">THS (Nicaragua) · 12 agents · 3 Tracks assigned</text>
+
+  <!-- Summary donut cards -->
+  <g filter="url(#sh)"><rect x="248" y="140" width="320" height="104" rx="14" fill="#fff"/></g>
+  <circle cx="300" cy="192" r="30" fill="none" stroke="#e3e8f0" stroke-width="10"/>
+  <circle cx="300" cy="192" r="30" fill="none" stroke="#047857" stroke-width="10" stroke-dasharray="94 189" transform="rotate(-90 300 192)"/>
+  <text x="300" y="197" class="n" text-anchor="middle">50%</text>
+  <text x="346" y="178" class="lab">TEAM READY FOR CALLS</text>
+  <text x="346" y="202" class="h2">18 of 36 certifications</text>
+  <text x="346" y="222" class="xs">+4 this week · target 80% by Nov 14</text>
+
+  <g filter="url(#sh)"><rect x="580" y="140" width="214" height="104" rx="14" fill="#fff"/></g>
+  <text x="600" y="172" class="lab">NEED ATTENTION</text>
+  <text x="600" y="208" class="h1" style="fill:#c81e1e">3</text><text x="626" y="208" class="s">agents</text>
+  <text x="600" y="230" class="xs">stuck, failing, or expiring</text>
+
+  <g filter="url(#sh)"><rect x="806" y="140" width="214" height="104" rx="14" fill="#fff"/></g>
+  <text x="826" y="172" class="lab">ON TRACK</text>
+  <text x="826" y="208" class="h1" style="fill:#4338ca">6</text><text x="848" y="208" class="s">agents learning</text>
+  <text x="826" y="230" class="xs">active in the last 3 days</text>
+
+  <g filter="url(#sh)"><rect x="1032" y="140" width="218" height="104" rx="14" fill="#fff"/></g>
+  <text x="1052" y="172" class="lab">FULLY READY</text>
+  <text x="1052" y="208" class="h1" style="fill:#047857">3</text><text x="1074" y="208" class="s">agents, all Tracks</text>
+  <text x="1052" y="230" class="xs">nothing to do</text>
+
+  <!-- Needs attention list -->
+  <text x="248" y="284" class="h2">Needs attention</text>
+  <text x="378" y="284" class="s">sorted by how long they have been blocked</text>
+
+  <!-- person row helper: card -->
+  <g filter="url(#sh)"><rect x="248" y="298" width="1002" height="96" rx="12" fill="#fff"/></g>
+  <rect x="248" y="298" width="4" height="96" rx="2" fill="#c81e1e"/>
+  <circle cx="290" cy="336" r="18" fill="#eef0fd"/><text x="290" y="341" class="t" text-anchor="middle" style="font-weight:700;fill:#4338ca">GM</text>
+  <text x="320" y="330" class="n">Grace Mensah</text><text x="320" y="348" class="xs">LC-1051 · last active 8 days ago</text>
+  <text x="320" y="378" class="t"><tspan style="fill:#c81e1e;font-weight:700">Stuck on Checkpoint 2</tspan> · missed the save-offer order 3 times.</text>
+  <!-- journey -->
+  <g transform="translate(820 318)">
+    <text x="0" y="0" class="xs">MVP Retention</text>
+    <circle cx="8" cy="20" r="7" fill="#047857"/><rect x="15" y="19" width="50" height="2" fill="#047857"/>
+    <circle cx="72" cy="20" r="7" fill="#fff" stroke="#c81e1e" stroke-width="2.5"/><rect x="79" y="19" width="50" height="2" fill="#e3e8f0"/>
+    <circle cx="136" cy="20" r="7" fill="#fff" stroke="#cfd7e3" stroke-width="2"/><rect x="143" y="19" width="50" height="2" fill="#e3e8f0"/>
+    <path d="M200 12l7 3.5v5c0 4.5-3.5 7-7 8-3.5-1-7-3.5-7-8v-5z" fill="none" stroke="#cfd7e3" stroke-width="2"/>
+    <text x="0" y="46" class="xs">C1</text><text x="64" y="46" class="xs" style="fill:#c81e1e">C2</text><text x="128" y="46" class="xs">C3</text><text x="190" y="46" class="xs">Sim</text>
+  </g>
+  <rect x="1060" y="320" width="172" height="32" rx="8" fill="#4f46e5"/><text x="1084" y="341" class="t" style="fill:#fff;font-weight:600">Coach: review C2 →</text>
+  <text x="1092" y="378" class="xs">Copy reminder text</text>
+
+  <g filter="url(#sh)"><rect x="248" y="404" width="1002" height="96" rx="12" fill="#fff"/></g>
+  <rect x="248" y="404" width="4" height="96" rx="2" fill="#b45309"/>
+  <circle cx="290" cy="442" r="18" fill="#eef0fd"/><text x="290" y="447" class="t" text-anchor="middle" style="font-weight:700;fill:#4338ca">CO</text>
+  <text x="320" y="436" class="n">Chidi Okafor</text><text x="320" y="454" class="xs">LC-1050 · active yesterday</text>
+  <text x="320" y="484" class="t"><tspan style="fill:#b45309;font-weight:700">Failed the Live Call Sim twice</tspan> (72%, pass line 80%).</text>
+  <g transform="translate(820 424)">
+    <text x="0" y="0" class="xs">MVP Retention</text>
+    <circle cx="8" cy="20" r="7" fill="#047857"/><rect x="15" y="19" width="50" height="2" fill="#047857"/>
+    <circle cx="72" cy="20" r="7" fill="#047857"/><rect x="79" y="19" width="50" height="2" fill="#047857"/>
+    <circle cx="136" cy="20" r="7" fill="#047857"/><rect x="143" y="19" width="50" height="2" fill="#047857"/>
+    <circle cx="200" cy="20" r="7" fill="#fff" stroke="#b45309" stroke-width="2.5"/>
+    <text x="0" y="46" class="xs">C1</text><text x="64" y="46" class="xs">C2</text><text x="128" y="46" class="xs">C3</text><text x="190" y="46" class="xs" style="fill:#b45309">Sim</text>
+  </g>
+  <rect x="1060" y="426" width="172" height="32" rx="8" fill="#4f46e5"/><text x="1078" y="447" class="t" style="fill:#fff;font-weight:600">Open sim transcript →</text>
+
+  <g filter="url(#sh)"><rect x="248" y="510" width="1002" height="96" rx="12" fill="#fff"/></g>
+  <rect x="248" y="510" width="4" height="96" rx="2" fill="#c81e1e"/>
+  <circle cx="290" cy="548" r="18" fill="#e9f7f1"/><text x="290" y="553" class="t" text-anchor="middle" style="font-weight:700;fill:#047857">SH</text>
+  <text x="320" y="542" class="n">Sofia Herrera</text><text x="320" y="560" class="xs">LC-1042 · active 2 days ago</text>
+  <text x="320" y="590" class="t"><tspan style="fill:#c81e1e;font-weight:700">Needs recert:</tspan> NeuroCalmRx pricing changed (p. 4). Redo Checkpoint 3 only.</text>
+  <g transform="translate(820 530)">
+    <text x="0" y="0" class="xs">NeuroCalmRx</text>
+    <circle cx="8" cy="20" r="7" fill="#047857"/><rect x="15" y="19" width="50" height="2" fill="#047857"/>
+    <circle cx="72" cy="20" r="7" fill="#047857"/><rect x="79" y="19" width="50" height="2" fill="#047857"/>
+    <circle cx="136" cy="20" r="7" fill="#fff" stroke="#c81e1e" stroke-width="2.5"/><rect x="143" y="19" width="50" height="2" fill="#e3e8f0"/>
+    <path d="M200 12l7 3.5v5c0 4.5-3.5 7-7 8-3.5-1-7-3.5-7-8v-5z" fill="#047857" opacity="0.35"/>
+    <text x="0" y="46" class="xs">C1</text><text x="64" y="46" class="xs">C2</text><text x="128" y="46" class="xs" style="fill:#c81e1e">C3</text><text x="190" y="46" class="xs">Cert</text>
+  </g>
+  <rect x="1060" y="532" width="172" height="32" rx="8" fill="#fff" stroke="#cfd7e3"/><text x="1086" y="553" class="t" style="font-weight:600">See what changed</text>
+
+  <!-- collapsed groups -->
+  <g filter="url(#sh)"><rect x="248" y="622" width="1002" height="44" rx="12" fill="#fff"/></g>
+  <text x="268" y="649" class="n">On track · 6 agents</text><text x="420" y="649" class="s">Diego, Luis, Ana P., Mateo, Iris, Kofi — all active in the last 3 days</text><text x="1222" y="649" class="s" text-anchor="end">Show ▾</text>
+  <g filter="url(#sh)"><rect x="248" y="676" width="1002" height="44" rx="12" fill="#fff"/></g>
+  <text x="268" y="703" class="n">Fully ready · 3 agents</text><text x="420" y="703" class="s">Certified on every assigned Track · next expiry Jan 20</text><text x="1222" y="703" class="s" text-anchor="end">Show ▾</text>
+
+  <text x="248" y="760" class="lab" style="fill:#4338ca">WHY THIS ONE</text>
+  <text x="248" y="782" class="t">Starts from people, not a grid. It answers "who do I help today?" with the reason in one plain sentence and one button to act.</text>
+  <text x="248" y="802" class="t">Each row shows only the Track that is blocking. Healthy agents are folded away. Best for supervisors coaching across many Tracks.</text>
+  <text x="248" y="822" class="t">The full grid stays available as an export or an "All agents" tab.</text>
+</svg>

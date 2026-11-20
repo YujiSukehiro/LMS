@@ -24,7 +24,9 @@ export function MissedRulesTable({
   }
   const max = Math.max(...rows.map((r) => r.missCount), 1);
   return (
-    <div className="pulse-cq overflow-x-auto">
+    // relative: the sr-only header cell is absolutely positioned; without a positioned scroll box it escapes the
+    // overflow clip and widens the whole page (64px horizontal scroll on the Trainer home at 1400px).
+    <div className="pulse-cq relative overflow-x-auto">
       <table className="w-full min-w-[560px] text-sm">
         <thead>
           <tr className="border-b border-pulse-border-subtle text-left">
@@ -65,7 +67,7 @@ export function MissedRulesTable({
                 <td className="py-2.5 text-right">
                   <Link
                     href={`/studio/${encodeURIComponent(row.trackId)}`}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#a5b4fc] hover:underline"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-pulse-indigo-text hover:underline"
                   >
                     Studio <ArrowRight aria-hidden className="size-3.5" />
                   </Link>

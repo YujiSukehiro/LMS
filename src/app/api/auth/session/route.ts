@@ -16,6 +16,8 @@ import {
 import { CreateSessionRequestSchema, type CreateSessionResponse } from '@/lib/schemas/api';
 import { RosterInviteDocSchema, type UserDoc } from '@/lib/schemas/domain';
 import { SESSION_COOKIE_MAX_AGE_MS, SESSION_COOKIE_NAME } from '@/lib/schemas/constants';
+import { ensureDefaultCohortsSeeded } from '@/lib/services/cohort-bootstrap';
+import { THEME_COOKIE, THEME_COOKIE_MAX_AGE, isThemeId } from '@/lib/theme/themes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,6 +27,24 @@ const MAX_SIGN_IN_AGE_SECONDS = 5 * 60;
 const ALL_DIVISIONS: UserDoc['divisionIds'] = ['TELEHEALTH', 'INBOUND', 'OUTBOUND'];
 
 class DomainNotAllowedError extends Error {}
+/** A password account with no users/{uid} doc and no pending invite: never self-provision it. */
+class InviteRequiredError extends Error {}
+/** A role-granting branch (super-admin bootstrap or invite) reached by an address the user has not proven they own. */
+class EmailNotVerifiedError extends Error {}
+
+/**
+ * Anyone can create a Firebase email/password account for any address with the public web API key, so the
+ * address alone proves nothing. Only Google SSO or a verified email may claim a role tied to that address.
+ */
+function ownsEmail(decoded: DecodedIdToken, authMethod: AuthMethod): boolean {
+  return authMethod === 'GOOGLE_SSO' || decoded.email_verified === true;
+}
+
+function hasCookie(req: Request, name: string): boolean {
+  const header = req.headers.get('cookie');
+  if (!header) return false;
+  return header.split(';').some((part) => part.trim().startsWith(`${name}=`));
+}
 
 function detectAuthMethod(decoded: DecodedIdToken, email: string): AuthMethod {
   if (decoded.firebase.sign_in_provider === 'google.com') return 'GOOGLE_SSO';
@@ -59,8 +79,11 @@ async function provisionUser(decoded: DecodedIdToken, email: string, authMethod:
           (entry.parsed.data.expiresAt === null || entry.parsed.data.expiresAt > now),
       );
 
+    const isBootstrapAdmin = superAdminEmails.includes(email);
+    if ((isBootstrapAdmin || pendingInvite) && !ownsEmail(decoded, authMethod)) throw new EmailNotVerifiedError();
+
     let userDoc: UserDoc;
-    if (superAdminEmails.includes(email)) {
+    if (isBootstrapAdmin) {
       userDoc = buildNewUserDoc({
         uid: decoded.uid,
         email,
@@ -86,7 +109,10 @@ async function provisionUser(decoded: DecodedIdToken, email: string, authMethod:
         nowMs: now,
       });
     } else {
-      if (authMethod === 'GOOGLE_SSO' && !allowedDomains.includes(emailDomain(email))) {
+      // Only approved-domain Google SSO may self-provision. Email/password and LC ID accounts are created by
+      // roster import, join-code claim, or the seed script, all of which write users/{uid} first.
+      if (authMethod !== 'GOOGLE_SSO') throw new InviteRequiredError();
+      if (!allowedDomains.includes(emailDomain(email))) {
         throw new DomainNotAllowedError();
       }
       userDoc = buildNewUserDoc({
@@ -137,11 +163,15 @@ export async function POST(req: Request): Promise<NextResponse> {
   const authMethod = detectAuthMethod(decoded, email);
 
   let userDoc: UserDoc;
+  let wasNewUser = false;
   try {
     const snap = await adminDb.collection('users').doc(decoded.uid).get();
-    userDoc = snap.exists
-      ? parseStoredUserDoc(decoded.uid, snap.data() ?? {})
-      : await provisionUser(decoded, email, authMethod);
+    if (snap.exists) {
+      userDoc = parseStoredUserDoc(decoded.uid, snap.data() ?? {});
+    } else {
+      wasNewUser = true;
+      userDoc = await provisionUser(decoded, email, authMethod);
+    }
   } catch (error) {
     if (error instanceof DomainNotAllowedError) {
       return jsonError(
@@ -150,8 +180,28 @@ export async function POST(req: Request): Promise<NextResponse> {
         'This Google account is not on an approved LogiCall domain. Use your @logicall.io account, or ask an administrator for an invite.',
       );
     }
+    if (error instanceof EmailNotVerifiedError) {
+      return jsonError(
+        403,
+        'EMAIL_NOT_VERIFIED',
+        'This email address is not verified, so it cannot claim an invite or administrator access. Sign in with Google, or ask your LogiCall administrator for help.',
+      );
+    }
+    if (error instanceof InviteRequiredError) {
+      return jsonError(
+        403,
+        'INVITE_REQUIRED',
+        'This account has not been invited to LogiCall Pulse. Ask your supervisor for an invite or a join code.',
+      );
+    }
     console.error('[auth/session] user provisioning failed', error);
     return jsonError(500, 'PROVISIONING_FAILED', 'Your account could not be prepared. Try again in a minute.');
+  }
+
+  if (wasNewUser && userDoc.role === 'SUPER_ADMIN') {
+    await ensureDefaultCohortsSeeded().catch((error: unknown) => {
+      console.error('[auth/session] default cohort bootstrap skipped', error);
+    });
   }
 
   // Deactivation gate: revoke every token and refuse the session.
@@ -205,6 +255,20 @@ export async function POST(req: Request): Promise<NextResponse> {
     sameSite: 'lax',
     path: '/',
   });
+  // A new browser has no theme cookie, so the server would render light. Seed it from the saved preference;
+  // an existing cookie (for example a choice made on the sign-in page) wins.
+  const savedTheme = userDoc.preferences?.theme;
+  if (isThemeId(savedTheme) && !hasCookie(req, THEME_COOKIE)) {
+    res.cookies.set({
+      name: THEME_COOKIE,
+      value: savedTheme,
+      maxAge: THEME_COOKIE_MAX_AGE,
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+  }
   return res;
 }
 

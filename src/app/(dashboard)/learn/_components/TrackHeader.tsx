@@ -60,7 +60,7 @@ export function TrackHeader({ track, masteryPct, xpEarned, certified, isPreview,
               <BookOpen aria-hidden className="size-3.5" /> Playbook
             </dt>
             <dd className="pulse-metric mt-1 text-xl font-bold text-pulse-primary">
-              {track.sourcePageCount}
+              {track.sourcePageCount}{' '}
               <span className="ml-1 text-xs font-normal text-pulse-muted">pages</span>
             </dd>
           </div>

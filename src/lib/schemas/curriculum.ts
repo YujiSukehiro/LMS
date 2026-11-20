@@ -126,9 +126,14 @@ export const TrackUnitSchema = z.object({
   orderIndex: z.number().int().nonnegative(),
   title: z.string().max(80),
   summary: z.string().max(180),
-  estimatedMinutes: z.number().int().min(2).max(10),
-  briefingCards: z.array(BriefingCardSchema).min(2).max(6),
-  drills: z.array(DrillItemSchema).min(4).max(8),
+  estimatedMinutes: z.number().int().min(2).max(15),
+  // Counts are sized per Unit from source depth (src/lib/ai/pipeline/content-depth.ts).
+  // Drafts may hold fewer items when a local model's batch was only partly salvageable; such Units
+  // carry a reviewNotes entry and the publish route blocks them below the DEPTH_LIMITS minimums.
+  briefingCards: z.array(BriefingCardSchema).min(1).max(8),
+  drills: z.array(DrillItemSchema).min(1).max(10),
+  /** Trainer-visible build notes (for example "needs more Drills"). Absent on complete Units. */
+  reviewNotes: z.array(z.string().min(1).max(300)).max(10).optional(),
 });
 export type TrackUnit = z.infer<typeof TrackUnitSchema>;
 
@@ -241,6 +246,8 @@ export const TrackDocSchema = z.object({
   assignedCohortIds: z.array(z.string()), // ['ALL'] or ['INTERNAL', 'THS', 'DOZ']
   competencyPillars: z.array(CompetencyPillarSchema),
   unitCount: z.number().int().nonnegative(),
+  /** Checkpoint count the trainer chose on the Content map. Null = use the measured target. */
+  unitTarget: z.number().int().min(2).max(12).nullable().optional(),
   simScenarioCount: z.number().int().nonnegative(),
   estimatedTotalMinutes: z.number().int().nonnegative(),
   createdByUid: z.string(),
@@ -261,6 +268,8 @@ export const TrackVersionDocSchema = z.object({
   sourceBundleId: z.string().nullable().optional(),
   sourceRevision: z.string().nullable().optional(),
   requiredRuleIds: z.array(z.string()).optional(),
+  /** Trainer-visible build notes for the whole draft (for example fewer Live Call Sims than planned). */
+  reviewNotes: z.array(z.string().min(1).max(300)).max(20).optional(),
   publishedAt: z.number().nullable(),
   createdAt: z.number(),
 });

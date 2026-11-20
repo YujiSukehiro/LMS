@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ArrowRight, Award, Check, Clock, Headset, Lock, RotateCcw, Trophy } from 'lucide-react';
 import type { PublicSimScenario } from '@/lib/schemas/curriculum';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { cn } from '@/lib/utils';
 import { DifficultyBadge } from '@/components/simulation/DifficultyBadge';
 
@@ -74,8 +75,8 @@ export function CheckpointMap({
               aria-hidden
               className={cn(
                 'relative z-[1] grid size-14 shrink-0 place-items-center rounded-full border-4 text-lg font-bold',
-                isCompleted && 'border-pulse-emerald bg-pulse-emerald text-[#04140e]',
-                isCurrent && 'pulse-ring border-pulse-indigo bg-pulse-indigo text-white',
+                isCompleted && 'border-pulse-emerald bg-pulse-emerald text-pulse-on-emerald',
+                isCurrent && 'pulse-ring border-pulse-indigo bg-pulse-indigo text-pulse-on-accent',
                 isLocked && 'border-pulse-border bg-pulse-surface-2 text-pulse-muted',
               )}
             >
@@ -153,9 +154,9 @@ export function CheckpointMap({
           className={cn(
             'relative z-[1] grid size-14 shrink-0 place-items-center rounded-2xl border-4',
             certified
-              ? 'border-pulse-emerald bg-pulse-emerald text-[#04140e]'
+              ? 'border-pulse-emerald bg-pulse-emerald text-pulse-on-emerald'
               : simUnlocked
-                ? 'pulse-ring border-pulse-indigo bg-pulse-indigo text-white'
+                ? 'pulse-ring border-pulse-indigo bg-pulse-indigo text-pulse-on-accent'
                 : 'border-pulse-border bg-pulse-surface-2 text-pulse-muted',
           )}
         >
@@ -179,16 +180,24 @@ export function CheckpointMap({
           </div>
           <h3 className="mt-1 flex items-center gap-2 font-semibold text-pulse-primary">
             <Headset aria-hidden className="size-4 text-pulse-indigo" />
-            Live Call Sim
+            {TRAINING_POLICY.simulationInteractionMode === 'verbal_only' ? 'Verbal Practice' : 'Live Call Sim'}
           </h3>
           <p className="mt-0.5 text-sm text-pulse-muted">
-            {simUnlocked
-              ? 'Handle a realistic caller in your own words, then log the disposition. Pass one scenario to earn Campaign Certified.'
-              : 'Unlocks when every Checkpoint is complete. Pass one scenario to earn Campaign Certified.'}
+            {TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
+              ? simUnlocked
+                ? 'Practice handling a realistic caller verbally in your own words. Pass a scenario and keep Playbook rules sharp to earn Campaign Certified.'
+                : 'Unlocks when every Checkpoint is complete. Pass a verbal scenario and keep Playbook rules sharp to earn Campaign Certified.'
+              : simUnlocked
+                ? 'Handle a realistic caller in your own words, then log the disposition. Pass one scenario to earn Campaign Certified.'
+                : 'Unlocks when every Checkpoint is complete. Pass one scenario to earn Campaign Certified.'}
           </p>
 
           {scenarios.length === 0 ? (
-            <p className="mt-3 text-sm text-pulse-muted">No Live Call Sim scenarios in this Track yet.</p>
+            <p className="mt-3 text-sm text-pulse-muted">
+              {TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
+                ? 'No Verbal Practice scenarios in this Track yet.'
+                : 'No Live Call Sim scenarios in this Track yet.'}
+            </p>
           ) : (
             <ul className="mt-3 flex flex-col gap-2">
               {scenarios.map((scenario) => (

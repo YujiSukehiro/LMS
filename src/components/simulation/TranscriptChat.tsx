@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { Headset, SendHorizontal, UserRound } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { Headset, Mic, MicOff, SendHorizontal, UserRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface TranscriptMessage {
@@ -16,7 +16,7 @@ export interface TranscriptChatProps {
   streamingText: string | null;
   counterpartyLabel: string;
   onSend: (content: string) => void;
-  /** Disables the composer (for example while a reply streams or after the call ends). */
+  /** Disables the composer (for example while a reply streams or after practice ends). */
   composerDisabled: boolean;
   /** Short note under the composer when it is disabled. */
   composerNote?: string;
@@ -28,7 +28,39 @@ export interface TranscriptChatProps {
   className?: string;
 }
 
-/** Live Call Sim transcript: counterparty bubbles on the left, agent on the right, composer at the bottom. */
+interface SpeechRecognitionAlternativeLike {
+  transcript: string;
+}
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  0: SpeechRecognitionAlternativeLike;
+}
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
+  if (typeof window === 'undefined') return null;
+  const win = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  };
+  return win.SpeechRecognition ?? win.webkitSpeechRecognition ?? null;
+}
+
+/** Verbal Practice transcript: counterparty bubbles on the left, agent on the right, composer at the bottom. */
 export function TranscriptChat({
   messages,
   streamingText,
@@ -42,9 +74,22 @@ export function TranscriptChat({
   className,
 }: TranscriptChatProps) {
   const [draft, setDraft] = useState('');
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const appliedRestoreKey = useRef<number | null>(null);
+  const hintId = useId();
+  const composerId = useId();
+
+  useEffect(() => {
+    setSpeechSupported(getSpeechRecognitionCtor() !== null);
+    return () => {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -59,13 +104,63 @@ export function TranscriptChat({
 
   useEffect(() => {
     if (!composerDisabled) textareaRef.current?.focus({ preventScroll: true });
-  }, [composerDisabled]);
+    if (composerDisabled && listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+    }
+  }, [composerDisabled, listening]);
+
+  const sendLockRef = useRef(false);
+  useEffect(() => {
+    sendLockRef.current = false;
+  });
 
   const send = () => {
+    if (sendLockRef.current) return;
     const content = draft.trim();
     if (!content || composerDisabled) return;
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+    }
+    sendLockRef.current = true;
     onSend(content.slice(0, maxLength));
     setDraft('');
+  };
+
+  const toggleVoice = () => {
+    if (composerDisabled) return;
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) return;
+    const recognition = new Ctor();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event) => {
+      const chunks: string[] = [];
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const res = event.results[i];
+        if (res?.[0]?.transcript) chunks.push(res[0].transcript.trim());
+      }
+      const spoken = chunks.join(' ').trim();
+      if (spoken) {
+        setDraft((prev) => `${prev ? `${prev.trimEnd()} ` : ''}${spoken}`.slice(0, maxLength));
+      }
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    setListening(true);
+    try {
+      recognition.start();
+    } catch {
+      setListening(false);
+    }
   };
 
   const onSubmit = (event: FormEvent) => {
@@ -93,7 +188,7 @@ export function TranscriptChat({
       <div
         ref={scrollRef}
         role="log"
-        aria-label="Call transcript"
+        aria-label="Conversation transcript"
         aria-live="polite"
         aria-relevant="additions"
         className="flex min-h-[18rem] flex-1 flex-col gap-3 overflow-y-auto p-4"
@@ -112,16 +207,17 @@ export function TranscriptChat({
         ) : null}
       </div>
       <p className="sr-only" role="status">
-        {isStreaming ? `${counterpartyLabel} is replying.` : ''}
+        {isStreaming ? `${counterpartyLabel} is replying.` : listening ? 'Listening for voice dictation.' : ''}
       </p>
 
       <form onSubmit={onSubmit} className="border-t border-pulse-border-subtle p-3">
-        <label htmlFor="sim-composer" className="sr-only">
-          Your reply as the agent
+        <label htmlFor={composerId} className="sr-only">
+          Your verbal response as the agent
         </label>
         <div className="flex items-end gap-2">
           <textarea
-            id="sim-composer"
+            id={composerId}
+            name="reply"
             ref={textareaRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -129,19 +225,35 @@ export function TranscriptChat({
             disabled={composerDisabled}
             maxLength={maxLength}
             rows={2}
-            placeholder={composerDisabled ? '' : 'Type your reply as the agent…'}
-            className="pulse-textarea min-h-[3.25rem] flex-1 resize-none"
+            aria-describedby={hintId}
+            placeholder={composerDisabled ? '' : 'Speak or type your response as the agent…'}
+            className="pulse-textarea min-h-[3.25rem] max-h-40 flex-1 resize-y"
           />
+          {speechSupported ? (
+            <button
+              type="button"
+              onClick={toggleVoice}
+              disabled={composerDisabled}
+              aria-pressed={listening}
+              aria-label="Voice dictation"
+              className={cn(
+                'pulse-btn h-[3.25rem] min-w-[3.25rem] px-3',
+                listening && 'border-pulse-crimson text-pulse-crimson',
+              )}
+            >
+              {listening ? <MicOff aria-hidden className="size-4" /> : <Mic aria-hidden className="size-4" />}
+            </button>
+          ) : null}
           <button
             type="submit"
-            className="pulse-btn pulse-btn-primary h-[3.25rem] px-4"
+            className="pulse-btn pulse-btn-primary h-[3.25rem] min-w-[3.25rem] px-4"
             disabled={composerDisabled || draft.trim().length === 0}
             aria-label="Send reply"
           >
             <SendHorizontal aria-hidden className="size-4" />
           </button>
         </div>
-        <p className="mt-1.5 flex justify-between gap-2 text-xs text-pulse-muted">
+        <p id={hintId} className="mt-1.5 flex justify-between gap-2 text-xs text-pulse-muted">
           <span>
             {composerNote ?? (
               <>
@@ -188,7 +300,7 @@ function Bubble({
           className={cn(
             'whitespace-pre-wrap break-words rounded-pulse-lg px-3.5 py-2.5 text-sm leading-relaxed',
             isAgent
-              ? 'rounded-tr-pulse-sm bg-pulse-indigo text-white'
+              ? 'rounded-tr-pulse-sm bg-pulse-indigo text-pulse-on-accent'
               : 'rounded-tl-pulse-sm border border-pulse-border bg-pulse-surface-2 text-pulse-primary',
             streaming && 'pulse-caret',
           )}

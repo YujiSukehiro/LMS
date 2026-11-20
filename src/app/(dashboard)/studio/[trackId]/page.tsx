@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft, TriangleAlert } from 'lucide-react';
 import { requirePageUser } from '@/lib/firebase/auth-guard';
 import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import { loadCohortOptions, loadDraftWithSecrets, loadTrack, trackNeedsBuild } from '@/components/analytics/server-data';
 import { GenerationStepper } from '@/components/studio/GenerationStepper';
+import { newTrackViewFor } from '@/components/studio/generation-view';
 import { TrackStudio } from '@/components/studio/TrackStudio';
 
 export const metadata: Metadata = { title: 'Track Studio' };
@@ -19,6 +20,8 @@ export default async function TrackStudioPage({ params }: { params: Promise<{ tr
   if (!track) notFound();
 
   if (trackNeedsBuild(track)) {
+    // An uploaded source that was never built goes through the Content map, not straight into a build.
+    if (newTrackViewFor(track.generationProgress) === 'content-map') redirect(`/studio/new?trackId=${encodeURIComponent(track.id)}`);
     return (
       <div className="mx-auto flex max-w-2xl flex-col gap-5">
         <BackLink />

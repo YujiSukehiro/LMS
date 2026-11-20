@@ -1,5 +1,5 @@
 /** Environment factory for the replaceable LLMGateway provider boundary. */
-import type { LLMGateway } from '@/lib/ai/types';
+import { AIUnavailableError, type LLMGateway } from '@/lib/ai/types';
 import { DEFAULT_GEMINI_FAST_MODEL, DEFAULT_GEMINI_HEAVY_MODEL, GeminiProvider } from '@/lib/ai/gemini-provider';
 import {
   DEFAULT_OLLAMA_BASE_URL,
@@ -47,11 +47,31 @@ function envValue(name: string): string | undefined {
   return value ? value : undefined;
 }
 
+/** Accepted AI_PROVIDER values (case-insensitive). Unset means "ollama". */
+export const ACCEPTED_AI_PROVIDER_VALUES = [
+  'ollama',
+  'gemini',
+  'openai_compatible',
+  'openai-compatible',
+  'local',
+  'replay',
+  'manual_chat',
+] as const;
+
+/**
+ * Resolve AI_PROVIDER. An unrecognised value throws AIUnavailableError (code "invalid_provider") instead of
+ * silently falling back to Ollama.
+ */
 export function activeProviderName(): AiProviderName {
-  const value = (envValue('AI_PROVIDER') ?? 'ollama').toLowerCase();
-  if (value === 'gemini' || value === 'replay' || value === 'manual_chat') return value;
+  const raw = envValue('AI_PROVIDER');
+  const value = (raw ?? 'ollama').toLowerCase();
+  if (value === 'ollama' || value === 'gemini' || value === 'replay' || value === 'manual_chat') return value;
   if (value === 'openai_compatible' || value === 'openai-compatible' || value === 'local') return 'openai_compatible';
-  return 'ollama';
+  throw new AIUnavailableError(
+    `AI_PROVIDER="${raw}" is not supported. Use one of: ${ACCEPTED_AI_PROVIDER_VALUES.join(', ')} ` +
+      '(openai-compatible and local are aliases of openai_compatible).',
+    'invalid_provider',
+  );
 }
 
 const gatewayCache = new Map<GatewayProviderName, LLMGateway>();
@@ -60,7 +80,10 @@ const gatewayCache = new Map<GatewayProviderName, LLMGateway>();
 export function getLLMGateway(): LLMGateway {
   const provider = activeProviderName();
   if (provider === 'manual_chat') {
-    throw new Error('Manual chat mode has no live model gateway. Export a trainer prompt package and import the validated JSON response.');
+    throw new AIUnavailableError(
+      'Manual chat mode has no live model gateway. Export a trainer prompt package and import the validated JSON response.',
+      'manual_chat',
+    );
   }
   const cached = gatewayCache.get(provider);
   if (cached) return cached;

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Award, ChartColumn, CircleCheck, Gauge, Headset, Users } from 'lucide-react';
 import type { SessionUser } from '@/lib/schemas/domain';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import {
   loadCohortRollup,
   loadEnrollmentsForCohort,
@@ -59,7 +60,7 @@ export async function SupervisorHome({ user }: { user: SessionUser }) {
           {
             label: 'Sim Pass Rate',
             value: formatPct(passRate),
-            hint: `${rollup?.totalSimPasses ?? 0} of ${rollup?.totalSimAttempts ?? 0} Live Call Sims`,
+            hint: `${rollup?.totalSimPasses ?? 0} of ${rollup?.totalSimAttempts ?? 0} ${TRAINING_POLICY.simulationInteractionMode === 'verbal_only' ? 'Verbal Practice' : 'Live Call Sims'}`,
             icon: <Headset aria-hidden className="size-3.5" />,
           },
           {

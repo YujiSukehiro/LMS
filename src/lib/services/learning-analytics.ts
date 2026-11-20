@@ -296,7 +296,11 @@ export function buildLearningAnalytics(args: LearningAnalyticsInput): CurrentLea
       curriculumVersion: lastEligibleAttemptAt ? args.blueprint.curriculumVersion : null,
     },
     evidenceConfidence: adequate ? 'adequate' : hasEvidence ? 'emerging' : 'insufficient',
-    certificationStatus: args.certificationStatus ?? 'not_started',
+    // No certification record yet only means "not started" while there is no work at all; a learner with
+    // completed Units or scored attempts is in progress (matches the enrollment "In Progress" label).
+    certificationStatus: (args.certificationStatus ?? 'not_started') === 'not_started' && (hasEvidence || completedUnits > 0)
+      ? 'in_progress'
+      : args.certificationStatus ?? 'not_started',
     outstandingRuleIds: unique([...knowledge.outstandingRuleIds, ...retention.outstandingRuleIds]),
     upcomingReviews,
     evidenceRefs: { attemptIds: evidenceAttemptIds, sessionIds: [...eligibleSessionIds] },

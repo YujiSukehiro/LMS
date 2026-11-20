@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { CircleCheck, ExternalLink, Lock, RotateCw, TriangleAlert } from 'lucide-react';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import type {
   CompetencyPillar,
   PublicSimScenario,
@@ -24,11 +25,14 @@ export function UnitPlayPreview({
   unitNumber,
   pillars,
   trackId,
+  attention,
 }: {
   unit: TrackUnit;
   unitNumber: number;
   pillars: CompetencyPillar[];
   trackId: string;
+  /** Review notes / shortfall panel for this Checkpoint. */
+  attention?: ReactNode;
 }) {
   const [phase, setPhase] = useState<UnitPhase>({ kind: 'briefing' });
   const [round, setRound] = useState(0);
@@ -57,6 +61,7 @@ export function UnitPlayPreview({
           </button>
         </div>
       </div>
+      {attention}
       <div className="pulse-cq">
         {phase.kind === 'briefing' ? (
           <BriefingDeck
@@ -154,7 +159,8 @@ export function ScenarioPlayPreview({
               target="_blank"
               rel="noopener"
             >
-              Test-Play This Simulation
+              Test-Play This{' '}
+              {TRAINING_POLICY.simulationInteractionMode === 'verbal_only' ? 'Verbal Practice' : 'Simulation'}
               <ExternalLink aria-hidden className="size-4" />
             </Link>
           </div>
@@ -180,9 +186,12 @@ export function ScenarioPlayPreview({
             <div className="flex flex-col gap-3 text-sm">
               <Detail label="Persona">{secret.personaName}</Detail>
               <Detail label="Backstory and mood">{secret.personaBackstoryAndMood}</Detail>
-              <Detail label="Expected disposition">
-                <span className="pulse-pill pulse-pill-emerald">{secret.expectedDisposition}</span>
-              </Detail>
+              {TRAINING_POLICY.simulationInteractionMode !== 'verbal_only' ||
+              TRAINING_POLICY.requireDispositionInVerbalPractice ? (
+                <Detail label="Expected disposition">
+                  <span className="pulse-pill pulse-pill-emerald">{secret.expectedDisposition}</span>
+                </Detail>
+              ) : null}
               <ListDetail label="Hidden facts" items={secret.hiddenFactsToRevealOnlyWhenAsked} />
               <ListDetail label="Caller behaviors" items={secret.conditionalBehaviors} />
               <ListDetail label="Auto-fail triggers" items={secret.autoFailTriggers} tone="crimson" />
@@ -209,7 +218,10 @@ export function ScenarioPlayPreview({
             </div>
           </div>
         ) : (
-          <p className="text-sm text-pulse-amber">This Live Call Sim has no hidden persona or rubric yet. Add them in Edit mode.</p>
+          <p className="text-sm text-pulse-amber">
+            This {TRAINING_POLICY.simulationInteractionMode === 'verbal_only' ? 'Verbal Practice' : 'Live Call Sim'} has
+            no hidden persona or rubric yet. Add them in Edit mode.
+          </p>
         )}
       </section>
     </div>

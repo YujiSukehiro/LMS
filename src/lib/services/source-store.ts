@@ -13,6 +13,7 @@ import {
   type SourceConflict,
   type SourcePageEvidence,
 } from '@/lib/schemas/source-truth';
+import { normalizeSourceText } from '@/lib/services/source-evidence';
 
 export interface SourceReviewData {
   bundle: SourceBundle;
@@ -100,14 +101,9 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/**
- * Revision identity covers source bytes, ordered inheritance, and page/transcription content.
- * Review status and approver metadata deliberately do not change the source revision.
- */
-export function computeSourceBundleRevisionHash(
-  bundle: Pick<SourceBundle, 'documents' | 'sharedRulePackIds' | 'precedencePolicyId'>,
-  pages: SourcePageEvidence[] = [],
-): string {
+type RevisionIdentity = Pick<SourceBundle, 'documents' | 'sharedRulePackIds' | 'precedencePolicyId'>;
+
+function revisionHash(bundle: RevisionIdentity, pages: SourcePageEvidence[], transcriptionText: (text: string) => string): string {
   const documents = bundle.documents.map((document) => ({
     id: document.id,
     revisionId: document.revisionId,
@@ -126,7 +122,7 @@ export function computeSourceBundleRevisionHash(
       revisionId: page.revisionId,
       pageNumber: page.pageNumber,
       contentHash: page.contentHash,
-      transcription: page.transcription?.text ?? null,
+      transcription: page.transcription ? transcriptionText(page.transcription.text) : null,
     }))
     .sort((left, right) =>
       left.documentId.localeCompare(right.documentId) ||
@@ -141,9 +137,42 @@ export function computeSourceBundleRevisionHash(
   }));
 }
 
+/**
+ * Revision identity covers source bytes, ordered inheritance, and page/transcription content.
+ * Review status and approver metadata deliberately do not change the source revision.
+ * Transcription text is hashed after `normalizeSourceText` (the same Unicode/whitespace normalization
+ * excerpt verification uses), so a whitespace-only re-approval keeps the revision and the draft bound to it.
+ */
+export function computeSourceBundleRevisionHash(bundle: RevisionIdentity, pages: SourcePageEvidence[] = []): string {
+  return revisionHash(bundle, pages, normalizeSourceText);
+}
+
+/** The pre-normalization hash (raw transcription text). Only used to accept bundles persisted before the change. */
+export function computeLegacySourceBundleRevisionHash(bundle: RevisionIdentity, pages: SourcePageEvidence[] = []): string {
+  return revisionHash(bundle, pages, (text) => text);
+}
+
+/** True when the persisted revision hash matches the persisted content under the current or the legacy hash. */
+export function sourceBundleRevisionMatches(bundle: SourceBundle, pages: SourcePageEvidence[]): boolean {
+  return (
+    computeSourceBundleRevisionHash(bundle, pages) === bundle.revisionHash ||
+    computeLegacySourceBundleRevisionHash(bundle, pages) === bundle.revisionHash
+  );
+}
+
 /** Advance a draft revision after source content changes and invalidate only the bundle approval. */
-export function withSourceRevision(bundle: SourceBundle, pages: SourcePageEvidence[], now: number): SourceBundle {
-  const revisionHash = computeSourceBundleRevisionHash(bundle, pages);
+export function withSourceRevision(
+  bundle: SourceBundle,
+  pages: SourcePageEvidence[],
+  now: number,
+  /** Pages before the change. When their normalized content equals `pages`, the revision is kept (covers legacy hashes). */
+  previousPages?: SourcePageEvidence[],
+): SourceBundle {
+  const equivalent =
+    previousPages !== undefined &&
+    sourceBundleRevisionMatches(bundle, previousPages) &&
+    computeSourceBundleRevisionHash(bundle, previousPages) === computeSourceBundleRevisionHash(bundle, pages);
+  const revisionHash = equivalent ? bundle.revisionHash : computeSourceBundleRevisionHash(bundle, pages);
   const changed = revisionHash !== bundle.revisionHash;
   return SourceBundleSchema.parse({
     ...bundle,

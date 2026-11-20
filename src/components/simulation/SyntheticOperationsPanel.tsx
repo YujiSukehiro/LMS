@@ -35,6 +35,7 @@ import type {
   SyntheticOutboxRecord,
 } from '@/lib/schemas/simulation-state';
 import { cn } from '@/lib/utils';
+import { wrapUpControlsOpenByDefault } from './labels';
 
 export interface SyntheticOperationsPanelProps {
   scenario: PublicSimScenario;
@@ -426,7 +427,7 @@ export function SyntheticOperationsPanel({
           ) : null}
         </PanelSection>
 
-        <details className="group rounded-pulse-md border border-pulse-border-subtle bg-pulse-surface-2" open={(requirements?.requiredWrapUpEvidence.length ?? 0) > 0}>
+        <details className="group rounded-pulse-md border border-pulse-border-subtle bg-pulse-surface-2" open={wrapUpControlsOpenByDefault(scenario)}>
           <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-semibold text-pulse-primary">Safe Wrap-Up Controls</summary>
           <div className="space-y-3 border-t border-pulse-border-subtle p-3">
             <div>

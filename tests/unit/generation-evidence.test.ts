@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { finalizeUnit, type UnitGeneration } from '@/lib/ai/prompts/unit-builder';
 import { finalizeScenario, type ScenarioGeneration } from '@/lib/ai/prompts/sim-builder';
 import { assertGeneratedClaimEvidence, runTrackGeneration } from '@/lib/ai/pipeline/generate-track';
-import type { LLMGateway } from '@/lib/ai/types';
+import { LLMStructuredOutputError, type LLMGateway } from '@/lib/ai/types';
 import type { TrackDoc, TrackVersionDoc } from '@/lib/schemas/curriculum';
 import {
   ClaimEvidenceSchema,
@@ -241,7 +241,7 @@ const rulePack = SharedRulePackSchema.parse({
   }],
 });
 
-function gateway(mutateSecondUnit = false): LLMGateway {
+function gateway(mutateSecondUnit = false, simOverride?: () => unknown): LLMGateway {
   let unitIndex = 0;
   return {
     providerName: 'replay',
@@ -259,6 +259,8 @@ function gateway(mutateSecondUnit = false): LLMGateway {
       } else if (opts.schemaName === 'TrackUnitContent') {
         unitIndex += 1;
         mocks.calls.units += 1;
+        // Unverifiable evidence is now flagged for review; a model that cannot produce a Unit still fails the stage.
+        if (mutateSecondUnit && unitIndex === 2) throw new Error('u2 generation failed; the previous valid draft was preserved.');
         raw = unitGeneration(mutateSecondUnit && unitIndex === 2 ? (generated) => {
           generated.briefingCards[0].evidence = [evidence({
             excerpts: [{ documentId: 'ED', revisionId: 'ED-rev1', pageNumber: 1, exactText: 'This exact passage does not occur on the existing page.', fromApprovedTranscription: false }],
@@ -266,11 +268,16 @@ function gateway(mutateSecondUnit = false): LLMGateway {
         } : undefined);
       } else if (opts.schemaName === 'SimScenarios') {
         mocks.calls.simulations += 1;
-        raw = { scenarios: [scenarioGeneration(1), scenarioGeneration(2)] };
+        raw = simOverride ? simOverride() : { scenarios: [scenarioGeneration(1), scenarioGeneration(2)] };
       } else {
         throw new Error(`Unexpected schema ${opts.schemaName}`);
       }
-      return opts.schema.parse(raw) as z.infer<T>;
+      // Like a live provider: a schema failure surfaces as LLMStructuredOutputError with the raw answer.
+      const parsed = opts.schema.safeParse(raw);
+      if (!parsed.success) {
+        throw new LLMStructuredOutputError(`invalid ${opts.schemaName}\n- ${parsed.error.issues[0]?.path.join('.')}: ${parsed.error.issues[0]?.message}`, opts.schemaName, 3, JSON.stringify(raw));
+      }
+      return parsed.data as z.infer<T>;
     },
     streamChat: async function* () { yield ''; },
     healthCheck: async () => ({ ok: true, provider: 'replay', models: ['fixture'] }),
@@ -465,4 +472,43 @@ describe('source-aware generation checkpoints', () => {
     expect(mocks.draftWrites[1].units).toHaveLength(3);
     expect(mocks.draftWrites[1].simScenarios).toHaveLength(2);
   });
+
+  it('salvages Sims whose rubric evidence is missing: grounds the rule text or flags it, and keeps the build', async () => {
+    const noEvidence = () => {
+      const valid = scenarioGeneration(1);
+      const missing = scenarioGeneration(2);
+      missing.secretConfig.rubricCriteria = missing.secretConfig.rubricCriteria.map((criterion, index) => ({
+        ...criterion,
+        evidence: undefined,
+        evaluationRule: index === 0 ? 'The agent must identify themselves as an AI agent and honor opt-out requests immediately.' : 'The agent mentions the weather.',
+      }));
+      const broken = { ...scenarioGeneration(3), secretConfig: { ...scenarioGeneration(3).secretConfig, rubricCriteria: [] } };
+      return { scenarios: [valid, missing, broken] };
+    };
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await runTrackGeneration('ED', () => undefined, gateway(false, noEvidence));
+
+    const draft = mocks.draftWrites.at(-1)!;
+    expect(draft.simScenarios.map((scenario) => scenario.id)).toEqual(['s1', 's2']);
+    const secrets = mocks.secretWrites.at(-1) as { scenarios: Array<{ scenarioId: string; rubricCriteria: Array<{ evidence?: ClaimEvidence[] }> }> };
+    const s2 = secrets.scenarios.find((config) => config.scenarioId === 's2')!;
+    // Grounded from the criterion's own rule text: verbatim source sentence, still an unapproved draft.
+    expect(s2.rubricCriteria[0].evidence?.[0]).toMatchObject({ support: 'supported', approvalStatus: 'draft', excerpts: [{ exactText: sourceText }] });
+    // Not stated in the source: stored unsupported, so the publication gate blocks it.
+    expect(s2.rubricCriteria[1].evidence?.[0]).toMatchObject({ support: 'unsupported', approvalStatus: 'draft' });
+  });
+
+  it('resumes from cached Unit checkpoints when only the Sims stage failed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await expect(runTrackGeneration('ED', () => undefined, gateway(false, () => { throw new Error('model offline'); })))
+      .rejects.toThrow(/Live Call Sims: model offline/);
+    expect(mocks.calls).toEqual({ blueprint: 1, units: 3, simulations: 1 });
+
+    await runTrackGeneration('ED', () => undefined, gateway());
+    // Retry only re-ran the Sims stage.
+    expect(mocks.calls).toEqual({ blueprint: 1, units: 3, simulations: 2 });
+    expect(mocks.draftWrites.at(-1)?.units).toHaveLength(3);
+  });
 });
+

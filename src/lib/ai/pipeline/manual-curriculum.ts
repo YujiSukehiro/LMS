@@ -3,6 +3,7 @@
  * The exported package is reconstructed from trusted persisted data on import; no package or
  * instructions supplied by the external chat are trusted. Server only.
  */
+import { measureSourceDepth, planForRuleSignals } from '@/lib/ai/pipeline/content-depth';
 import type { Transaction } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import {
@@ -171,8 +172,10 @@ async function loadManualUnitContext(trackId: string, unitId: string, tx?: Trans
     focus: unit.briefingCards.map((card) => card.headline).join('; ') || unit.summary,
     sourcePages: pages.map((page) => page.pageNumber),
     pillarIds,
+    // Size the replacement from this Unit's own pages (pages shared with other Units are not split here).
+    contentPlan: planForRuleSignals(measureSourceDepth(pages).ruleSignals),
   };
-  const buildContext: UnitBuildContext = { pillarIds, allowedPages: outline.sourcePages };
+  const buildContext: UnitBuildContext = { pillarIds, allowedPages: outline.sourcePages, contentPlan: outline.contentPlan };
   const schema = buildUnitGenerationSchema(buildContext);
   const userPrompt = buildUnitUserPrompt({
     trackTitle: track.title,

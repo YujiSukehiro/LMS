@@ -12,6 +12,7 @@ import {
   evaluateDeterministicGates,
   validateDisposition,
 } from '@/lib/services/scenario-state';
+import { sessionForViewer } from '@/lib/services/learner-views';
 import { loadOwnedSimSession, simSessionsCollection } from '@/lib/services/simulation-engine';
 import { loadVersion } from '@/lib/services/track-loader';
 
@@ -36,7 +37,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ sessionI
     const records = outbox.docs
       .map((doc) => SyntheticOutboxRecordSchema.parse({ ...doc.data(), id: doc.id }))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return NextResponse.json({ session, outboxRecords: records });
+    return NextResponse.json({ session: sessionForViewer(session, auth.user), outboxRecords: records });
   } catch (error) {
     return errorResponse(error, 'simulations/action:get');
   }
@@ -110,7 +111,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ session
       }
       return next;
     });
-    return NextResponse.json({ session, outboxRecord });
+    return NextResponse.json({ session: sessionForViewer(session, auth.user), outboxRecord });
   } catch (error) {
     return errorResponse(error, 'simulations/action');
   }

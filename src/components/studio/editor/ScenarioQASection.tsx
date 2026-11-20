@@ -18,6 +18,7 @@ import {
   type StandardMedsScenarioId,
 } from '@/lib/content/standard-meds-scenarios';
 import { cn } from '@/lib/utils';
+import { draftExpectedGateResults, draftQAFixtureSteps } from './qa-fixture-drafts';
 import { EditorSection, IconButton, newItemId } from './fields';
 
 const KIND_LABELS: Record<ScenarioQAFixture['kind'], string> = {
@@ -57,18 +58,13 @@ export function ScenarioQASection({
       setError('Choose an existing canonical expected disposition before adding a draft fixture.');
       return;
     }
-    const requiredGates = (scenario.evidenceRequirements?.requiredGateIds ?? []).filter(Boolean);
-    const expectedGateResults = kind === 'golden_pass'
-      ? requiredGates.length > 0
-        ? requiredGates.map((ruleId) => ({ ruleId, status: 'pass' as const }))
-        : [{ ruleId: 'local_time', status: 'pass' as const }]
-      : [{ ruleId: requiredGates[0] ?? 'local_time', status: 'fail' as const }];
+    const expectedGateResults = draftExpectedGateResults(kind, scenario);
     const number = fixtures.filter((fixture) => fixture.kind === kind).length + 1;
     const fixture: ScenarioQAFixture = {
       id: newItemId(kind === 'golden_pass' ? 'qa-pass' : 'qa-fail'),
       title: `Draft ${KIND_LABELS[kind].toLowerCase()} ${number}`,
       kind,
-      steps: [{ learnerUtterance: 'Synthetic learner turn for scripted QA.', expectedEventType: 'utterance' }],
+      steps: draftQAFixtureSteps(kind, scenario, expectedDisposition),
       expectedDisposition,
       expectedGateResults,
     };

@@ -155,7 +155,7 @@ describe('POST /api/progress/drill-answer', () => {
     expect(db.all('reviewSchedules')).toHaveLength(1);
   });
 
-  it('does not re-reveal answer feedback on an idempotent replay', async () => {
+  it('returns the same answer feedback on a matched idempotent replay', async () => {
     const first = DrillAnswerResponseSchema.parse(await (await POST(answerRequest())).json());
     expect(first.correctAnswer).not.toBeNull();
     expect(first.explanation).not.toBeNull();
@@ -165,9 +165,9 @@ describe('POST /api/progress/drill-answer', () => {
     const replay = DrillAnswerResponseSchema.parse(await (await POST(answerRequest())).json());
 
     expect(replay).toMatchObject({
-      correctAnswer: null,
-      explanation: null,
-      sourcePages: [],
+      correctAnswer: first.correctAnswer,
+      explanation: first.explanation,
+      sourcePages: first.sourcePages,
     });
     expect(db.writes).toHaveLength(writesAfterFirst);
   });
@@ -222,7 +222,21 @@ describe('POST /api/progress/drill-answer', () => {
     expect(body.correct).toBe(true);
     expect(db.all('drillAttempts')).toHaveLength(0);
     expect(db.all('reviewSchedules')).toHaveLength(0);
-    expect(db.writes.map((write) => write.ref.collectionName)).toEqual(['drillAttemptStarts']);
+    expect(db.writes).toHaveLength(0);
+    expect(db.get('drillAttemptStarts', 'start-1')?.consumedAt).toBeNull();
+  });
+
+  it('lets a draft preview be retried with the same start', async () => {
+    mockLoadLearnerTrackContext.mockResolvedValue({ track: { id: 'track-1' }, version, isDraft: true });
+
+    const first = await POST(answerRequest());
+    const retry = await POST(answerRequest());
+    const body = DrillAnswerResponseSchema.parse(await retry.json());
+
+    expect(first.status).toBe(200);
+    expect(retry.status).toBe(200);
+    expect(body.correctAnswer).not.toBeNull();
+    expect(db.writes).toHaveLength(0);
   });
 
   it('uses only current-version attempts and keeps an immediate retry non-independent', async () => {

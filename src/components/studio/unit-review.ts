@@ -1,0 +1,157 @@
+/**
+ * What a trainer must look at in a draft Checkpoint before publishing: build review notes (a local
+ * build that only partly filled a Unit), live shortfalls against the published minimums, and items
+ * whose stored evidence the build could not match exactly ("needs evidence review").
+ *
+ * Pure functions: used by the Studio UI and by the add-Drill route option.
+ */
+import { DEPTH_LIMITS, thinUnitProblems } from '@/lib/ai/pipeline/content-depth';
+import type { DrillItem, TrackUnit, TrackVersionDoc } from '@/lib/schemas/curriculum';
+import type { ClaimEvidence } from '@/lib/schemas/source-truth';
+
+/** Most Drills a Unit may hold (TrackUnitSchema). */
+export const MAX_UNIT_DRILLS = 10;
+
+export const ADD_DRILL_HINT =
+  'Write a NEW Drill for this Checkpoint. Test a different rule or step than every existing Drill; do not reword the current one.';
+
+const DRILL_NOTE = /^Needs more Drills\b/i;
+const CARD_NOTE = /^Needs more Briefing Cards\b/i;
+
+/** True when an item has no evidence, or any stored evidence is not exactly supported by the source. */
+export function itemNeedsEvidenceReview(item: { evidence?: ClaimEvidence[] }): boolean {
+  return !item.evidence?.length || item.evidence.some((evidence) => evidence.support !== 'supported');
+}
+
+/**
+ * Drop shortfall notes the Unit no longer has (for example after Drills were added). Returns the same
+ * object when nothing changed. Other notes are kept as written.
+ */
+export function refreshUnitReviewNotes(unit: TrackUnit): TrackUnit {
+  if (!unit.reviewNotes?.length) return unit;
+  const kept = unit.reviewNotes.filter((note) => {
+    if (DRILL_NOTE.test(note)) return unit.drills.length < DEPTH_LIMITS.minDrills;
+    if (CARD_NOTE.test(note)) return unit.briefingCards.length < DEPTH_LIMITS.minCards;
+    return true;
+  });
+  if (kept.length === unit.reviewNotes.length) return unit;
+  const { reviewNotes: _dropped, ...rest } = unit;
+  void _dropped;
+  return kept.length > 0 ? { ...rest, reviewNotes: kept } : rest;
+}
+
+export interface UnitAttention {
+  unitId: string;
+  /** Build notes still true for this Unit. */
+  notes: string[];
+  /** Live shortfall against the publish minimums (blocks publication as UNIT_CONTENT_INCOMPLETE). */
+  shortfall: string | null;
+  drillsNeeded: number;
+  cardsNeeded: number;
+  cardIdsNeedingEvidence: string[];
+  drillIdsNeedingEvidence: string[];
+}
+
+export function unitAttention(unit: TrackUnit, unitNumber?: number): UnitAttention {
+  const refreshed = refreshUnitReviewNotes(unit);
+  const [shortfall] = thinUnitProblems([{ ...unit, orderIndex: unitNumber !== undefined ? unitNumber - 1 : unit.orderIndex }]);
+  return {
+    unitId: unit.id,
+    notes: refreshed.reviewNotes ?? [],
+    shortfall: shortfall ?? null,
+    drillsNeeded: Math.max(0, DEPTH_LIMITS.minDrills - unit.drills.length),
+    cardsNeeded: Math.max(0, DEPTH_LIMITS.minCards - unit.briefingCards.length),
+    cardIdsNeedingEvidence: unit.briefingCards.filter(itemNeedsEvidenceReview).map((card) => card.id),
+    drillIdsNeedingEvidence: unit.drills.filter(itemNeedsEvidenceReview).map((drill) => drill.id),
+  };
+}
+
+export function unitNeedsAttention(attention: UnitAttention): boolean {
+  return (
+    attention.notes.length > 0 ||
+    attention.shortfall !== null ||
+    attention.cardIdsNeedingEvidence.length > 0 ||
+    attention.drillIdsNeedingEvidence.length > 0
+  );
+}
+
+export interface TrackAttention {
+  units: Array<UnitAttention & { unitNumber: number; title: string }>;
+  thinUnitCount: number;
+  itemsNeedingEvidence: number;
+}
+
+/** Summary across the ordered Units (only Units that need attention are listed). */
+export function trackAttention(units: TrackUnit[]): TrackAttention {
+  const listed = units
+    .map((unit, index) => ({ ...unitAttention(unit, index + 1), unitNumber: index + 1, title: unit.title }))
+    .filter(unitNeedsAttention);
+  return {
+    units: listed,
+    thinUnitCount: listed.filter((unit) => unit.shortfall !== null).length,
+    itemsNeedingEvidence: listed.reduce((sum, unit) => sum + unit.cardIdsNeedingEvidence.length + unit.drillIdsNeedingEvidence.length, 0),
+  };
+}
+
+function nextDrillId(draft: TrackVersionDoc, unitId: string): string {
+  const used = new Set(draft.units.flatMap((unit) => unit.drills.map((drill) => drill.id)));
+  let index = 1;
+  while (used.has(`${unitId}-d${index}`)) index += 1;
+  return `${unitId}-d${index}`;
+}
+
+/** The Drill whose shape the new Drill copies: the least-used kind in the Unit, so new Drills add variety. */
+function templateDrill(draft: TrackVersionDoc, unit: TrackUnit): DrillItem | undefined {
+  const inUnit = new Map<string, number>();
+  for (const drill of unit.drills) inUnit.set(drill.kind, (inUnit.get(drill.kind) ?? 0) + 1);
+  const candidates = draft.units.flatMap((other) => other.drills);
+  return [...candidates].sort((left, right) => (inUnit.get(left.kind) ?? 0) - (inUnit.get(right.kind) ?? 0))[0];
+}
+
+export type AddedDrillPlan =
+  | { ok: true; draft: TrackVersionDoc; placeholder: DrillItem }
+  | { ok: false; status: number; code: string; message: string };
+
+/**
+ * Append a placeholder Drill to one Unit: a copy of an existing Drill with a new id and its evidence
+ * reset to unapproved drafts (so it can never pass the publication gates as written). The caller
+ * regenerates the placeholder into a new source-grounded Drill.
+ */
+export function planAddedDrill(draft: TrackVersionDoc, unitId: string): AddedDrillPlan {
+  const unit = draft.units.find((candidate) => candidate.id === unitId);
+  if (!unit) return { ok: false, status: 404, code: 'NOT_FOUND', message: 'This Checkpoint does not exist in the draft.' };
+  if (unit.drills.length >= MAX_UNIT_DRILLS) {
+    return { ok: false, status: 409, code: 'UNIT_FULL', message: `This Checkpoint already has ${MAX_UNIT_DRILLS} Drills, the most a Checkpoint can hold.` };
+  }
+  const template = templateDrill(draft, unit);
+  if (!template) return { ok: false, status: 409, code: 'NO_TEMPLATE', message: 'This draft has no Drill to start from. Rebuild the Track.' };
+  const id = nextDrillId(draft, unitId);
+  const placeholder: DrillItem = {
+    ...template,
+    id,
+    variationOfDrillId: null,
+    evidence: template.evidence?.map((evidence, index) => ({
+      ...evidence,
+      id: `${id}-e${index + 1}`,
+      approvalStatus: 'draft',
+      reviewerUid: null,
+      reviewedAt: null,
+    })),
+  };
+  return {
+    ok: true,
+    placeholder,
+    draft: {
+      ...draft,
+      units: draft.units.map((candidate) => (candidate.id === unitId ? { ...candidate, drills: [...candidate.drills, placeholder] } : candidate)),
+    },
+  };
+}
+
+/** Add a server-written Drill to the local Unit without touching the trainer's other (possibly unsaved) edits. */
+export function appendDrill<U extends { drills: Array<{ id: string }> }, D extends U['drills'][number]>(unit: U, drill: D): U {
+  if (unit.drills.some((existing) => existing.id === drill.id)) {
+    return { ...unit, drills: unit.drills.map((existing) => (existing.id === drill.id ? drill : existing)) };
+  }
+  return { ...unit, drills: [...unit.drills, drill] };
+}

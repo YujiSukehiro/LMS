@@ -14,7 +14,7 @@ const TONE_CLASS: Record<NonNullable<KpiItem['tone']>, string> = {
   emerald: 'text-pulse-emerald',
   amber: 'text-pulse-amber',
   crimson: 'text-pulse-crimson',
-  indigo: 'text-[#a5b4fc]',
+  indigo: 'text-pulse-indigo-text',
 };
 
 export function KpiStrip({ items, className }: { items: KpiItem[]; className?: string }) {

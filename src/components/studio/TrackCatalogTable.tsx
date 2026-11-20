@@ -1,8 +1,10 @@
 import Link from 'next/link';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import type { TrackDoc } from '@/lib/schemas/curriculum';
 import { DivisionPill } from '@/components/layout/DivisionPill';
 import { relativeTime } from '@/components/layout/labels';
 import { TrackStatusPill } from './TrackStatusPill';
+import { trackBuildFailed, trackDisplayStatus } from './track-display-status';
 
 function versionLabel(track: TrackDoc): string {
   if (track.publishedVersionId) return track.publishedVersionId;
@@ -21,7 +23,9 @@ export function TrackCatalogTable({ tracks }: { tracks: TrackDoc[] }) {
             <th scope="col" className="pulse-label px-3 py-3">Status</th>
             <th scope="col" className="pulse-label px-3 py-3">Published version</th>
             <th scope="col" className="pulse-label px-3 py-3 text-right">Checkpoints</th>
-            <th scope="col" className="pulse-label px-3 py-3 text-right">Live Call Sims</th>
+            <th scope="col" className="pulse-label px-3 py-3 text-right">
+              {TRAINING_POLICY.simulationInteractionMode === 'verbal_only' ? 'Verbal Practice' : 'Live Call Sims'}
+            </th>
             <th scope="col" className="pulse-label px-4 py-3 text-right">Updated</th>
           </tr>
         </thead>
@@ -41,8 +45,16 @@ export function TrackCatalogTable({ tracks }: { tracks: TrackDoc[] }) {
               </td>
               <td className="px-3 py-3">
                 <div className="flex flex-col items-start gap-1">
-                  <TrackStatusPill status={track.status} />
-                  {track.status === 'GENERATING' ? (
+                  <TrackStatusPill status={trackDisplayStatus(track)} />
+                  {trackBuildFailed(track) ? (
+                    <Link
+                      href={`/studio/${encodeURIComponent(track.id)}`}
+                      className="text-[0.7rem] font-semibold text-pulse-crimson hover:underline"
+                      title={track.generationProgress.message}
+                    >
+                      {track.status === 'GENERATING' ? 'Open to retry' : 'Revision build failed · Open to retry'}
+                    </Link>
+                  ) : track.status === 'GENERATING' ? (
                     <span className="pulse-metric text-[0.7rem] text-pulse-muted">{Math.round(track.generationProgress.percent)}%</span>
                   ) : null}
                 </div>

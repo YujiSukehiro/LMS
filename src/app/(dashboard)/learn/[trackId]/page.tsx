@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowLeft, Eye } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Brain, Eye } from 'lucide-react';
 import { CheckpointMap, type CheckpointMapScenario, type CheckpointMapUnit } from '@/components/learn/CheckpointMap';
 import { LearningEvidencePanel } from '@/components/learn/LearningEvidencePanel';
 import { ServiceError } from '@/lib/services/errors';
@@ -91,8 +91,8 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
       ) : null}
       {legacyEvidenceOnly ? (
         <p role="note" className="rounded-pulse-md border border-pulse-amber/40 bg-pulse-amber/10 px-4 py-3 text-sm text-pulse-secondary">
-          Historical progress remains visible as <strong>historical_unverified</strong>. It cannot satisfy current mastery or certification
-          requirements until this Track has a versioned assessment blueprint and new eligible evidence.
+          <strong>Your earlier progress is saved but not verified.</strong> It does not count toward mastery or certification on this
+          version of the Track. A Trainer must publish a new version with assessment rules; your next attempts will then count.
         </p>
       ) : null}
       {evidence ? (
@@ -102,6 +102,33 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
           scenarioCoverage={evidence.scenarioCoverage}
           scenarioLabels={evidence.scenarioLabels}
         />
+      ) : null}
+
+      {!isPreview &&
+      evidence &&
+      (evidence.analytics.delayedRetention.due > 0 || evidence.analytics.upcomingReviews.length > 0) ? (
+        <section
+          aria-label="Track Knowledge Retention"
+          className="pulse-card flex flex-wrap items-center justify-between gap-3 px-4 py-3.5"
+        >
+          <div className="flex items-start gap-2.5">
+            <Brain aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
+            <div>
+              <p className="text-sm font-semibold text-pulse-primary">
+                {evidence.analytics.delayedRetention.due > 0
+                  ? `${evidence.analytics.delayedRetention.due} retention review drill${evidence.analytics.delayedRetention.due === 1 ? '' : 's'} due now for this Track`
+                  : `${evidence.analytics.upcomingReviews.length} upcoming Keep-Sharp retention drill${evidence.analytics.upcomingReviews.length === 1 ? '' : 's'}`}
+              </p>
+              <p className="text-xs text-pulse-muted">Practice spaced rule recall anytime without waiting on the calendar.</p>
+            </div>
+          </div>
+          <Link
+            href={`/learn/review?trackId=${encodeURIComponent(trackId)}`}
+            className="pulse-btn pulse-btn-primary text-xs"
+          >
+            Open Retention Review <ArrowRight aria-hidden className="size-3.5" />
+          </Link>
+        </section>
       ) : null}
 
       <section aria-labelledby="checkpoint-path-heading">

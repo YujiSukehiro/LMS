@@ -206,8 +206,11 @@ describe('source bundle upload', () => {
     expect(bundleAt(first.trackId, first.bundleId)).toEqual(originalBeforeAppend);
     expect(store.get(`tracks/${first.trackId}/versions/v1`)).toEqual(published);
     expect((store.get(`tracks/${first.trackId}`) as { activeSourceBundleId: string }).activeSourceBundleId).toBe(appended.bundleId);
-    const legacyBatch = store.get(`tracks/${first.trackId}/sourcePages/batch-001`) as { pages: Array<{ text: string }> };
-    expect(legacyBatch.pages[0].text).toContain('product.pdf');
+    // Legacy pages keep every bundle document, numbered with the pipeline's global PAGE labels 1..N.
+    const legacyBatch = store.get(`tracks/${first.trackId}/sourcePages/batch-001`) as { pages: Array<{ pageNumber: number; text: string }> };
+    expect(legacyBatch.pages.map((page) => page.pageNumber)).toEqual([1, 2, 3, 4]);
+    expect(legacyBatch.pages[0].text).toContain('foundation.pdf');
+    expect(legacyBatch.pages[2].text).toContain('product.pdf');
 
     const appendedBeforeReplacement = clone(appendedBundle);
     const replacementResponse = await POST(upload({ trackId: first.trackId, documentRole: 'reference', fileName: 'replacement.pdf' }));
@@ -263,4 +266,83 @@ describe('source bundle upload', () => {
     expect(mockSave).not.toHaveBeenCalled();
     expect(mockExtract).not.toHaveBeenCalled();
   });
+
+  it('clears the old Checkpoint target and keeps the previous draft until the new build commits', async () => {
+    const firstResponse = await POST(upload({ fileName: 'foundation.pdf' }));
+    const { trackId } = await firstResponse.json();
+    const trackPath = `tracks/${trackId}`;
+    const draft = { versionId: 'draft', units: ['previous usable draft'] };
+    store.set(`${trackPath}/versions/draft`, draft);
+    store.set(trackPath, {
+      ...(store.get(trackPath) as Record<string, unknown>),
+      unitTarget: 7,
+      generationProgress: { step: 'READY', percent: 100, message: 'Track Ready!' },
+      status: 'DRAFT',
+    });
+
+    const revisedResponse = await POST(upload({ trackId, fileName: 'revised.pdf' }));
+    expect(revisedResponse.status).toBe(200);
+    const track = store.get(trackPath) as { unitTarget: number | null; generationProgress: { step: string } };
+    expect(track.unitTarget).toBeNull();
+    expect(track.generationProgress.step).toBe('EXTRACTING_PDF');
+    expect(store.get(`${trackPath}/versions/draft`)).toEqual(draft);
+    expect(writes.some((write) => write.kind === 'delete' && write.path.includes('/versions/draft'))).toBe(false);
+  });
+
+  it('copies only the selected shared rule packs into an appended bundle', async () => {
+    const firstResponse = await POST(upload({ sharedRulePackIds: '["pack-a","pack-b"]', fileName: 'foundation.pdf' }));
+    const first = await firstResponse.json();
+    const packsPath = `tracks/${first.trackId}/sourceBundles/${first.bundleId}/rulePacks`;
+    store.set(`${packsPath}/pack-a`, rulePack('pack-a', first.bundleId));
+    store.set(`${packsPath}/pack-b`, rulePack('pack-b', first.bundleId));
+
+    const appendResponse = await POST(upload({
+      trackId: first.trackId,
+      mode: 'append-document',
+      sharedRulePackIds: '["pack-b"]',
+      fileName: 'product.pdf',
+      bytes: 'product actual bytes',
+    }));
+    expect(appendResponse.status).toBe(200);
+    const appended = await appendResponse.json();
+    expect(bundleAt(first.trackId, appended.bundleId).sharedRulePackIds).toEqual(['pack-b']);
+    expect(directDocuments(`tracks/${first.trackId}/sourceBundles/${appended.bundleId}/rulePacks`).map((ref) => ref.id)).toEqual(['pack-b']);
+  });
 });
+
+function rulePack(id: string, documentId: string) {
+  const text = 'Agents must self-identify on every call.';
+  return {
+    id,
+    revision: 'rules-rev1',
+    title: `Pack ${id}`,
+    sourceDocumentIds: [documentId],
+    approvalStatus: 'approved',
+    createdAt: 1,
+    updatedAt: 1,
+    rules: [
+      {
+        id: `${id}-rule`,
+        packId: id,
+        title: 'Identify',
+        statement: text,
+        severity: 'critical',
+        applicableTrackIds: [],
+        channels: ['voice'],
+        stages: ['opening'],
+        requiredKnowledge: true,
+        requiredScenarioCoverage: true,
+        sourceRevision: 'rev1',
+        approvalStatus: 'approved',
+        approvedByUid: 'trainer-1',
+        approvedAt: 1,
+        evidence: {
+          id: `${id}-evidence`,
+          claim: text,
+          ruleIds: [`${id}-rule`],
+          excerpts: [{ documentId, revisionId: 'rev1', pageNumber: 1, exactText: text, fromApprovedTranscription: false }],
+        },
+      },
+    ],
+  };
+}

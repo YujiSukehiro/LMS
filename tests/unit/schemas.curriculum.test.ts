@@ -46,12 +46,15 @@ describe('curriculum schemas', () => {
     }
   });
 
-  it('requires 2-6 BriefingCards and 4-8 Drills per Unit', () => {
+  it('bounds BriefingCards (1-8) and Drills (1-10) per draft Unit; publish enforces 2 and 4 (thinUnitProblems)', () => {
     const u = unit('u1', 0);
     expect(TrackUnitSchema.parse(u).drills).toHaveLength(5);
-    expect(TrackUnitSchema.safeParse({ ...u, briefingCards: [u.briefingCards[0]] }).success).toBe(false);
-    expect(TrackUnitSchema.safeParse({ ...u, drills: u.drills.slice(0, 3) }).success).toBe(false);
-    expect(TrackUnitSchema.safeParse({ ...u, estimatedMinutes: 11 }).success).toBe(false);
+    // A partly salvaged local build may store a thin draft Unit with a review note; it cannot publish.
+    expect(TrackUnitSchema.safeParse({ ...u, briefingCards: [u.briefingCards[0]] }).success).toBe(true);
+    expect(TrackUnitSchema.safeParse({ ...u, drills: u.drills.slice(0, 3) }).success).toBe(true);
+    expect(TrackUnitSchema.safeParse({ ...u, briefingCards: [] }).success).toBe(false);
+    expect(TrackUnitSchema.safeParse({ ...u, drills: [] }).success).toBe(false);
+    expect(TrackUnitSchema.safeParse({ ...u, estimatedMinutes: 16 }).success).toBe(false);
   });
 
   it('applies Simulation defaults and bounds', () => {

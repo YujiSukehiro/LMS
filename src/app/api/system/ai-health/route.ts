@@ -1,11 +1,16 @@
-/** GET /api/system/ai-health — capability-specific runtime health for internal ops. */
+/**
+ * GET /api/system/ai-health — capability-specific runtime health for internal ops.
+ *
+ * Default: the cached cheap check (provider health + one basic chat), shared between concurrent callers and
+ * cached ~60s on success / ~15s on failure, so TopBar mounts do not queue model calls ahead of real work.
+ * `?full=1`: the full capability preflight (~10 model calls), never cached; it is cancelled if the client leaves.
+ */
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/firebase/auth-guard';
 import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import type { AiHealthResponse } from '@/lib/schemas/api';
-import { activeProviderName, getActiveAiRuntime, getLLMGateway } from '@/lib/ai/gateway';
-import { createLocalRuntimeProfile, openAICompatibleProfileFromEnv } from '@/lib/ai/local-runtime';
-import { runLocalCapabilityPreflight } from '@/lib/ai/local-preflight';
+import { getActiveAiRuntime } from '@/lib/ai/gateway';
+import { getCachedAiHealth, runAiHealthCheck } from '@/lib/ai/availability';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,58 +20,31 @@ export async function GET(req: Request): Promise<NextResponse> {
   const auth = await requireAuth(req, INTERNAL_OPS_ROLES);
   if (!auth.ok) return auth.response;
 
-  const provider = activeProviderName();
-  const runtimeInfo = getActiveAiRuntime();
-  if (provider === 'manual_chat') {
-    return NextResponse.json({
-      ok: true,
-      provider,
-      models: [],
-      status: 'manual',
-      runtimeLabel: 'Manual chat',
-      capabilities: [],
-    } satisfies AiHealthResponse);
-  }
-
+  const full = new URL(req.url).searchParams.get('full') === '1';
   try {
-    if (provider === 'openai_compatible' || provider === 'ollama') {
-      const gateway = getLLMGateway();
-      const profile = provider === 'openai_compatible'
-        ? openAICompatibleProfileFromEnv()
-        : createLocalRuntimeProfile({
-            provider: 'ollama',
-            runtimeLabel: 'Ollama',
-            baseUrl: process.env.OLLAMA_BASE_URL ?? 'http://127.0.0.1:11434',
-            models: { structuredGeneration: runtimeInfo.heavyModel, streamingChat: runtimeInfo.fastModel, judge: runtimeInfo.heavyModel },
-          });
-      const report = await runLocalCapabilityPreflight(profile, gateway);
-      const body: AiHealthResponse = {
-        ok: report.status === 'ready',
-        provider: report.provider,
-        models: [...new Set(Object.values(report.selectedModels).filter((model): model is string => Boolean(model)))],
-        status: report.status,
-        runtimeLabel: report.runtimeLabel,
-        capabilities: report.capabilities,
-        error: report.capabilities.find((capability) => capability.status === 'failed')?.error,
-      };
-      return NextResponse.json(body, { status: 200, headers: { 'Cache-Control': 'no-store' } });
-    }
-
-    const health = await getLLMGateway().healthCheck();
-    const body: AiHealthResponse = {
-      ...health,
-      status: provider === 'replay' ? 'demo' : health.ok ? 'ready' : 'blocked',
-      runtimeLabel: provider === 'replay' ? 'Demo replay' : 'Gemini',
-    };
+    const body = full
+      ? await runAiHealthCheck({ full: true, signal: req.signal })
+      : await getCachedAiHealth({ signal: req.signal });
     return NextResponse.json(body, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    let provider = 'unknown';
+    let runtimeLabel: string | undefined;
+    try {
+      const info = getActiveAiRuntime();
+      provider = info.provider;
+      runtimeLabel = info.runtimeLabel;
+    } catch {
+      // An invalid AI_PROVIDER is reported through the error message below.
+    }
     const body: AiHealthResponse = {
       ok: false,
-      provider: runtimeInfo.provider,
+      provider,
       models: [],
       status: 'blocked',
-      runtimeLabel: runtimeInfo.runtimeLabel,
-      error: error instanceof Error ? error.message : 'The AI health check failed. Check the selected local runtime and retry.',
+      runtimeLabel,
+      error: req.signal.aborted
+        ? 'The AI health check was cancelled.'
+        : error instanceof Error ? error.message : 'The AI health check failed. Check the selected local runtime and retry.',
     };
     return NextResponse.json(body, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   }

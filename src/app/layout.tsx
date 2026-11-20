@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from 'next';
+import { cookies } from 'next/headers';
 import { JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google';
+import { THEME_COOKIE, resolveTheme } from '@/lib/theme/themes';
 import './globals.css';
 
 const plusJakarta = Plus_Jakarta_Sans({
@@ -24,13 +26,18 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0b1120',
-  colorScheme: 'dark',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f6f7fb' },
+    { media: '(prefers-color-scheme: dark)', color: '#0b1120' },
+  ],
+  colorScheme: 'light dark',
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // Server-rendered theme: no client script and no flash. Light is the default.
+  const theme = resolveTheme((await cookies()).get(THEME_COOKIE)?.value);
   return (
-    <html lang="en" data-theme="dark" className={`${plusJakarta.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" data-theme={theme} className={`${plusJakarta.variable} ${jetbrainsMono.variable}`}>
       <body className="min-h-screen bg-pulse-bg text-pulse-primary antialiased">{children}</body>
     </html>
   );

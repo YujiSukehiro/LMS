@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { LLMGateway, ModelTier, StreamChatOptions } from '@/lib/ai/types';
 import {
-  LocalRuntimeLimiter,
   LocalRuntimeProfileSchema,
   type CapabilityResult,
   type LocalCapability,
@@ -26,11 +25,55 @@ export interface LocalPreflightOptions {
   heavyMaxOutputTokens?: number;
   cancellationDelayMs?: number;
   now?: () => Date;
+  /**
+   * "full" (default) exercises every capability (~10 model calls). "quick" runs only availability + basic chat
+   * (cheap enough for UI health polling); the remaining capabilities are reported as not_tested.
+   */
+  mode?: 'full' | 'quick';
+  /** Aborts in-flight checks; the preflight then rejects instead of returning a partial report. */
+  signal?: AbortSignal;
 }
 
 type ChatGateway = LLMGateway & {
   generateChat?: (opts: StreamChatOptions) => Promise<string>;
+  /** Optional: providers with an internal limiter expose its state so preflight can report queue leaks. */
+  runtimeQueueState?: () => { active: number; pending: number };
 };
+
+interface ProviderHints {
+  notConfigured: string;
+  availability: string;
+  basicChat: string;
+  streaming: string;
+  noStreamingModel: string;
+  noStructuredModel: string;
+}
+
+/** Failure hints name the endpoints and environment variables of the provider actually being checked. */
+export function preflightHintsFor(provider: LocalRuntimeProfile['provider'] | undefined): ProviderHints {
+  if (provider === 'ollama') {
+    return {
+      notConfigured: 'Set OLLAMA_BASE_URL (default http://127.0.0.1:11434), OLLAMA_HEAVY_MODEL, and OLLAMA_FAST_MODEL, then rerun preflight.',
+      availability:
+        'Start Ollama ("ollama serve"), confirm OLLAMA_HEAVY_MODEL/OLLAMA_FAST_MODEL are installed ("ollama list") and report the "completion" capability ("ollama show <model>"), then rerun preflight.',
+      basicChat: 'Select a chat-capable Ollama model (capabilities include "completion") and verify that POST /api/chat returns assistant text.',
+      streaming: 'Verify NDJSON streaming from POST /api/chat on OLLAMA_FAST_MODEL.',
+      noStreamingModel: 'Set OLLAMA_FAST_MODEL to an installed chat model, then rerun preflight.',
+      noStructuredModel: 'Set OLLAMA_HEAVY_MODEL to an installed chat model that can produce nested JSON, then rerun preflight.',
+    };
+  }
+  return {
+    notConfigured: 'Set OPENAI_COMPATIBLE_BASE_URL, OPENAI_COMPATIBLE_HEAVY_MODEL, and OPENAI_COMPATIBLE_FAST_MODEL, then rerun preflight.',
+    availability:
+      'Start the loopback server (for MLX: ./mlx-runtime/start.sh), check OPENAI_COMPATIBLE_BASE_URL and the selected chat models, and rerun preflight.',
+    basicChat: 'Select a chat-capable local model and verify that /v1/chat/completions returns assistant text.',
+    streaming: 'Verify SSE streaming support, including fragmented events and [DONE], on the selected fast chat model.',
+    noStreamingModel: 'Set OPENAI_COMPATIBLE_FAST_MODEL to a chat model with SSE support, then rerun preflight.',
+    noStructuredModel: 'Set OPENAI_COMPATIBLE_HEAVY_MODEL to a model that can produce nested JSON, then rerun preflight.',
+  };
+}
+
+const QUICK_MODE_NEXT_STEP = 'Run the full preflight (GET /api/system/ai-health?full=1 or npm run verify:local-ai) to test this capability.';
 
 const ALL_CAPABILITIES: LocalCapability[] = [
   'availability',
@@ -108,24 +151,40 @@ function messageOf(error: unknown): string {
   return message.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g, ' ').slice(0, 600);
 }
 
+/** Thrown by withTimeout: the request did not finish in time (slow or queued), as opposed to failing. */
+export class CapabilityTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CapabilityTimeoutError';
+  }
+}
+
 async function withTimeout<T>(
   timeoutMs: number,
   task: (signal: AbortSignal) => Promise<T>,
   externalSignal?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
-  const onAbort = () => controller.abort();
+  let rejectCancelled: (error: Error) => void = () => undefined;
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    rejectCancelled = reject;
+  });
+  cancelled.catch(() => undefined);
+  const onAbort = () => {
+    controller.abort();
+    rejectCancelled(new Error('Local preflight was cancelled.'));
+  };
   externalSignal?.addEventListener('abort', onAbort, { once: true });
-  if (externalSignal?.aborted) controller.abort();
+  if (externalSignal?.aborted) onAbort();
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(new Error(`Capability request timed out after ${timeoutMs} ms. Check local server load and the configured task timeout.`));
+      reject(new CapabilityTimeoutError(`Capability request timed out after ${timeoutMs} ms. Check local server load and the configured task timeout.`));
     }, timeoutMs);
   });
   try {
-    return await Promise.race([task(controller.signal), timeout]);
+    return await Promise.race([task(controller.signal), timeout, cancelled]);
   } finally {
     clearTimeout(timer!);
     externalSignal?.removeEventListener('abort', onAbort);
@@ -173,7 +232,17 @@ export async function runLocalCapabilityPreflight(
   const startedAt = now().toISOString();
   const results = new Map<LocalCapability, CapabilityResult>();
   const validProfile = profile ? LocalRuntimeProfileSchema.parse(profile) : null;
-  const limiter = new LocalRuntimeLimiter();
+  const hints = preflightHintsFor(validProfile?.provider);
+  const externalSignal = options.signal;
+  const checkAborted = () => {
+    if (externalSignal?.aborted) throw new Error('Local preflight was cancelled.');
+  };
+  const chatGateway = gateway as ChatGateway | undefined;
+  const queueItems = () => {
+    const state = chatGateway?.runtimeQueueState?.();
+    return state ? state.active + state.pending : 0;
+  };
+  const BUSY_NEXT_STEP = 'The local runtime is serving other requests (one at a time). Live calls keep working; the check reruns shortly.';
 
   const recordNotTested = (capability: LocalCapability, error: string, nextStep: string, model?: string) => {
     results.set(capability, { capability, status: 'not_tested', model, latencyMs: 0, error, nextStep });
@@ -211,7 +280,7 @@ export async function runLocalCapabilityPreflight(
     recordNotTested(
       'availability',
       'No local runtime profile is configured.',
-      'Set OPENAI_COMPATIBLE_BASE_URL, OPENAI_COMPATIBLE_HEAVY_MODEL, and OPENAI_COMPATIBLE_FAST_MODEL, then rerun preflight.',
+      hints.notConfigured,
     );
     return finalize('not_configured');
   }
@@ -221,7 +290,7 @@ export async function runLocalCapabilityPreflight(
     recordNotTested(
       'availability',
       'The local runtime profile has no selected models.',
-      'Configure heavy and fast chat models, then rerun local preflight.',
+      hints.notConfigured,
     );
     return finalize('not_configured');
   }
@@ -232,14 +301,17 @@ export async function runLocalCapabilityPreflight(
     nextStep: string,
     timeoutMs: number,
     task: (signal: AbortSignal) => Promise<{ outputChars?: number; details?: CapabilityResult['details'] } | number | void>,
-  ): Promise<boolean> => {
+  ): Promise<boolean | 'busy'> => {
+    checkAborted();
     const started = Date.now();
     try {
-      const outcome = await limiter.run(() =>
-        withTimeout(timeoutMs, async (signal) => {
+      const outcome = await withTimeout(
+        timeoutMs,
+        async (signal) => {
           const value = await task(signal);
           return typeof value === 'number' ? { outputChars: value } : value ?? {};
-        }),
+        },
+        externalSignal,
       );
       results.set(capability, {
         capability,
@@ -252,6 +324,13 @@ export async function runLocalCapabilityPreflight(
       });
       return true;
     } catch (error) {
+      checkAborted();
+      // A slow answer (queued behind other work in this process or on the server) is not a broken runtime:
+      // in the quick check it must never be cached as "blocked" and refuse every learner's call.
+      if (options.mode === 'quick' && (error instanceof CapabilityTimeoutError || queueItems() > 0)) {
+        results.set(capability, { capability, status: 'not_tested', model, latencyMs: Date.now() - started, error: messageOf(error), nextStep: BUSY_NEXT_STEP });
+        return 'busy';
+      }
       results.set(capability, {
         capability,
         status: 'failed',
@@ -264,16 +343,27 @@ export async function runLocalCapabilityPreflight(
     }
   };
 
+  // Quick check while this process already has requests in the single slot: do not queue behind them.
+  if (options.mode === 'quick' && queueItems() > 0) {
+    recordNotTested('availability', `The local runtime is busy (${queueItems()} request(s) in flight or waiting); it was not re-tested.`, BUSY_NEXT_STEP);
+    recordNotTested('basic_chat', 'Not tested while the local runtime is busy.', BUSY_NEXT_STEP);
+    for (const capability of ALL_CAPABILITIES) {
+      if (!results.has(capability)) recordNotTested(capability, 'Skipped by the quick health check.', QUICK_MODE_NEXT_STEP);
+    }
+    return finalize('degraded');
+  }
+
   const availabilityOk = await execute(
     'availability',
     configuredModels.join(', '),
-    'Start the loopback server, verify the selected chat models, and rerun preflight.',
+    hints.availability,
     timeoutFor(validProfile, 'availability', 30_000),
     async () => {
       const health = await gateway.healthCheck();
       if (!health.ok) throw new Error(health.error ?? 'The local provider failed its real chat health check.');
     },
   );
+  if (availabilityOk === 'busy') return finalize('degraded');
   if (!availabilityOk) {
     return finalize('blocked');
   }
@@ -283,7 +373,7 @@ export async function runLocalCapabilityPreflight(
   const basicOk = await execute(
     'basic_chat',
     basicModel,
-    'Select a chat-capable local model and verify that /v1/chat/completions returns assistant text.',
+    hints.basicChat,
     timeoutFor(validProfile, 'basicChat', 30_000),
     async (signal) =>
       basicChatText(gateway, {
@@ -294,13 +384,26 @@ export async function runLocalCapabilityPreflight(
         signal,
       }).then((output) => output.length),
   );
+  if (basicOk === 'busy') {
+    for (const capability of ALL_CAPABILITIES) {
+      if (!results.has(capability)) recordNotTested(capability, 'Skipped by the quick health check.', QUICK_MODE_NEXT_STEP);
+    }
+    return finalize('degraded');
+  }
   if (!basicOk) return finalize('blocked');
+
+  if (options.mode === 'quick') {
+    for (const capability of ALL_CAPABILITIES) {
+      if (!results.has(capability)) recordNotTested(capability, 'Skipped by the quick health check.', QUICK_MODE_NEXT_STEP);
+    }
+    return finalize('ready');
+  }
 
   if (validProfile.models.streamingChat) {
     await execute(
       'streaming_chat',
       validProfile.models.streamingChat,
-      'Verify SSE streaming support, including fragmented events and [DONE], on the selected fast chat model.',
+      hints.streaming,
       timeoutFor(validProfile, 'streamingChat', 60_000),
       async (signal) =>
         collectStream(gateway, {
@@ -315,7 +418,7 @@ export async function runLocalCapabilityPreflight(
     recordNotTested(
       'streaming_chat',
       'No streaming chat model is configured.',
-      'Set OPENAI_COMPATIBLE_FAST_MODEL to a chat model with SSE support, then rerun preflight.',
+      hints.noStreamingModel,
     );
   }
 
@@ -373,7 +476,7 @@ export async function runLocalCapabilityPreflight(
       recordNotTested(
         capability,
         'No structured generation model is configured.',
-        'Set OPENAI_COMPATIBLE_HEAVY_MODEL to a model that can produce nested JSON, then rerun preflight.',
+        hints.noStructuredModel,
       );
     }
   }
@@ -411,21 +514,19 @@ export async function runLocalCapabilityPreflight(
     );
   }
 
+  checkAborted();
   const cancellationStarted = Date.now();
   const cancellationController = new AbortController();
   const cancellationDelayMs = options.cancellationDelayMs ?? 25;
   const cancellationTimer = setTimeout(() => cancellationController.abort(), cancellationDelayMs);
   try {
-    await limiter.run(
-      () => basicChatText(gateway, {
-        tier: basicTier,
-        messages: [{ role: 'user', content: 'Write a long synthetic training explanation.' }],
-        temperature: 0.2,
-        maxOutputTokens: 512,
-        signal: cancellationController.signal,
-      }),
-      cancellationController.signal,
-    );
+    await basicChatText(gateway, {
+      tier: basicTier,
+      messages: [{ role: 'user', content: 'Write a long synthetic training explanation.' }],
+      temperature: 0.2,
+      maxOutputTokens: 512,
+      signal: cancellationController.signal,
+    });
     results.set('cancellation_timeout', {
       capability: 'cancellation_timeout',
       status: 'failed',
@@ -441,7 +542,7 @@ export async function runLocalCapabilityPreflight(
       status: cancelled ? 'passed' : 'failed',
       model: basicModel,
       latencyMs: Date.now() - cancellationStarted,
-      details: cancelled ? { cancellationDelayMs, queueItemsAfterAbort: limiter.activeCount + limiter.pendingCount } : undefined,
+      details: cancelled ? { cancellationDelayMs, queueItemsAfterAbort: queueItems() } : undefined,
       lastSuccessAt: cancelled ? now().toISOString() : undefined,
       error: cancelled ? undefined : messageOf(error),
       nextStep: cancelled ? undefined : 'Verify AbortSignal propagation and ensure cancellation releases the local concurrency slot.',
@@ -450,28 +551,43 @@ export async function runLocalCapabilityPreflight(
     clearTimeout(cancellationTimer);
   }
 
+  // Concurrency: issue two streaming requests at once straight through the gateway (no preflight-side limiter)
+  // and measure real overlap: a request counts as active from its first streamed token until its stream ends.
+  // A gateway that serializes local work never has two streams producing tokens at the same time.
+  checkAborted();
   const concurrencyStarted = Date.now();
-  let active = 0;
+  let streaming = 0;
   let maxObserved = 0;
   try {
     const outputs = await Promise.all(
       [0, 1].map((index) =>
-        limiter.run(() =>
-          withTimeout(timeoutFor(validProfile, 'concurrency', 60_000), async (signal) => {
-            active += 1;
-            maxObserved = Math.max(maxObserved, active);
+        withTimeout(
+          timeoutFor(validProfile, 'concurrency', 60_000),
+          async (signal) => {
+            let started = false;
+            let output = '';
             try {
-              return await basicChatText(gateway, {
+              for await (const token of gateway.streamChat({
                 tier: basicTier,
                 messages: [{ role: 'user', content: `Return one short synthetic concurrency check sentence (${index + 1}).` }],
                 temperature: 0,
                 maxOutputTokens: 48,
                 signal,
-              });
+              })) {
+                if (!started) {
+                  started = true;
+                  streaming += 1;
+                  maxObserved = Math.max(maxObserved, streaming);
+                }
+                output += token;
+              }
             } finally {
-              active -= 1;
+              if (started) streaming -= 1;
             }
-          }),
+            if (!output.trim()) throw new Error('The selected model returned an empty chat stream during the concurrency check.');
+            return output;
+          },
+          externalSignal,
         ),
       ),
     );
@@ -482,12 +598,13 @@ export async function runLocalCapabilityPreflight(
       model: basicModel,
       latencyMs: Date.now() - concurrencyStarted,
       outputChars: outputs.reduce((sum, output) => sum + output.length, 0),
-      details: { configuredLimit: validProfile.defaults.maxConcurrency, maxObserved, queueItemsAfterRun: limiter.activeCount + limiter.pendingCount },
+      details: { configuredLimit: validProfile.defaults.maxConcurrency, maxObserved, queueItemsAfterRun: queueItems() },
       lastSuccessAt: passed ? now().toISOString() : undefined,
-      error: passed ? undefined : `Observed ${maxObserved} concurrent requests with a configured limit of ${validProfile.defaults.maxConcurrency}.`,
+      error: passed ? undefined : `Observed ${maxObserved} overlapping generations with a configured limit of ${validProfile.defaults.maxConcurrency}.`,
       nextStep: passed ? undefined : 'Route all local generation through LocalRuntimeLimiter and keep maxConcurrency at 1 until memory testing supports more.',
     });
   } catch (error) {
+    checkAborted();
     results.set('concurrency', {
       capability: 'concurrency',
       status: 'failed',

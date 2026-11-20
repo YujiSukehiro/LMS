@@ -158,27 +158,73 @@ function makeEvent(
   });
 }
 
+/**
+ * Tight, explicit opt-out phrases. Generic phrases such as "not interested" alone are NOT an opt-out:
+ * a hesitant caller ("I'm not interested in the price yet") must not flip the do-not-contact branch.
+ */
+export const CUSTOMER_OPT_OUT_PATTERN =
+  /\b(?:stop calling(?: me)?|(?:please )?do not call (?:me )?(?:again|anymore)|don'?t call (?:me )?(?:again|anymore)|remove me from (?:your|the) (?:list|calls?|calling list)|take me off (?:your|the) (?:list|calling list)|put me on (?:your|the) do[- ]not[- ]call list|i want to opt out|opt me out|not interested in (?:the|this|your) (?:offer|program|plan|subscription))\b/i;
+
+/** Explicit, current clinical-risk statements by the caller (not mere mentions of a medication). */
+export const CUSTOMER_CLINICAL_RISK_PATTERN =
+  /\b(?:i(?:'m| am) having (?:a )?(?:severe|bad|serious) (?:allergic )?reaction|severe reaction|adverse reaction|trouble breathing|can'?t breathe|chest pain|my throat is (?:swelling|closing)|i(?:'m| am) (?:taking|on) nitrates?|nitroglycerin)\b/i;
+
+export const CUSTOMER_PRICE_QUESTION_PATTERN = /\b(?:how much|what(?:'s| is) the price|what does it cost|price please)\b/i;
+
+/**
+ * Which customer-state branches the generated caller may open from dialogue. Derived from the
+ * secret scenario (conditional behaviors / case branch) by `customerDialoguePolicy`, so a caller
+ * line can only open a branch the Trainer-approved scenario anticipates.
+ */
+export interface CustomerDialoguePolicy {
+  optOut: boolean;
+  clinicalRisk: boolean;
+}
+
+export function customerDialoguePolicy(input: {
+  context?: Pick<ScenarioState['context'], 'caseBranch'> | null;
+  conditionalBehaviors?: readonly string[];
+  hiddenFacts?: readonly string[];
+}): CustomerDialoguePolicy {
+  const branch = input.context?.caseBranch ?? '';
+  const text = [...(input.conditionalBehaviors ?? []), ...(input.hiddenFacts ?? [])].join('\n');
+  return {
+    optOut:
+      /opt_out|not_interested|do_not_call|dnc|cancel/.test(branch) ||
+      /\b(?:opt[- ]?out|stop calling|do not call|don'?t call|remove (?:me|them|him|her)|not interested|do[- ]not[- ]contact|refuses? (?:all|any) (?:further )?contact)\b/i.test(text),
+    clinicalRisk:
+      /medical|clinical|interaction|severe_reaction|adverse_reaction|irritation/.test(branch) ||
+      /\b(?:reaction|side effect|interaction|nitrate|breathing|chest pain|symptom)\b/i.test(text),
+  };
+}
+
 export function appendDialogueEvent(input: {
   sessionId: string;
   state: ScenarioState;
   events: SimulationEvent[];
   actor: 'learner' | 'customer';
   content: string;
-  provenance: 'learner' | 'deterministic' | 'local_ai' | 'manual_chat' | 'replay';
+  provenance: SimulationEvent['provenance'];
   runtimeProvenance?: SimulationEvent['runtimeProvenance'];
+  /** Customer-only: which branches caller dialogue may open. Omitted = tight explicit phrases only. */
+  customerPolicy?: CustomerDialoguePolicy;
   now?: Date;
   eventId?: string;
 }): { state: ScenarioState; event: SimulationEvent } {
   if (input.actor === 'learner') assertSafeSyntheticText(input.content, 'the call transcript');
   let state = input.state;
+  let intent: string | undefined;
   if (input.actor === 'customer') {
-    if (/\b(?:stop calling|do not call|don't call|remove me|opt out|not interested)\b/i.test(input.content)) {
+    // Learner text never drives customer state: only the caller's own line is inspected here.
+    const policy = input.customerPolicy ?? { optOut: true, clinicalRisk: true };
+    if (policy.optOut && CUSTOMER_OPT_OUT_PATTERN.test(input.content)) {
       state = { ...state, optOut: true, customerIntent: 'not_interested' };
+      intent = 'opt_out';
     }
-    if (/\b(?:how much|what(?:'s| is) the price|what does it cost|price please)\b/i.test(input.content)) {
+    if (CUSTOMER_PRICE_QUESTION_PATTERN.test(input.content)) {
       state = { ...state, customerAskedPrice: true };
     }
-    if (/\b(?:severe reaction|trouble breathing|nitrate|heart medication|blood pressure|interaction|adverse reaction)\b/i.test(input.content)) {
+    if (policy.clinicalRisk && CUSTOMER_CLINICAL_RISK_PATTERN.test(input.content)) {
       state = { ...state, clinicalRiskBranch: 'reaction_or_interaction' };
     }
   } else if (/\$\s?\d|\b(?:price|pricing|cost|per month|monthly)\b/i.test(input.content)) {
@@ -187,7 +233,7 @@ export function appendDialogueEvent(input: {
   const event = makeEvent(input.sessionId, input.events, state, {
     actor: input.actor,
     type: 'utterance',
-    payload: { content: input.content, synthetic: true },
+    payload: { content: input.content, synthetic: true, ...(intent ? { intent } : {}) },
     provenance: input.provenance,
     runtimeProvenance: input.runtimeProvenance,
   }, input.now ?? new Date(), input.eventId);
@@ -503,7 +549,14 @@ export function evaluateDeterministicGates(
   const localFailed = dials.some((event) => event.payload.status === 'blocked') || (dials.length > 0 && !state.localTimeValidated);
   add('local_time', outbound, localFailed ? 'fail' : dials.some((event) => event.payload.status === 'connected') && state.localTimeValidated ? 'pass' : 'not_observed', localEvents.map((event) => event.id), 'Validate the lead’s synthetic local time before dialing.', 'Dial requires a local_time inspection and a 09:00–21:00 lead-local timestamp.');
 
-  const optIndex = events.findIndex((event) => event.type === 'utterance' && event.payload.intent === 'opt_out' || event.actor === 'customer' && event.type === 'utterance' && /\b(?:stop calling|do not call|don't call|remove me|opt out|not interested)\b/i.test(String(event.payload.content ?? '')));
+  // Opt-out is anchored to the event that recorded it (intent), never re-derived from loose dialogue keywords.
+  const anchoredOptIndex = events.findIndex((event) => event.type === 'utterance' && event.payload.intent === 'opt_out');
+  // Sessions recorded before intents were stored: fall back to the caller's own words (never learner text),
+  // only when the state already says the customer opted out.
+  const optIndex = anchoredOptIndex >= 0 || !state.optOut
+    ? anchoredOptIndex
+    : events.findIndex((event) => event.type === 'utterance' && event.actor === 'customer' && event.payload.intent === undefined &&
+      CUSTOMER_OPT_OUT_PATTERN.test(String(event.payload.content ?? '')));
   const optViolations = events.filter((event, index) => optIndex >= 0 && index > optIndex && ['offer', 'sms'].includes(event.type) && !event.payload.verbalPermission);
   add('opt_out', state.optOut || required.has('opt_out'), optViolations.length > 0 || (state.wrapUpComplete && !state.suppressionRecorded) ? 'fail' : state.optOut && state.suppressionRecorded ? 'pass' : 'not_observed', [...optViolations, ...events.filter((event) => event.type === 'suppress')].map((event) => event.id), 'After opt-out, stop offers and SMS and record permanent suppression.', `Opt-out event index ${optIndex}; ${optViolations.length} subsequent offer/SMS attempts.`);
 
@@ -525,7 +578,7 @@ export function evaluateDeterministicGates(
   add('offer_limit', state.context.queue === 'recovery' || required.has('offer_limit'), offers.length > 2 ? 'fail' : offers.length > 0 ? 'pass' : 'not_observed', offers.map((event) => event.id), 'Stay within the approved offer and re-offer limit.', `${offers.length} offer attempts observed; maximum 2.`, 'major');
 
   if (state.context.product === 'NAD+' && state.context.stage === 'score') {
-    const priceQuestion = events.find((event) => event.actor === 'customer' && /\b(?:how much|what(?:'s| is) the price|what does it cost|price please)\b/i.test(String(event.payload.content ?? '')));
+    const priceQuestion = events.find((event) => event.actor === 'customer' && CUSTOMER_PRICE_QUESTION_PATTERN.test(String(event.payload.content ?? '')));
     const earlyPrice = learner.filter((event) => /\$\s?\d|\b(?:price|pricing|cost|per month|monthly)\b/i.test(String(event.payload.content ?? '')) && (!priceQuestion || event.sequence < priceQuestion.sequence));
     add('pricing_passive', true, earlyPrice.length > 0 ? 'fail' : learner.length > 0 ? 'pass' : 'not_observed', [...earlyPrice, ...(priceQuestion ? [priceQuestion] : [])].map((event) => event.id), 'On a Score call, discuss price only after the customer asks.', `${earlyPrice.length} unsolicited pricing utterances observed.`);
   }
@@ -687,11 +740,11 @@ export function applyDeterministicAssessment(input: {
   disposition: DispositionValidation;
 }): SimEvaluation {
   const failures = input.gates.filter((gate) => gate.status === 'fail');
+  // Only a failed deterministic rule is an automatic fail. Incomplete evidence / eligibility reasons
+  // are reported through assessmentEligibility.reasons (rendered separately), never as an auto-fail.
   const deterministicReason = failures.length > 0
     ? failures.map((gate) => `${gate.ruleId}: ${gate.learnerFeedback}`).join(' ')
-    : input.eligibility.eligible
-      ? null
-      : input.eligibility.reasons.join(' ');
+    : null;
   const coaching = [
     ...failures.map((gate) => `${gate.learnerFeedback} [${gate.evidenceEventIds.join(', ') || 'no event evidence'}]`),
     ...input.eligibility.reasons,
@@ -706,7 +759,8 @@ export function applyDeterministicAssessment(input: {
     overallScorePct: input.eligibility.eligible ? input.evaluation.overallScorePct : Math.min(59, input.evaluation.overallScorePct),
     passed: input.evaluation.passed && input.eligibility.eligible && input.disposition.valid,
     autoFailedReason: deterministicReason ?? input.evaluation.autoFailedReason,
-    dispositionCorrect: input.disposition.valid,
+    // Correct = the expected disposition (judge/scoring) AND supported by server state. Validity alone is in dispositionValidation.
+    dispositionCorrect: input.evaluation.dispositionCorrect && input.disposition.valid,
     summaryFeedback: input.eligibility.eligible
       ? input.evaluation.summaryFeedback
       : `Assessment evidence is incomplete or failed a required rule. ${input.evaluation.summaryFeedback}`,

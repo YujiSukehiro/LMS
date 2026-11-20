@@ -286,3 +286,9 @@ export async function loadCohortOptions(): Promise<CohortOption[]> {
 export function trackNeedsBuild(track: TrackDoc): boolean {
   return track.status === 'GENERATING' || track.generationProgress.step !== 'READY';
 }
+
+/** Simulation calls waiting for a Trainer's manual score (internal ops only; single-field equality, no composite index). */
+export async function loadAwaitingJudgeSessions(limit = 50): Promise<SimSessionDoc[]> {
+  const snap = await adminDb.collection('simSessions').where('judgeReview.status', '==', 'awaiting_manual_judge').limit(limit).get();
+  return parseDocs(SimSessionDocSchema, snap.docs, 'id');
+}

@@ -26,6 +26,7 @@ import { SequenceOrderDrill } from './SequenceOrderDrill';
 import { TrueFalseSpotDrill } from './TrueFalseSpotDrill';
 import { createIdempotencyKey } from './drill-shared';
 import { useHotkeys } from './useHotkeys';
+import { checkpointScoreLine, summarizeDrillRound, type DrillRoundSummary, type RoundFirstAnswer } from './round-score';
 
 export interface DrillRunnerProgress {
   /** One segment per Drill, in Drill order. */
@@ -44,8 +45,8 @@ export interface DrillRunnerProps {
   trackId?: string;
   versionId?: string;
   unitId?: string;
-  /** Called once when every Drill is cleared, using accumulated server responses. */
-  onComplete: (results: DrillResult[]) => void;
+  /** Called once when every Drill is cleared, using accumulated server responses; `round` scores this sitting. */
+  onComplete: (results: DrillResult[], round: DrillRoundSummary) => void;
   /** Optional progress feed for an outer progress bar (pass a stable callback). */
   onProgress?: (progress: DrillRunnerProgress) => void;
   /** Hide the built-in progress bar (when the parent renders its own). */
@@ -139,6 +140,8 @@ interface RunnerState {
   firstIndependent: Record<number, boolean>;
   /** drillIndex -> how the server says it was cleared. */
   cleared: Record<number, 'first' | 'recovered'>;
+  /** drillIndex -> the first answer given in this round (attempt 0), whatever its attempt kind. */
+  roundFirst: Record<number, RoundFirstAnswer>;
   streak: number;
   bestStreak: number;
   citationOpen: boolean;
@@ -162,6 +165,7 @@ function initialState(count: number): RunnerState {
     firstTry: {},
     firstIndependent: {},
     cleared: {},
+    roundFirst: {},
     streak: 0,
     bestStreak: 0,
     citationOpen: false,
@@ -181,6 +185,9 @@ function reducer(state: RunnerState, action: RunnerAction): RunnerState {
         response.attemptKind === 'initial'
           ? { ...state.firstTry, [entry.drillIndex]: response.correct }
           : state.firstTry;
+      const roundFirst = entry.attempt === 0
+        ? { ...state.roundFirst, [entry.drillIndex]: { correct: response.correct, firstIndependent: response.firstIndependent } }
+        : state.roundFirst;
       if (response.correct) {
         const streak = state.streak + 1;
         return {
@@ -188,6 +195,7 @@ function reducer(state: RunnerState, action: RunnerAction): RunnerState {
           phase: 'feedback',
           response,
           firstTry,
+          roundFirst,
           firstIndependent: { ...state.firstIndependent, [entry.drillIndex]: response.firstIndependent },
           cleared: { ...state.cleared, [entry.drillIndex]: response.firstIndependent ? 'first' : 'recovered' },
           streak,
@@ -200,6 +208,7 @@ function reducer(state: RunnerState, action: RunnerAction): RunnerState {
         phase: 'feedback',
         response,
         firstTry,
+        roundFirst,
         queue: [
           ...state.queue,
           { drillIndex: entry.drillIndex, attempt: entry.attempt + 1, idempotencyKey: action.recoveryKey },
@@ -285,11 +294,13 @@ export function DrillRunner({
     [drills, state.firstIndependent],
   );
 
+  const round = useMemo(() => summarizeDrillRound(state.roundFirst, drills.length), [state.roundFirst, drills.length]);
+
   useEffect(() => {
     if (state.phase !== 'done' || completedRef.current) return;
     completedRef.current = true;
-    onComplete(results);
-  }, [state.phase, results, onComplete]);
+    onComplete(results, round);
+  }, [state.phase, results, round, onComplete]);
 
   useEffect(() => {
     if (state.phase !== 'answering') return;
@@ -375,17 +386,18 @@ export function DrillRunner({
   const firstTryCorrect = results.filter((result) => result.passedFirstTry).length;
 
   if (state.phase === 'done' || !drill || !entry) {
-    const pct = drills.length === 0 ? 100 : Math.round((firstTryCorrect / drills.length) * 100);
+    const score = checkpointScoreLine(
+      { firstTryCorrect, total: drills.length, accuracyPct: drills.length === 0 ? 100 : Math.round((firstTryCorrect / drills.length) * 100) },
+      round,
+    );
     return (
       <section className="pulse-cq w-full" aria-live="polite">
         <div className="pulse-card-elevated flex flex-col items-center gap-3 p-8 text-center">
           <CircleCheck aria-hidden className="size-10 text-pulse-emerald" />
           <h2 className="text-xl font-bold">All Drills cleared</h2>
           <p className="text-sm text-pulse-secondary">
-            First-try accuracy <span className="pulse-metric font-semibold text-pulse-primary">{pct}%</span> (
-            <span className="pulse-metric">
-              {firstTryCorrect}/{drills.length}
-            </span>
+            {score.label} <span className="pulse-metric font-semibold text-pulse-primary">{score.pct}%</span> (
+            <span className="pulse-metric">{score.detail}</span>
             )
             {state.bestStreak >= 2 ? (
               <>

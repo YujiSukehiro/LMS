@@ -6,6 +6,7 @@ import { GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup, signOu
 import { ArrowRight, KeyRound, Loader2, X } from 'lucide-react';
 import { establishServerSession, getClientAuth, identifierToEmail } from '@/lib/firebase/client';
 import { describeAuthError, isSilentAuthError } from '@/lib/firebase/auth-errors';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 
 type Pending = 'google' | 'password' | null;
 
@@ -85,7 +86,11 @@ export function LoginForm({ nextPath, notice }: { nextPath: string; notice: stri
   return (
     <div className="pulse-card p-6 sm:p-8">
       <h1 className="text-xl font-semibold tracking-tight">LogiCall Pulse Operations Sign-In</h1>
-      <p className="mt-1 text-sm text-pulse-secondary">Campaign readiness, Drills, and Live Call Sims.</p>
+      <p className="mt-1 text-sm text-pulse-secondary">
+        {TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
+          ? 'Campaign readiness, Drills, Verbal Practice, and Knowledge Retention.'
+          : 'Campaign readiness, Drills, and Live Call Sims.'}
+      </p>
 
       {notice && !error ? (
         <p role="status" className="mt-4 rounded-pulse-md border border-pulse-border bg-pulse-surface-2 px-3 py-2 text-sm text-pulse-secondary">

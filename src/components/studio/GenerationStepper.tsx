@@ -11,6 +11,8 @@ import {
 } from '@/lib/schemas/api';
 import type { GenerationStep } from '@/lib/schemas/curriculum';
 import { cn } from '@/lib/utils';
+import { fetchSourceReview, isNoActiveSourceBundle, postSourceReview, type SourceReviewData } from './source-review-api';
+import { parseCheckpointProgress, type CheckpointProgress } from './generation-view';
 
 interface StepperStage {
   id: string;
@@ -31,18 +33,9 @@ function stageIndexFor(step: GenerationStep): number {
   return index === -1 ? 0 : index;
 }
 
-/** Reads "Checkpoint 2 of 5" / "2/5" from a progress message. */
-function parseUnitCounter(message: string): { current: number; total: number } | null {
-  const match = /(\d+)\s*(?:of|\/)\s*(\d+)/i.exec(message);
-  if (!match) return null;
-  const current = Number(match[1]);
-  const total = Number(match[2]);
-  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0 || total > 20 || current > total) return null;
-  return { current, total };
-}
-
 type StreamState =
   | { kind: 'connecting' }
+  | { kind: 'approval' }
   | { kind: 'running' }
   | { kind: 'complete'; versionId: string }
   | { kind: 'error'; message: string };
@@ -69,79 +62,107 @@ export function GenerationStepper({
     initialProgress ?? { step: 'UPLOADING', percent: 0, message: 'Connecting to the Track generator…' },
   );
   const [state, setState] = useState<StreamState>({ kind: 'connecting' });
+  const [sourceReview, setSourceReview] = useState<SourceReviewData | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [unitCounter, setUnitCounter] = useState<{ current: number; total: number } | null>(null);
+  const [unitCounter, setUnitCounter] = useState<CheckpointProgress | null>(() =>
+    initialProgress?.step === 'BUILDING_UNITS' ? parseCheckpointProgress(initialProgress.message) : null,
+  );
   const onCompleteRef = useRef(onComplete);
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
   useEffect(() => {
-    const source = new EventSource(`/api/tracks/${encodeURIComponent(trackId)}/generate`);
+    let source: EventSource | undefined;
     let finished = false;
+    let cancelled = false;
     let redirectTimer: ReturnType<typeof setTimeout> | undefined;
 
-    source.addEventListener('open', () => {
-      if (!finished) setState({ kind: 'running' });
-    });
-
-    source.addEventListener('progress', (event) => {
-      const parsed = GenerateProgressEventSchema.safeParse(safeJson((event as MessageEvent<string>).data));
-      if (!parsed.success) return;
-      const next = parsed.data;
-      setState({ kind: 'running' });
-      if (next.step === 'FAILED') {
-        finished = true;
-        source.close();
-        setProgress((prev) => ({ ...prev, message: next.message }));
-        setState({ kind: 'error', message: next.message || 'Track generation failed.' });
+    async function start() {
+      let review: SourceReviewData | null;
+      try {
+        review = await fetchSourceReview(trackId, '');
+      } catch (error) {
+        // A legacy or bundle-less Track has nothing to approve: generate-track builds it without a bundle.
+        if (isNoActiveSourceBundle(error)) review = null;
+        else {
+          if (!cancelled) setState({ kind: 'error', message: error instanceof Error ? error.message : 'Source Review did not load.' });
+          return;
+        }
+      }
+      if (cancelled) return;
+      if (review?.bundle && review.bundle.status !== 'approved' && review.bundle.status !== 'published') {
+        setSourceReview(review);
+        setProgress({ step: 'EXTRACTING_PDF', percent: 5, message: 'Review and approve the uploaded source before building the Track.' });
+        setState({ kind: 'approval' });
         return;
       }
-      setProgress(next);
-      if (next.step === 'BUILDING_UNITS') {
-        const counter = parseUnitCounter(next.message);
-        if (counter) setUnitCounter(counter);
-      }
-    });
 
-    source.addEventListener('complete', (event) => {
-      const parsed = GenerateCompleteEventSchema.safeParse(safeJson((event as MessageEvent<string>).data));
-      finished = true;
-      source.close();
-      const versionId = parsed.success ? parsed.data.versionId : 'draft';
-      setProgress({ step: 'READY', percent: 100, message: 'Your Track is ready for review.' });
-      setUnitCounter((prev) => (prev ? { current: prev.total, total: prev.total } : prev));
-      setState({ kind: 'complete', versionId });
-      onCompleteRef.current?.(versionId);
-      if (redirectOnComplete) {
-        redirectTimer = setTimeout(() => {
-          router.replace(`/studio/${encodeURIComponent(trackId)}`);
-          router.refresh();
-        }, 900);
-      }
-    });
+      source = new EventSource(`/api/tracks/${encodeURIComponent(trackId)}/generate`);
+      source.addEventListener('open', () => {
+        if (!finished) setState({ kind: 'running' });
+      });
 
-    source.addEventListener('error', (event) => {
-      if (finished) return;
-      finished = true;
-      source.close();
-      if (event instanceof MessageEvent && typeof event.data === 'string') {
-        const parsed = SseErrorEventSchema.safeParse(safeJson(event.data));
+      source.addEventListener('progress', (event) => {
+        const parsed = GenerateProgressEventSchema.safeParse(safeJson((event as MessageEvent<string>).data));
+        if (!parsed.success) return;
+        const next = parsed.data;
+        setState({ kind: 'running' });
+        if (next.step === 'FAILED') {
+          finished = true;
+          source?.close();
+          setProgress((prev) => ({ ...prev, message: next.message }));
+          setState({ kind: 'error', message: next.message || 'Track generation failed.' });
+          return;
+        }
+        setProgress(next);
+        if (next.step === 'BUILDING_UNITS') {
+          const counter = parseCheckpointProgress(next.message);
+          if (counter) setUnitCounter(counter);
+        }
+      });
+
+      source.addEventListener('complete', (event) => {
+        const parsed = GenerateCompleteEventSchema.safeParse(safeJson((event as MessageEvent<string>).data));
+        finished = true;
+        source?.close();
+        const versionId = parsed.success ? parsed.data.versionId : 'draft';
+        setProgress({ step: 'READY', percent: 100, message: 'Your Track is ready for review.' });
+        setUnitCounter((prev) => (prev ? { completed: prev.total, current: null, total: prev.total } : prev));
+        setState({ kind: 'complete', versionId });
+        onCompleteRef.current?.(versionId);
+        if (redirectOnComplete) {
+          redirectTimer = setTimeout(() => {
+            router.replace(`/studio/${encodeURIComponent(trackId)}`);
+            router.refresh();
+          }, 900);
+        }
+      });
+
+      source.addEventListener('error', (event) => {
+        if (finished) return;
+        finished = true;
+        source?.close();
+        if (event instanceof MessageEvent && typeof event.data === 'string') {
+          const parsed = SseErrorEventSchema.safeParse(safeJson(event.data));
+          setState({
+            kind: 'error',
+            message: parsed.success ? parsed.data.message : 'Track generation failed.',
+          });
+          return;
+        }
         setState({
           kind: 'error',
-          message: parsed.success ? parsed.data.message : 'Track generation failed.',
+          message: 'The connection to the Track generator closed before the Track was ready.',
         });
-        return;
-      }
-      setState({
-        kind: 'error',
-        message: 'The connection to the Track generator closed before the Track was ready.',
       });
-    });
+    }
 
+    void start();
     return () => {
+      cancelled = true;
       finished = true;
-      source.close();
+      source?.close();
       if (redirectTimer) clearTimeout(redirectTimer);
     };
   }, [trackId, attempt, redirectOnComplete, router]);
@@ -225,8 +246,8 @@ export function GenerationStepper({
                   <ul aria-label="Checkpoints" className="mt-1.5 flex flex-wrap gap-1.5">
                     {Array.from({ length: unitCounter.total }, (_, i) => {
                       const n = i + 1;
-                      const unitDone = done || n < unitCounter.current;
-                      const unitActive = active && n === unitCounter.current;
+                      const unitDone = done || n <= unitCounter.completed;
+                      const unitActive = active && !unitDone && n === unitCounter.current;
                       return (
                         <li
                           key={n}
@@ -254,6 +275,31 @@ export function GenerationStepper({
         })}
       </ol>
 
+      {state.kind === 'approval' && sourceReview?.bundle ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-pulse-md border border-pulse-indigo/40 bg-pulse-indigo/10 p-4">
+          <div className="max-w-xl">
+            <p className="text-sm font-semibold">Approve the exact uploaded source</p>
+            <p className="mt-1 text-xs text-pulse-secondary">
+              {sourceReview.bundle.documents.map((document) => document.fileName).join(', ')} · {sourceReview.pages.length} pages. Generation starts after this revision is approved.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="pulse-btn pulse-btn-primary"
+            onClick={() => {
+              setState({ kind: 'connecting' });
+              void postSourceReview(trackId, 'bundle', {
+                bundleId: sourceReview.bundle!.id,
+                expectedRevisionHash: sourceReview.bundle!.revisionHash,
+              }).then(() => setAttempt((n) => n + 1)).catch((error: unknown) => {
+                setState({ kind: 'error', message: error instanceof Error ? error.message : 'Source approval failed.' });
+              });
+            }}
+          >
+            <Check aria-hidden className="size-4" /> Approve source bundle revision
+          </button>
+        </div>
+      ) : null}
       {state.kind === 'error' ? (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-pulse-md border border-pulse-crimson/40 bg-pulse-crimson/10 p-3">
           <p className="text-sm text-pulse-crimson">{state.message}</p>

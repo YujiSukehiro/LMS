@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { adminDb } from '@/lib/firebase/admin';
 import { CohortDocSchema } from '@/lib/schemas/domain';
+import { clientKey, joinCodeLimiter } from '@/lib/services/attempt-limiter';
 import { JoinForm } from './JoinForm';
+import { normalizeJoinCode, resolveJoinPage, type CohortLookup } from './join-lookup';
 
 export const metadata: Metadata = { title: 'Claim Access' };
 export const dynamic = 'force-dynamic';
-
-type CohortLookup = { status: 'found'; cohortName: string } | { status: 'invalid' } | { status: 'unknown' };
 
 async function lookupCohort(joinCode: string): Promise<CohortLookup> {
   try {
@@ -26,13 +27,27 @@ async function lookupCohort(joinCode: string): Promise<CohortLookup> {
 
 export default async function JoinPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
-  let joinCode: string;
-  try {
-    joinCode = decodeURIComponent(code).trim().toUpperCase();
-  } catch {
-    joinCode = code.trim().toUpperCase();
+  const joinCode = normalizeJoinCode(code);
+  // clientKey reads the proxy headers from a Request; wrap the incoming headers in one.
+  const client = clientKey(new Request('http://join.local/', { headers: await headers() }));
+  const lookup = await resolveJoinPage({ joinCode, client, limiter: joinCodeLimiter, lookup: lookupCohort });
+
+  if (lookup.status === 'rate_limited') {
+    const minutes = Math.max(1, Math.ceil(lookup.retryAfterSeconds / 60));
+    const wait = `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+    return (
+      <div className="pulse-card p-6 sm:p-8">
+        <h1 className="text-xl font-semibold tracking-tight">Too Many Join Codes Tried</h1>
+        <p className="mt-2 text-sm text-pulse-secondary">
+          Too many wrong join codes came from this connection. Wait about {wait}, then try again, or ask your
+          supervisor for the current code.
+        </p>
+        <Link href="/login" className="pulse-btn mt-6 w-full justify-center">
+          Back to Sign-In
+        </Link>
+      </div>
+    );
   }
-  const lookup = await lookupCohort(joinCode);
 
   if (lookup.status === 'invalid') {
     return (

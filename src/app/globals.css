@@ -1,10 +1,58 @@
 @import "tailwindcss";
+/* Scan this app's own src even when the dev server is started from a parent folder. */
+@source "../";
 
 /* ================================================================
    "Slate & Signal" design tokens (docs/05 §1.1)
+   Themes: light (default), dark, contrast, system.
+   The server sets <html data-theme> from the `pulse-theme` cookie (src/lib/theme/themes.ts).
    ================================================================ */
+
+/* Shared geometry and type (same in every theme) */
 :root {
-  /* Dark-First Operational Palette */
+  --pulse-radius-sm: 6px;
+  --pulse-radius-md: 10px;
+  --pulse-radius-lg: 14px;
+  --pulse-font-sans: var(--font-plus-jakarta), 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --pulse-font-mono: var(--font-jetbrains-mono), 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Light (default). Accents are one step darker than dark mode so text on white passes WCAG AA. */
+:root,
+:root[data-theme='light'] {
+  --pulse-bg: #f6f7fb;
+  --pulse-surface-1: #ffffff;
+  --pulse-surface-2: #f1f4f9;
+  --pulse-surface-elevated: #e6ebf3;
+  --pulse-border: #cfd7e3;
+  --pulse-border-subtle: #e3e8f0;
+
+  --pulse-text-primary: #0f172a;
+  --pulse-text-secondary: #334155;
+  --pulse-text-muted: #5b6b82;
+
+  --pulse-indigo: #4f46e5;
+  --pulse-indigo-hover: #4338ca;
+  --pulse-indigo-text: #4338ca;
+  --pulse-emerald: #047857;
+  --pulse-amber: #a64c08; /* AA on every light surface, including surface-elevated (#b45309 was 4.2:1) */
+  --pulse-crimson: #c81e1e;
+  --pulse-on-accent: #ffffff;
+  --pulse-on-emerald: #ffffff;
+
+  --div-telehealth: #0f766e;
+  --div-inbound: #6d28d9;
+  --div-outbound: #b03a0a; /* AA on surface-elevated (#c2410c was 4.3:1) */
+
+  --pulse-shadow-color: 220 40% 20%;
+  --pulse-shadow-strength: 0.12;
+  --pulse-backdrop: rgb(15 23 42 / 0.45);
+
+  color-scheme: light;
+}
+
+/* Dark: the original operations palette */
+:root[data-theme='dark'] {
   --pulse-bg: #0b1120;
   --pulse-surface-1: #111827;
   --pulse-surface-2: #1e293b;
@@ -12,45 +60,106 @@
   --pulse-border: #334155;
   --pulse-border-subtle: #1e293b;
 
-  /* Text Hierarchy */
   --pulse-text-primary: #f8fafc;
   --pulse-text-secondary: #cbd5e1;
   --pulse-text-muted: #94a3b8;
 
-  /* Functional Signal Accents */
   --pulse-indigo: #6366f1;
   --pulse-indigo-hover: #4f46e5;
+  --pulse-indigo-text: #a5b4fc;
   --pulse-emerald: #10b981;
   --pulse-amber: #f59e0b;
-  --pulse-crimson: #ef4444;
+  --pulse-crimson: #f87171; /* red-400: AA on every dark surface (#ef4444 was 3.9:1 on surface-2) */
+  --pulse-on-accent: #ffffff;
+  --pulse-on-emerald: #04140e;
 
-  /* Division Accent Pills */
   --div-telehealth: #14b8a6;
-  --div-inbound: #8b5cf6;
+  --div-inbound: #a78bfa; /* violet-400: AA on dark surfaces (#8b5cf6 was 3.5:1) */
   --div-outbound: #f97316;
 
-  /* Geometry & Motion */
-  --pulse-radius-sm: 6px;
-  --pulse-radius-md: 10px;
-  --pulse-radius-lg: 14px;
-  --pulse-font-sans: var(--font-plus-jakarta), 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --pulse-font-mono: var(--font-jetbrains-mono), 'JetBrains Mono', ui-monospace, monospace;
+  --pulse-shadow-color: 0 0% 0%;
+  --pulse-shadow-strength: 0.4;
+  --pulse-backdrop: rgb(2 6 23 / 0.7);
 
   color-scheme: dark;
 }
 
-/* Light Mode (set by the server from users/{uid}.preferences.theme — no client storage scripts) */
-:root[data-theme='light'] {
-  --pulse-bg: #f8fafc;
+/* System: follow the device. Light tokens come from :root; dark tokens repeat here. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme='system'] {
+    --pulse-bg: #0b1120;
+    --pulse-surface-1: #111827;
+    --pulse-surface-2: #1e293b;
+    --pulse-surface-elevated: #263349;
+    --pulse-border: #334155;
+    --pulse-border-subtle: #1e293b;
+    --pulse-text-primary: #f8fafc;
+    --pulse-text-secondary: #cbd5e1;
+    --pulse-text-muted: #94a3b8;
+    --pulse-indigo: #6366f1;
+    --pulse-indigo-hover: #4f46e5;
+    --pulse-indigo-text: #a5b4fc;
+    --pulse-emerald: #10b981;
+    --pulse-amber: #f59e0b;
+    --pulse-crimson: #f87171; /* red-400: AA on every dark surface (#ef4444 was 3.9:1 on surface-2) */
+    --pulse-on-accent: #ffffff;
+    --pulse-on-emerald: #04140e;
+    --div-telehealth: #14b8a6;
+    --div-inbound: #a78bfa; /* violet-400: AA on dark surfaces (#8b5cf6 was 3.5:1) */
+    --div-outbound: #f97316;
+    --pulse-shadow-color: 0 0% 0%;
+    --pulse-shadow-strength: 0.4;
+    --pulse-backdrop: rgb(2 6 23 / 0.7);
+    color-scheme: dark;
+  }
+}
+
+/* Dark: --pulse-indigo stays the button fill (white text on it), but as a text color it is only 3.3:1 on
+   the dark surfaces, so text-pulse-indigo reads the light indigo text token instead. Unlayered, so it wins
+   over the Tailwind utility. */
+:root[data-theme='dark'] .text-pulse-indigo {
+  color: var(--pulse-indigo-text);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme='system'] .text-pulse-indigo {
+    color: var(--pulse-indigo-text);
+  }
+}
+
+/* High contrast: white surfaces, near-black text, strong borders and accents (AAA text). */
+:root[data-theme='contrast'] {
+  --pulse-bg: #ffffff;
   --pulse-surface-1: #ffffff;
-  --pulse-surface-2: #f1f5f9;
-  --pulse-surface-elevated: #e2e8f0;
-  --pulse-border: #cbd5e1;
-  --pulse-border-subtle: #e2e8f0;
-  --pulse-text-primary: #0b1120;
-  --pulse-text-secondary: #334155;
-  --pulse-text-muted: #64748b;
+  --pulse-surface-2: #f2f2f2;
+  --pulse-surface-elevated: #e0e0e0;
+  --pulse-border: #1a1a1a;
+  --pulse-border-subtle: #595959;
+
+  --pulse-text-primary: #000000;
+  --pulse-text-secondary: #1a1a1a;
+  --pulse-text-muted: #333333;
+
+  --pulse-indigo: #2a1fb8;
+  --pulse-indigo-hover: #1e1690;
+  --pulse-indigo-text: #2a1fb8;
+  --pulse-emerald: #035c3f;
+  --pulse-amber: #7a3a00;
+  --pulse-crimson: #a00000;
+  --pulse-on-accent: #ffffff;
+  --pulse-on-emerald: #ffffff;
+
+  --div-telehealth: #005a52;
+  --div-inbound: #4c1d95;
+  --div-outbound: #8a2c00;
+
+  --pulse-shadow-color: 0 0% 0%;
+  --pulse-shadow-strength: 0.2;
+  --pulse-backdrop: rgb(0 0 0 / 0.6);
+
   color-scheme: light;
+}
+:root[data-theme='contrast'] :focus-visible {
+  outline-width: 3px;
 }
 
 /* Expose the tokens to Tailwind utilities: bg-pulse-surface-1, text-pulse-muted, border-pulse-border, ... */
@@ -66,6 +175,9 @@
   --color-pulse-muted: var(--pulse-text-muted);
   --color-pulse-indigo: var(--pulse-indigo);
   --color-pulse-indigo-hover: var(--pulse-indigo-hover);
+  --color-pulse-indigo-text: var(--pulse-indigo-text);
+  --color-pulse-on-accent: var(--pulse-on-accent);
+  --color-pulse-on-emerald: var(--pulse-on-emerald);
   --color-pulse-emerald: var(--pulse-emerald);
   --color-pulse-amber: var(--pulse-amber);
   --color-pulse-crimson: var(--pulse-crimson);
@@ -107,6 +219,7 @@ body {
     background: var(--pulse-surface-1);
     border: 1px solid var(--pulse-border-subtle);
     border-radius: var(--pulse-radius-lg);
+    box-shadow: 0 1px 2px hsl(var(--pulse-shadow-color) / calc(var(--pulse-shadow-strength) * 0.5));
   }
   .pulse-card-elevated {
     background: var(--pulse-surface-2);
@@ -154,7 +267,7 @@ body {
   .pulse-btn-primary {
     background: var(--pulse-indigo);
     border-color: var(--pulse-indigo);
-    color: #fff;
+    color: var(--pulse-on-accent);
   }
   .pulse-btn-primary:hover:not(:disabled) {
     background: var(--pulse-indigo-hover);
@@ -162,7 +275,7 @@ body {
   .pulse-btn-success {
     background: var(--pulse-emerald);
     border-color: var(--pulse-emerald);
-    color: #04140e;
+    color: var(--pulse-on-emerald);
   }
   .pulse-btn-danger {
     background: transparent;
@@ -241,7 +354,7 @@ body {
     background: color-mix(in srgb, var(--pulse-crimson) 12%, transparent);
   }
   .pulse-pill-indigo {
-    color: #a5b4fc;
+    color: var(--pulse-indigo-text);
     border-color: color-mix(in srgb, var(--pulse-indigo) 50%, transparent);
     background: color-mix(in srgb, var(--pulse-indigo) 15%, transparent);
   }
@@ -271,10 +384,13 @@ body {
     color: var(--pulse-text-primary);
     border: 1px solid var(--pulse-border);
     border-radius: var(--pulse-radius-lg);
-    box-shadow: 0 24px 60px rgb(0 0 0 / 0.45);
+    box-shadow: 0 24px 60px hsl(var(--pulse-shadow-color) / calc(var(--pulse-shadow-strength) + 0.05));
     opacity: 0;
     transform: translateY(8px) scale(0.98);
     transition: opacity 180ms ease, transform 180ms ease, overlay 180ms allow-discrete, display 180ms allow-discrete;
+  }
+  .pulse-dialog:modal {
+    overscroll-behavior: contain;
   }
   .pulse-dialog[open] {
     opacity: 1;
@@ -287,12 +403,14 @@ body {
     }
   }
   .pulse-dialog::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
     background: rgb(2 6 23 / 0);
     backdrop-filter: blur(0);
     transition: background-color 180ms ease, backdrop-filter 180ms ease, overlay 180ms allow-discrete, display 180ms allow-discrete;
   }
   .pulse-dialog[open]::backdrop {
-    background: rgb(2 6 23 / 0.7);
+    background: var(--pulse-backdrop);
     backdrop-filter: blur(3px);
   }
   @starting-style {
@@ -309,12 +427,36 @@ body {
     color: var(--pulse-text-primary);
     border: 1px solid var(--pulse-border);
     border-radius: var(--pulse-radius-md);
-    box-shadow: 0 12px 30px rgb(0 0 0 / 0.35);
+    box-shadow: 0 12px 30px hsl(var(--pulse-shadow-color) / var(--pulse-shadow-strength));
   }
 
   /* Container-query host for Drill cards and analytics widgets */
   .pulse-cq {
     container-type: inline-size;
+  }
+
+  /* Native <progress> bar (separate WebKit & Firefox pseudo-element rules per web platform rules) */
+  .pulse-progress {
+    appearance: none;
+    border: 0 solid;
+    overflow: clip;
+    width: 100%;
+    height: 0.375rem;
+    border-radius: 999px;
+    background: var(--pulse-surface-2);
+  }
+  .pulse-progress::-webkit-progress-bar {
+    background: transparent;
+  }
+  .pulse-progress::-webkit-progress-value {
+    background: var(--pulse-indigo);
+    border-radius: 999px;
+    transition: inline-size 0.3s ease;
+  }
+  .pulse-progress::-moz-progress-bar {
+    background: var(--pulse-indigo);
+    border-radius: 999px;
+    transition: inline-size 0.3s ease;
   }
 }
 

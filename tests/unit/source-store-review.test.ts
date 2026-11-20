@@ -52,11 +52,14 @@ vi.mock('@/lib/firebase/admin', () => ({
     runTransaction: async <T>(callback: (tx: {
       get(ref: { get(): Promise<unknown> }): Promise<unknown>;
       set(ref: { path: string }, data: unknown): void;
+      update(ref: { path: string }, data: Record<string, unknown>): void;
     }) => Promise<T>): Promise<T> => {
       const pending: Array<{ ref: { path: string }; data: unknown }> = [];
       const tx = {
         get: (ref: { get(): Promise<unknown> }) => ref.get(),
         set: (ref: { path: string }, data: unknown) => pending.push({ ref, data: clone(data) }),
+        update: (ref: { path: string }, data: Record<string, unknown>) =>
+          pending.push({ ref, data: { ...(store.get(ref.path) as Record<string, unknown> | undefined), ...clone(data) } }),
       };
       const result = await callback(tx);
       for (const operation of pending) {
@@ -338,6 +341,54 @@ describe('trainer source review gates', () => {
     expect((await bundleResponse.json()).bundle).toMatchObject({
       status: 'approved', approvedSourceRevision: transcriptionBody.sourceRevision, approvedByUid: 'trainer-1',
     });
+  });
+
+  it('keeps the revision on a whitespace-only transcription re-approval and rebinds the draft only after exact re-verification', async () => {
+    const initial = seed();
+    expect((await command({ action: 'approve_rule_pack', rulePackId: 'pack-1' })).status).toBe(200);
+    const first = await (await command({ action: 'approve_transcription', documentId, revisionId, pageNumber: 1, text: transcriptionText })).json();
+    expect((await command({
+      action: 'record_conflict_decision', conflictId: 'conflict-1', status: 'resolved',
+      decision: 'Use the approved synthetic sequence for this training context.',
+    })).status).toBe(200);
+    expect((await command({ action: 'approve_asset', assetId: 'workflow-1' })).status).toBe(200);
+
+    // Rebind is refused until the new revision is approved, and nothing is written.
+    writes.length = 0;
+    const early = await command({ action: 'rebind_draft' });
+    expect(early.status).toBe(409);
+    expect((await early.json()).error).toBe('SOURCE_NOT_APPROVED');
+    expect(writes).toEqual([]);
+
+    expect((await command({ action: 'approve_bundle' })).status).toBe(200);
+    const rebound = await command({ action: 'rebind_draft', expectedRevisionHash: first.sourceRevision });
+    expect(rebound.status).toBe(200);
+    expect(await rebound.json()).toMatchObject({ ok: true, previousSourceRevision: initial.revisionHash, sourceRevision: first.sourceRevision });
+    expect((store.get(`tracks/${trackId}/versions/draft`) as TrackVersionDoc).sourceRevision).toBe(first.sourceRevision);
+
+    // Whitespace-only edit: same revision, bundle approval and draft binding survive.
+    const spaced = await (await command({
+      action: 'approve_transcription', documentId, revisionId, pageNumber: 1,
+      text: `  ${transcriptionText.replaceAll('. ', '.\n\n')}  `,
+    })).json();
+    expect(spaced.sourceRevision).toBe(first.sourceRevision);
+    expect(spaced.bundle).toMatchObject({ status: 'approved', approvedSourceRevision: first.sourceRevision });
+
+    // A wording change that drops an approved asset excerpt: rebind returns the mismatching excerpt, no draft write.
+    const reworded = await (await command({
+      action: 'approve_transcription', documentId, revisionId, pageNumber: 1,
+      text: 'Open the synthetic portal. Select Submit. Confirm the synthetic completion message.',
+    })).json();
+    expect(reworded.sourceRevision).not.toBe(first.sourceRevision);
+    expect((await command({ action: 'approve_bundle' })).status).toBe(200);
+    writes.length = 0;
+    const mismatch = await command({ action: 'rebind_draft' });
+    expect(mismatch.status).toBe(422);
+    const body = await mismatch.json();
+    expect(body.error).toBe('REBIND_EXCERPT_MISMATCH');
+    expect(body.details.mismatches).toEqual([expect.objectContaining({ ownerType: 'asset', ownerId: 'workflow-1', exactText: 'Select Approve.', reason: 'text_mismatch' })]);
+    expect(writes).toEqual([]);
+    expect((store.get(`tracks/${trackId}/versions/draft`) as TrackVersionDoc).sourceRevision).toBe(first.sourceRevision);
   });
 
   it('returns parsed review data and rejects malformed input or stale revisions without writes', async () => {

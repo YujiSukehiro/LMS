@@ -48,7 +48,7 @@ export function FeedbackDrawer({
     <section
       aria-label="Answer feedback"
       className={cn(
-        'pulse-slide-up sticky bottom-0 z-10 mt-6 rounded-pulse-lg border p-4 shadow-[0_-12px_30px_rgb(0_0_0/0.35)] sm:p-5',
+        'pulse-slide-up sticky bottom-0 z-10 mt-6 rounded-pulse-lg border p-4 shadow-[0_-12px_30px_hsl(var(--pulse-shadow-color)/var(--pulse-shadow-strength))] sm:p-5',
         isCorrect
           ? 'border-pulse-emerald/50 bg-[color-mix(in_srgb,var(--pulse-emerald)_12%,var(--pulse-surface-1))]'
           : 'border-pulse-amber/50 bg-[color-mix(in_srgb,var(--pulse-amber)_10%,var(--pulse-surface-1))]',

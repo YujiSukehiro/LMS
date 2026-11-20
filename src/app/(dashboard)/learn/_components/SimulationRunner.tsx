@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { z } from 'zod';
 import {
   ArrowLeft,
   ClipboardCheck,
@@ -10,7 +9,9 @@ import {
   Headset,
   LoaderCircle,
   MessageSquareText,
+  Mic,
   PhoneCall,
+  RotateCcw,
   TriangleAlert,
   UserRound,
 } from 'lucide-react';
@@ -18,13 +19,13 @@ import { CallTicketHeader } from '@/components/simulation/CallTicketHeader';
 import { DifficultyBadge } from '@/components/simulation/DifficultyBadge';
 import { DispositionPicker } from '@/components/simulation/DispositionPicker';
 import { ScorecardView } from '@/components/simulation/ScorecardView';
-import { SyntheticOperationsPanel } from '@/components/simulation/SyntheticOperationsPanel';
 import { TranscriptChat, type TranscriptMessage } from '@/components/simulation/TranscriptChat';
-import { DIVISION_PILL_CLASS, SIM_CHANNEL_LABELS } from '@/components/simulation/labels';
-import { SimSessionDocSchema, type SimSessionDoc } from '@/lib/schemas/analytics';
+import { DIVISION_PILL_CLASS, VERBAL_CHANNEL_LABELS, verbalStartLabel } from '@/components/simulation/labels';
+import { createIdempotencyKey } from '@/components/learn/drill-shared';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { SimJudgeReviewSchema, type SimJudgeReview, type SimSessionDoc } from '@/lib/schemas/analytics';
 import {
   EvaluateSimResponseSchema,
-  SimulationActionResponseSchema,
   SimDoneEventSchema,
   SimTokenEventSchema,
   SseErrorEventSchema,
@@ -34,10 +35,10 @@ import {
 import type { PublicSimScenario } from '@/lib/schemas/curriculum';
 import type { DivisionId } from '@/lib/schemas/domain';
 import { CanonicalDispositionSchema } from '@/lib/schemas/source-truth';
-import { SyntheticOutboxRecordSchema, type SimulationAction } from '@/lib/schemas/simulation-state';
 import { readSseStream } from '@/lib/sse-client';
 import { cn } from '@/lib/utils';
 import { describeApiError, describeNetworkError, readApiFailure } from '../_lib/api-errors';
+import { z } from 'zod';
 
 export interface SimulationRunnerProps {
   trackId: string;
@@ -51,27 +52,25 @@ export interface SimulationRunnerProps {
   /** CompetencyPillar id -> label for the scorecard. */
   pillarLabels: Record<string, string>;
   mapHref: string;
+  /** Agent turns already taken in a saved run of this scenario; Start resumes it. null = no saved run. */
+  resumeTurnCount?: number | null;
 }
 
-type Phase = 'intro' | 'starting' | 'live' | 'grading' | 'scored';
+type Phase = 'intro' | 'starting' | 'live' | 'grading' | 'scored' | 'awaiting_trainer';
 
-const SimulationOperationsResponseSchema = z.object({
-  session: SimSessionDocSchema,
-  outboxRecords: z.array(SyntheticOutboxRecordSchema),
+/** 202 from evaluate: the AI coach could not score the call; a Trainer will (manual judge). */
+const EvaluatePendingResponseSchema = z.object({
+  pending: z.literal(true),
+  judgeReview: SimJudgeReviewSchema,
+  message: z.string(),
 });
 
-function describeBlockedWrapUp(session: SimSessionDoc): string {
-  const latest = session.simulationEvents?.at(-1);
-  const reasons = session.dispositionValidation?.reasons ?? [];
-  const missing = Array.isArray(latest?.payload.missingEvidence)
-    ? latest.payload.missingEvidence.map(String)
-    : [];
-  const details = [
-    ...reasons,
-    ...(missing.length > 0 ? [`Missing wrap-up evidence: ${missing.join(', ')}.`] : []),
-  ];
-  return details.join(' ') || 'The server blocked this wrap-up. Review the gate feedback and event playback, correct the evidence, then try again.';
-}
+/** `done` also carries the cleaned, persisted caller reply (the streamed tokens are only a preview). */
+const SimDoneWithReplySchema = SimDoneEventSchema.extend({ reply: z.string().optional() });
+const SimStreamErrorSchema = SseErrorEventSchema.extend({ code: z.string().optional() });
+
+const AI_UNAVAILABLE_CODE = 'AI_UNAVAILABLE';
+const NOT_IN_CALL_CODES = new Set(['SIM_NOT_IN_CALL', 'SIM_NOT_ACTIVE', 'SIM_TURN_LIMIT']);
 
 let localMessageSeq = 0;
 function nextLocalId(prefix: string): string {
@@ -83,7 +82,7 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
-/** Client flow for one Live Call Sim: start -> stream the conversation -> disposition -> AI coach scorecard. */
+/** Client flow for Verbal Practice: start -> spoken/typed dialogue -> AI coach scorecard. */
 export function SimulationRunner({
   trackId,
   trackTitle,
@@ -94,12 +93,13 @@ export function SimulationRunner({
   divisionId,
   pillarLabels,
   mapHref,
+  resumeTurnCount = null,
 }: SimulationRunnerProps) {
+  const requireDisposition = TRAINING_POLICY.requireDispositionInVerbalPractice;
   const [phase, setPhase] = useState<Phase>('intro');
+  const [resumeHint, setResumeHint] = useState<number | null>(resumeTurnCount);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<SimSessionDoc | null>(null);
-  const [outboxRecords, setOutboxRecords] = useState<z.infer<typeof SyntheticOutboxRecordSchema>[]>([]);
-  const [actionPending, setActionPending] = useState(false);
   const [messages, setMessages] = useState<TranscriptMessage[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [turnCount, setTurnCount] = useState(0);
@@ -111,9 +111,38 @@ export function SimulationRunner({
   const [selectedDisposition, setSelectedDisposition] = useState<string | null>(null);
   const [result, setResult] = useState<EvaluateSimResponse | null>(null);
   const [demoReplay, setDemoReplay] = useState(false);
+  const [pendingReview, setPendingReview] = useState<{ judgeReview: SimJudgeReview; message: string } | null>(null);
+  const [retryAction, setRetryAction] = useState<{ label: string; run: () => void } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const sendInFlightRef = useRef(false);
+  const startInFlightRef = useRef(false);
+  const evaluateInFlightRef = useRef(false);
+  const sessionRef = useRef<SimSessionDoc | null>(null);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  useEffect(() => {
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      const current = sessionRef.current;
+      if (!current || current.status !== 'ACTIVE' || current.turnCount > 0) return;
+      try {
+        void fetch(`/api/simulations/${encodeURIComponent(current.id)}/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: { type: 'abort', reason: 'Learner left the page before the practice started.' } }),
+          keepalive: true,
+        }).catch(() => undefined);
+      } catch {
+        // Best effort only.
+      }
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, []);
 
   const applySession = useCallback((next: SimSessionDoc) => {
     setSession(next);
@@ -124,71 +153,18 @@ export function SimulationRunner({
     setDemoReplay(next.provenance?.source === 'replay');
   }, []);
 
-  const refreshSession = useCallback(async (): Promise<SimSessionDoc | null> => {
-    if (!sessionId) return null;
-    try {
-      const response = await fetch(`/api/simulations/${encodeURIComponent(sessionId)}/action`, { cache: 'no-store' });
-      if (!response.ok) {
-        setError(await describeApiError(response, 'simulation'));
-        return null;
-      }
-      const parsed = SimulationOperationsResponseSchema.safeParse(await response.json());
-      if (!parsed.success) {
-        setError('The operations state could not be read. Your dialogue was saved; refresh before continuing.');
-        return null;
-      }
-      applySession(parsed.data.session);
-      setOutboxRecords(parsed.data.outboxRecords);
-      return parsed.data.session;
-    } catch (caught) {
-      setError(describeNetworkError(caught));
-      return null;
-    }
-  }, [applySession, sessionId]);
-
-  const performAction = useCallback(async (action: SimulationAction): Promise<SimSessionDoc | null> => {
-    if (!sessionId || actionPending) return null;
-    setActionPending(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/simulations/${encodeURIComponent(sessionId)}/action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
-      });
-      if (!response.ok) {
-        setError(await describeApiError(response, 'simulation'));
-        return null;
-      }
-      const parsed = SimulationActionResponseSchema.safeParse(await response.json());
-      if (!parsed.success) {
-        setError('The server processed the action, but its response was not readable. Refresh the operations state before continuing.');
-        return null;
-      }
-      applySession(parsed.data.session);
-      if (parsed.data.outboxRecord) {
-        const record = parsed.data.outboxRecord;
-        setOutboxRecords((current) => current.some((item) => item.id === record.id) ? current : [...current, record]);
-      }
-      return parsed.data.session;
-    } catch (caught) {
-      setError(describeNetworkError(caught));
-      return null;
-    } finally {
-      setActionPending(false);
-    }
-  }, [actionPending, applySession, sessionId]);
-
   const start = useCallback(async () => {
+    if (startInFlightRef.current) return;
+    startInFlightRef.current = true;
     abortRef.current?.abort();
     setPhase('starting');
     setError(null);
+    setRetryAction(null);
+    setPendingReview(null);
     setEvalError(null);
     setResult(null);
     setSession(null);
     setSessionId(null);
-    setOutboxRecords([]);
-    setActionPending(false);
     setDemoReplay(false);
     setSelectedDisposition(null);
     setSimEnded(false);
@@ -202,32 +178,138 @@ export function SimulationRunner({
         body: JSON.stringify({ trackId, versionId, scenarioId: scenario.id }),
       });
       if (!response.ok) {
-        setError(await describeApiError(response, 'simulation'));
+        const failure = await readApiFailure(response, 'simulation');
+        setError(failure.message);
+        if (failure.code === AI_UNAVAILABLE_CODE) setRetryAction({ label: 'Try again', run: () => void startRef.current() });
         setPhase('intro');
         return;
       }
       const parsed = StartSimResponseSchema.safeParse(await response.json());
       if (!parsed.success) {
-        setError('The Simulation started, but the server reply was not readable. Try again.');
+        setError('The Verbal Practice started, but the server reply was not readable. Try again.');
         setPhase('intro');
         return;
       }
-      applySession(parsed.data.session);
+      const started = parsed.data.session;
+      applySession(started);
+      setResumeHint(null);
+      if (started.status === 'READY_FOR_EVAL') {
+        setSimEnded(true);
+        if (requireDisposition) setPickerOpen(true);
+      } else if (started.turnCount >= scenario.maxTurns) {
+        setSimEnded(true);
+      }
       setPhase('live');
     } catch (caught) {
       setError(describeNetworkError(caught));
       setPhase('intro');
+    } finally {
+      startInFlightRef.current = false;
     }
-  }, [applySession, trackId, versionId, scenario.id]);
+  }, [applySession, trackId, versionId, scenario.id, scenario.maxTurns, requireDisposition]);
+  const startRef = useRef(start);
+  useEffect(() => {
+    startRef.current = start;
+  }, [start]);
+
+  const runEvaluation = useCallback(
+    async (disposition?: string) => {
+      if (!sessionId) return;
+      if (requireDisposition) {
+        const canonicalDisposition = CanonicalDispositionSchema.safeParse(disposition);
+        if (!canonicalDisposition.success) {
+          setEvalError('Choose one of the Playbook dispositions.');
+          return;
+        }
+        setSelectedDisposition(canonicalDisposition.data);
+      }
+      setEvalError(null);
+      setError(null);
+      setPickerOpen(false);
+      setPhase('grading');
+      try {
+        const response = await fetch(`/api/simulations/${encodeURIComponent(sessionId)}/evaluate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(disposition ? { selectedDisposition: disposition } : {}),
+        });
+        if (!response.ok) {
+          const message = await describeApiError(response, 'evaluation');
+          setEvalError(message);
+          setError(message);
+          setPhase('live');
+          if (requireDisposition) setPickerOpen(true);
+          return;
+        }
+        const body: unknown = await response.json();
+        if (response.status === 202) {
+          const pending = EvaluatePendingResponseSchema.safeParse(body);
+          setPendingReview({
+            judgeReview: pending.success
+              ? pending.data.judgeReview
+              : { status: 'awaiting_manual_judge', reason: 'ai_unavailable', requestedAt: Date.now() },
+            message: pending.success ? pending.data.message : 'Your practice was saved. A Trainer will score it.',
+          });
+          setSimEnded(true);
+          setPhase('awaiting_trainer');
+          return;
+        }
+        const parsed = EvaluateSimResponseSchema.safeParse(body);
+        if (!parsed.success) {
+          const message = 'Your practice was graded, but the scorecard was not readable. Try again.';
+          setEvalError(message);
+          setError(message);
+          setPhase('live');
+          if (requireDisposition) setPickerOpen(true);
+          return;
+        }
+        setResult(parsed.data);
+        setDemoReplay(parsed.data.demoReplay === true || parsed.data.evaluation.provenance?.source === 'replay');
+        setSimEnded(true);
+        setPhase('scored');
+      } catch (caught) {
+        const message = describeNetworkError(caught);
+        setEvalError(message);
+        setError(message);
+        setPhase('live');
+        if (requireDisposition) setPickerOpen(true);
+      }
+    },
+    [requireDisposition, sessionId],
+  );
+
+  const evaluate = useCallback(
+    async (disposition?: string) => {
+      if (evaluateInFlightRef.current || !sessionId) return;
+      evaluateInFlightRef.current = true;
+      try {
+        await runEvaluation(disposition);
+      } finally {
+        evaluateInFlightRef.current = false;
+      }
+    },
+    [runEvaluation, sessionId],
+  );
 
   const endCall = useCallback(() => {
     setEvalError(null);
-    setPickerOpen(true);
-  }, []);
+    if (requireDisposition) {
+      setPickerOpen(true);
+    } else {
+      void evaluate();
+    }
+  }, [evaluate, requireDisposition]);
+
+  const unconfirmedSendRef = useRef<{ content: string; key: string } | null>(null);
 
   const send = useCallback(
     async (content: string) => {
-      if (!sessionId || streamingText !== null || simEnded || actionPending || session?.scenarioState?.lifecycle !== 'in_call') return;
+      if (sendInFlightRef.current) return;
+      if (!sessionId || streamingText !== null || simEnded || phase !== 'live') return;
+      sendInFlightRef.current = true;
+      setRetryAction(null);
+      const idempotencyKey = unconfirmedSendRef.current?.content === content ? unconfirmedSendRef.current.key : createIdempotencyKey();
+      unconfirmedSendRef.current = { content, key: idempotencyKey };
       const agentMessage: TranscriptMessage = { id: nextLocalId('agent'), role: 'agent', content };
       setMessages((prev) => [...prev, agentMessage]);
       setStreamingText('');
@@ -244,24 +326,28 @@ export function SimulationRunner({
         const response = await fetch(`/api/simulations/${encodeURIComponent(sessionId)}/message`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify({ content, idempotencyKey }),
           signal: controller.signal,
         });
         if (!response.ok) {
           const failure = await readApiFailure(response, 'simulation');
           rollback();
-          if (failure.code === 'SIM_NOT_ACTIVE' || failure.code === 'SIM_TURN_LIMIT') {
+          if (failure.code && NOT_IN_CALL_CODES.has(failure.code) && failure.code === 'SIM_TURN_LIMIT') {
             setSimEnded(true);
             setEvalError(null);
-            setPickerOpen(true);
+            if (requireDisposition) setPickerOpen(true);
+          }
+          if (failure.code === AI_UNAVAILABLE_CODE) {
+            setRetryAction({ label: 'Send again', run: () => void sendRef.current(content) });
           }
           setError(failure.message);
           return;
         }
 
         let text = '';
-        let done: { simEnded: boolean; turnCount: number } | null = null;
+        let done: { simEnded: boolean; turnCount: number; reply?: string } | null = null;
         let streamError: string | null = null;
+        let streamErrorCode: string | null = null;
         for await (const frame of readSseStream(response, controller.signal)) {
           if (frame.event === 'token') {
             const token = SimTokenEventSchema.safeParse(frame.data);
@@ -270,23 +356,27 @@ export function SimulationRunner({
               setStreamingText(text);
             }
           } else if (frame.event === 'done') {
-            const parsed = SimDoneEventSchema.safeParse(frame.data);
+            const parsed = SimDoneWithReplySchema.safeParse(frame.data);
             if (parsed.success) done = parsed.data;
           } else if (frame.event === 'error') {
-            const parsed = SseErrorEventSchema.safeParse(frame.data);
+            const parsed = SimStreamErrorSchema.safeParse(frame.data);
             streamError = parsed.success ? parsed.data.message : 'The caller could not reply.';
+            streamErrorCode = parsed.success ? (parsed.data.code ?? null) : null;
           }
         }
         if (controller.signal.aborted) return;
 
         if (streamError || !done) {
-          // The server saves the agent message only together with a complete reply, so undo it here.
           rollback();
           setError(streamError ?? 'The reply stopped before it finished. Send your message again.');
+          if (streamErrorCode === AI_UNAVAILABLE_CODE) {
+            setRetryAction({ label: 'Send again', run: () => void sendRef.current(content) });
+          }
           return;
         }
+        unconfirmedSendRef.current = null;
         setStreamingText(null);
-        const reply = text.trim();
+        const reply = (done.reply ?? text).trim();
         if (reply) {
           setMessages((prev) => [...prev, { id: nextLocalId('counterparty'), role: 'counterparty', content: reply }]);
         }
@@ -294,98 +384,29 @@ export function SimulationRunner({
         if (done.simEnded || done.turnCount >= scenario.maxTurns) {
           setSimEnded(true);
           setEvalError(null);
-          setPickerOpen(true);
+          if (requireDisposition) setPickerOpen(true);
         }
-        await refreshSession();
       } catch (caught) {
         if (isAbortError(caught)) return;
         rollback();
         setError(describeNetworkError(caught));
       } finally {
         if (abortRef.current === controller) abortRef.current = null;
+        sendInFlightRef.current = false;
       }
     },
-    [sessionId, streamingText, simEnded, actionPending, session?.scenarioState?.lifecycle, scenario.maxTurns, refreshSession],
+    [sessionId, streamingText, simEnded, phase, scenario.maxTurns, requireDisposition],
   );
-
-  const evaluate = useCallback(
-    async (disposition: string) => {
-      if (!sessionId || actionPending) return;
-      const canonicalDisposition = CanonicalDispositionSchema.safeParse(disposition);
-      if (!canonicalDisposition.success) {
-        setEvalError('Choose one of the canonical training dispositions.');
-        return;
-      }
-      setSelectedDisposition(disposition);
-      setEvalError(null);
-
-      let wrapped = session;
-      const alreadyReady = wrapped?.status === 'READY_FOR_EVAL'
-        && wrapped.scenarioState?.lifecycle === 'wrap_up'
-        && wrapped.scenarioState.wrapUpComplete
-        && wrapped.selectedDisposition === disposition;
-      if (!alreadyReady) {
-        wrapped = await performAction({ type: 'wrap_up', disposition: canonicalDisposition.data });
-      }
-      if (!wrapped) {
-        setPhase('live');
-        setPickerOpen(true);
-        setEvalError('Wrap-up could not be saved. Review the operations feedback and try again.');
-        return;
-      }
-      if (wrapped.status !== 'READY_FOR_EVAL' || wrapped.scenarioState?.lifecycle !== 'wrap_up' || !wrapped.scenarioState.wrapUpComplete) {
-        setPhase('live');
-        setPickerOpen(true);
-        setEvalError(describeBlockedWrapUp(wrapped));
-        return;
-      }
-      if (wrapped.selectedDisposition !== disposition) {
-        setPhase('live');
-        setPickerOpen(true);
-        setEvalError(`Wrap-up is already recorded as ${wrapped.selectedDisposition}. Retry evaluation with that disposition.`);
-        return;
-      }
-
-      setPickerOpen(false);
-      setPhase('grading');
-      try {
-        const response = await fetch(`/api/simulations/${encodeURIComponent(sessionId)}/evaluate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ selectedDisposition: disposition }),
-        });
-        if (!response.ok) {
-          setEvalError(await describeApiError(response, 'evaluation'));
-          setPhase('live');
-          setPickerOpen(true);
-          return;
-        }
-        const parsed = EvaluateSimResponseSchema.safeParse(await response.json());
-        if (!parsed.success) {
-          setEvalError('Your call was graded, but the scorecard was not readable. Try again.');
-          setPhase('live');
-          setPickerOpen(true);
-          return;
-        }
-        setResult(parsed.data);
-        setDemoReplay(parsed.data.demoReplay === true || parsed.data.evaluation.provenance?.source === 'replay');
-        setSimEnded(true);
-        setPhase('scored');
-      } catch (caught) {
-        setEvalError(describeNetworkError(caught));
-        setPhase('live');
-        setPickerOpen(true);
-      }
-    },
-    [actionPending, performAction, session, sessionId],
-  );
+  const sendRef = useRef(send);
+  useEffect(() => {
+    sendRef.current = send;
+  }, [send]);
 
   const closePicker = useCallback(() => setPickerOpen(false), []);
-
   const isStreaming = streamingText !== null;
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 pb-12">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link href={mapHref} className="inline-flex items-center gap-1.5 text-sm text-pulse-muted hover:text-pulse-primary">
           <ArrowLeft aria-hidden className="size-4" />
@@ -401,7 +422,21 @@ export function SimulationRunner({
       {error ? (
         <p role="alert" className="flex items-start gap-2 rounded-pulse-md border border-pulse-crimson/40 bg-pulse-crimson/10 px-4 py-3 text-sm text-pulse-crimson">
           <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
-          {error}
+          <span className="min-w-0 flex-1">{error}</span>
+          {retryAction ? (
+            <button
+              type="button"
+              className="pulse-btn shrink-0 px-2.5 py-1 text-xs"
+              onClick={() => {
+                const action = retryAction;
+                setRetryAction(null);
+                setError(null);
+                action.run();
+              }}
+            >
+              <RotateCcw aria-hidden className="size-3.5" /> {retryAction.label}
+            </button>
+          ) : null}
         </p>
       ) : null}
 
@@ -412,6 +447,7 @@ export function SimulationRunner({
           divisionId={divisionId}
           starting={phase === 'starting'}
           onStart={() => void start()}
+          resumeTurnCount={resumeHint}
         />
       ) : null}
 
@@ -423,13 +459,13 @@ export function SimulationRunner({
             divisionId={divisionId}
             turnCount={turnCount}
             onEndCall={endCall}
-            disabled={isStreaming || phase === 'grading' || actionPending}
+            disabled={isStreaming || phase === 'grading'}
           />
           {phase === 'grading' ? (
             <div role="status" className="pulse-card-elevated flex items-center gap-4 p-5">
               <LoaderCircle aria-hidden className="size-7 shrink-0 animate-spin text-pulse-indigo" />
               <div>
-                <p className="font-semibold">Grading your call…</p>
+                <p className="font-semibold">Grading your verbal responses…</p>
                 <p className="text-sm text-pulse-muted">
                   {demoReplay
                     ? 'Demo replay is loading the fixture scorecard for inspection. No assessment credit will be recorded.'
@@ -438,49 +474,66 @@ export function SimulationRunner({
               </div>
             </div>
           ) : null}
-          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(22rem,0.85fr)]">
-            <TranscriptChat
-              messages={messages}
-              streamingText={streamingText}
-              counterpartyLabel={scenario.counterpartyRoleLabel}
-              onSend={(content) => void send(content)}
-              composerDisabled={isStreaming || simEnded || actionPending || phase !== 'live' || session?.scenarioState?.lifecycle !== 'in_call'}
-              composerNote={
-                simEnded
-                  ? 'The call has ended. Wrap up and log your disposition to get your scorecard.'
-                  : isStreaming
-                    ? `${scenario.counterpartyRoleLabel} is replying…`
-                    : actionPending
-                      ? 'Saving the synthetic operation…'
-                      : session?.scenarioState?.lifecycle === 'pre_call' || session?.scenarioState?.lifecycle === 'ready_to_dial'
-                        ? 'Complete required inspections and dial in Synthetic Training before sending dialogue.'
-                        : session?.scenarioState?.lifecycle === 'wrap_up'
-                          ? 'Wrap-up is recorded. Submit the same disposition for evaluation.'
-                          : undefined
-              }
-              restoreDraft={restoreDraft}
-              demoReplay={demoReplay}
-              className={cn('h-[min(62vh,40rem)]', phase === 'grading' && 'opacity-60')}
-            />
-            {session ? (
-              <SyntheticOperationsPanel
-                scenario={scenario}
-                session={session}
-                outboxRecords={outboxRecords}
-                onAction={performAction}
-                disabled={isStreaming || phase === 'grading' || actionPending}
-              />
-            ) : null}
-          </div>
+          <TranscriptChat
+            messages={messages}
+            streamingText={streamingText}
+            counterpartyLabel={scenario.counterpartyRoleLabel}
+            onSend={(content) => void send(content)}
+            composerDisabled={isStreaming || simEnded || phase !== 'live'}
+            composerNote={
+              simEnded
+                ? 'The conversation has wrapped up. Select Finish & Grade Practice to view your coaching scorecard.'
+                : isStreaming
+                  ? `${scenario.counterpartyRoleLabel} is replying…`
+                  : undefined
+            }
+            restoreDraft={restoreDraft}
+            demoReplay={demoReplay}
+            className={cn('h-[min(64vh,42rem)]', phase === 'grading' && 'opacity-60')}
+          />
           {simEnded && phase === 'live' && !pickerOpen ? (
             <div className="flex justify-end">
               <button type="button" className="pulse-btn pulse-btn-primary" onClick={endCall}>
                 <ClipboardCheck aria-hidden className="size-4" />
-                Log Disposition
+                {requireDisposition ? 'Log Disposition' : 'Finish & Grade Practice'}
               </button>
             </div>
           ) : null}
         </>
+      ) : null}
+
+      {phase === 'awaiting_trainer' && pendingReview ? (
+        <section aria-label="Scorecard pending" role="status" className="pulse-card-elevated flex flex-col gap-4 p-6">
+          <div className="flex items-start gap-3">
+            <ClipboardCheck aria-hidden className="mt-0.5 size-6 shrink-0 text-pulse-indigo" />
+            <div>
+              <p className="text-lg font-semibold">Your verbal practice was saved</p>
+              <p className="mt-1 text-sm text-pulse-secondary">{pendingReview.message}</p>
+              <p className="mt-2 text-xs text-pulse-muted">
+                Your conversation transcript is recorded. A Trainer will add your coaching scorecard.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link href={mapHref} className="pulse-btn">
+              <ArrowLeft aria-hidden className="size-4" /> Back to Track Map
+            </Link>
+            <button
+              type="button"
+              className="pulse-btn"
+              onClick={() => {
+                setPendingReview(null);
+                setPhase('live');
+                void evaluate(selectedDisposition ?? undefined);
+              }}
+            >
+              <RotateCcw aria-hidden className="size-4" /> Try AI scoring again
+            </button>
+            <button type="button" className="pulse-btn pulse-btn-primary" onClick={() => void start()}>
+              <PhoneCall aria-hidden className="size-4" /> Start a new practice
+            </button>
+          </div>
+        </section>
       ) : null}
 
       {phase === 'scored' && result ? (
@@ -496,15 +549,17 @@ export function SimulationRunner({
         />
       ) : null}
 
-      <DispositionPicker
-        open={pickerOpen}
-        options={scenario.dispositionOptions}
-        onSubmit={(disposition) => void evaluate(disposition)}
-        onClose={closePicker}
-        submitting={actionPending || phase === 'grading'}
-        error={evalError}
-        dismissible={phase !== 'grading'}
-      />
+      {requireDisposition ? (
+        <DispositionPicker
+          open={pickerOpen}
+          options={scenario.dispositionOptions}
+          onSubmit={(disposition) => void evaluate(disposition)}
+          onClose={closePicker}
+          submitting={phase === 'grading'}
+          error={evalError}
+          dismissible={phase !== 'grading'}
+        />
+      ) : null}
     </div>
   );
 }
@@ -515,12 +570,14 @@ function IntroCard({
   divisionId,
   starting,
   onStart,
+  resumeTurnCount,
 }: {
   scenario: PublicSimScenario;
   campaignCode: string;
   divisionId: DivisionId;
   starting: boolean;
   onStart: () => void;
+  resumeTurnCount: number | null;
 }) {
   return (
     <section aria-labelledby="sim-intro-heading" className="pulse-card-elevated pulse-cq overflow-hidden">
@@ -531,15 +588,15 @@ function IntroCard({
               {campaignCode}
             </span>
           ) : null}
-          <span className={cn('pulse-pill', DIVISION_PILL_CLASS[divisionId])}>{SIM_CHANNEL_LABELS[divisionId]}</span>
+          <span className={cn('pulse-pill', DIVISION_PILL_CLASS[divisionId])}>{VERBAL_CHANNEL_LABELS[divisionId]}</span>
           <DifficultyBadge difficulty={scenario.difficulty} />
         </div>
         <div className="flex items-start gap-4">
-          <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-pulse-indigo text-white">
+          <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-pulse-indigo text-pulse-on-accent">
             <Headset aria-hidden className="size-7" />
           </span>
           <div className="min-w-0">
-            <p className="pulse-label">Live Call Sim</p>
+            <p className="pulse-label">Verbal Practice</p>
             <h1 id="sim-intro-heading" className="mt-0.5 text-2xl font-bold tracking-tight">
               {scenario.title}
             </h1>
@@ -550,11 +607,11 @@ function IntroCard({
         </div>
 
         <div className="rounded-pulse-md border border-pulse-border bg-pulse-bg p-4">
-          <p className="pulse-label mb-1">Context Ticket</p>
+          <p className="pulse-label mb-1">Scenario Brief</p>
           <p className="text-sm leading-relaxed text-pulse-secondary">{scenario.contextTicketSummary}</p>
         </div>
 
-        <dl className="grid grid-cols-2 gap-3 @lg:grid-cols-3">
+        <dl className="grid grid-cols-2 gap-3">
           <div className="rounded-pulse-md border border-pulse-border-subtle bg-pulse-surface-1 p-3">
             <dt className="pulse-label">Max Turns</dt>
             <dd className="pulse-metric mt-1 text-lg font-bold">{scenario.maxTurns}</dd>
@@ -563,20 +620,16 @@ function IntroCard({
             <dt className="pulse-label">Pass Score</dt>
             <dd className="pulse-metric mt-1 text-lg font-bold">{scenario.passScoreThreshold}%</dd>
           </div>
-          <div className="col-span-2 rounded-pulse-md border border-pulse-border-subtle bg-pulse-surface-1 p-3 @lg:col-span-1">
-            <dt className="pulse-label">Dispositions</dt>
-            <dd className="pulse-metric mt-1 text-lg font-bold">{scenario.dispositionOptions.length}</dd>
-          </div>
         </dl>
 
         <ul className="space-y-1.5 text-sm text-pulse-secondary">
           <li className="flex gap-2">
             <MessageSquareText aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
-            Reply in your own words, the way you would on a real call. No answer options.
+            Respond in your own words — type or use voice dictation, just as you would speak on a live call.
           </li>
           <li className="flex gap-2">
-            <ClipboardCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
-            When the call ends, log the Primary Disposition. The AI coach then grades you against the Playbook.
+            <Mic aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
+            Graded strictly on verbal accuracy, required spoken disclosures, and Playbook knowledge.
           </li>
         </ul>
 
@@ -588,11 +641,11 @@ function IntroCard({
         >
           {starting ? (
             <>
-              <LoaderCircle aria-hidden className="size-4 animate-spin" /> Connecting the call…
+              <LoaderCircle aria-hidden className="size-4 animate-spin" /> Starting conversation…
             </>
           ) : (
             <>
-              <PhoneCall aria-hidden className="size-4" /> Start Live Call Sim
+              <PhoneCall aria-hidden className="size-4" /> {verbalStartLabel(resumeTurnCount)}
             </>
           )}
         </button>

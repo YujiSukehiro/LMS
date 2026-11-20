@@ -50,6 +50,8 @@ export const SimMessageSchema = z.object({
   createdAt: z.number(),
   /** Present on generated actor turns; learner turns and legacy messages remain valid without it. */
   provenance: ProvenanceRecordSchema.optional(),
+  /** Learner turns only: the client idempotency key the message was sent with (retry de-duplication). */
+  idempotencyKey: z.string().optional(),
 });
 export type SimMessage = z.infer<typeof SimMessageSchema>;
 
@@ -62,6 +64,8 @@ export const SimCriterionResultSchema = z.object({
   evidenceEventIds: z.array(z.string()).optional(),
   coachingNote: z.string(),
   betterResponseExample: z.string().nullable(),
+  /** Set when the Judge's evidence for a deduction could not be confirmed against the transcript. */
+  needsTrainerReview: z.boolean().optional(),
 });
 export type SimCriterionResult = z.infer<typeof SimCriterionResultSchema>;
 
@@ -83,6 +87,13 @@ export const SimEvaluationSchema = z.object({
   evaluatedAt: z.number(),
 });
 export type SimEvaluation = z.infer<typeof SimEvaluationSchema>;
+
+export const SimJudgeReviewSchema = z.object({
+  status: z.literal('awaiting_manual_judge'),
+  reason: z.enum(['ai_unavailable', 'judge_output_invalid', 'judge_timeout']),
+  requestedAt: z.number(),
+});
+export type SimJudgeReview = z.infer<typeof SimJudgeReviewSchema>;
 
 export const SimSessionStatusSchema = z.enum(['ACTIVE', 'READY_FOR_EVAL', 'EVALUATED', 'ABANDONED']);
 export type SimSessionStatus = z.infer<typeof SimSessionStatusSchema>;
@@ -110,6 +121,12 @@ export const SimSessionDocSchema = z.object({
   assessmentEligibility: SimulationAssessmentEligibilitySchema.optional(),
   nextEventSequence: z.number().int().positive().optional(),
   provenance: ProvenanceRecordSchema.optional(),
+  /**
+   * Additive: set when the AI Judge could not score a finished call (runtime unavailable or repeated invalid
+   * output). The session stays READY_FOR_EVAL with its deterministic gates and disposition saved, and a
+   * Trainer scores it through the manual judge exchange.
+   */
+  judgeReview: SimJudgeReviewSchema.optional(),
   startedAt: z.number(),
   updatedAt: z.number(),
 });

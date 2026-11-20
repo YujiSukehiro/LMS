@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { learnerSession } from '@/lib/services/learner-views';
 import { ArrowLeft, Award, Flame, Gauge, Headset, MessageSquare, Zap } from 'lucide-react';
 import { isInternalOps, requirePageUser } from '@/lib/firebase/auth-guard';
 import { RADAR_PILLAR_KEYS } from '@/lib/schemas/constants';
@@ -46,7 +47,8 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
     loadEnrollmentsForUser(agent.uid),
     loadEvaluatedSimSessionsForUser(agent.uid, 25),
   ]);
-  const learnerSessions = isInternalOps(viewer) ? sessions : sessions.filter((s) => s.versionId !== 'draft');
+  // Partner supervisors and the agent see transcripts and scorecards without trainer-only gate detail.
+  const learnerSessions = isInternalOps(viewer) ? sessions : sessions.filter((s) => s.versionId !== 'draft').map(learnerSession);
   const learningEvidence = (await Promise.all(enrollments.map(async (enrollment): Promise<LearningEvidenceView | null> => {
     try {
       return await loadLearningEvidenceForUser({ user: viewer, learnerId: agent.uid, trackId: enrollment.trackId });
@@ -127,8 +129,8 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
 
       {legacyCertifiedCount > 0 ? (
         <p role="note" className="rounded-pulse-md border border-pulse-amber/40 bg-pulse-amber/10 px-4 py-3 text-sm text-pulse-secondary">
-          {legacyCertifiedCount} legacy certification assertion{legacyCertifiedCount === 1 ? ' is' : 's are'} labeled
-          <strong> historical_unverified</strong> and does not count as current certification.
+          {legacyCertifiedCount} older certification{legacyCertifiedCount === 1 ? ' is' : 's are'} marked
+          <strong> historical, unverified</strong> and {legacyCertifiedCount === 1 ? 'does' : 'do'} not count as a current certification.
         </p>
       ) : null}
       {learningEvidence.map((view) => (

@@ -2,8 +2,8 @@
  * Run with npm's existing tsx environment loading mechanism:
  *   npm exec -- tsx --env-file=.env.local scripts/verify-local-ai.ts
  *
- * Reads only OPENAI_COMPATIBLE_BASE_URL, OPENAI_COMPATIBLE_HEAVY_MODEL,
- * OPENAI_COMPATIBLE_FAST_MODEL, and optional LOCAL_RUNTIME_LABEL for profile selection.
+ * Reads only OPENAI_COMPATIBLE_BASE_URL (default http://127.0.0.1:8081, the MLX runtime), OPENAI_COMPATIBLE_HEAVY_MODEL,
+ * OPENAI_COMPATIBLE_FAST_MODEL, and optional LOCAL_RUNTIME_LABEL for profile selection. Runs the FULL preflight.
  */
 import { OpenAICompatibleProvider } from '../src/lib/ai/openai-compatible-provider';
 import { openAICompatibleProfileFromEnv } from '../src/lib/ai/local-runtime';
@@ -25,14 +25,12 @@ function errorMessage(error: unknown): string {
 
 async function main(): Promise<void> {
   const profile = openAICompatibleProfileFromEnv();
-  const provider = profile
-    ? new OpenAICompatibleProvider({
-        baseUrl: profile.baseUrl,
-        heavyModel: profile.models.structuredGeneration,
-        fastModel: profile.models.streamingChat,
-      })
-    : undefined;
-  const report = await runLocalCapabilityPreflight(profile, provider);
+  const provider = new OpenAICompatibleProvider({
+    baseUrl: profile.baseUrl,
+    heavyModel: profile.models.structuredGeneration,
+    fastModel: profile.models.streamingChat,
+  });
+  const report = await runLocalCapabilityPreflight(profile, provider, { mode: 'full' });
 
   console.log('LogiCall Pulse — local OpenAI-compatible capability preflight');
   console.log(`  Profile       ${report.profileId}`);

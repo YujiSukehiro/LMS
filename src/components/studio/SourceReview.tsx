@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, Check, FileCheck2, GitBranch, LoaderCircle, RefreshCw, ShieldCheck } from 'lucide-react';
-import type { TrackVersionDoc } from '@/lib/schemas/curriculum';
+import { AlertTriangle, Check, FileCheck2, GitBranch, Link2, LoaderCircle, RefreshCw, ShieldCheck } from 'lucide-react';
+import type { SecretSimScenarioConfig, TrackVersionDoc } from '@/lib/schemas/curriculum';
 import type {
   ClaimEvidence,
   OperationalAsset,
@@ -12,16 +12,29 @@ import type {
 } from '@/lib/schemas/source-truth';
 import { evaluatePublicationGates, verifyClaimEvidence } from '@/lib/services/source-evidence';
 import { cn } from '@/lib/utils';
+import { pageSentenceChoices } from '@/lib/services/evidence-rematch';
 import {
+  approvedEvidenceFrom,
   fetchSourceReview,
   postSourceReview,
+  rebindDraftToSource,
+  RebindDraftError,
+  pickExcerpt,
+  rematchEvidence,
+  type RebindProblem,
   type SourceReviewAction,
   type SourceReviewData,
 } from './source-review-api';
 
 const EMPTY_REVIEW: SourceReviewData = { bundle: null, pages: [], rulePacks: [], assets: [], conflicts: [] };
 type Filter = 'all' | 'unsupported' | 'conflicted' | 'low-quality' | 'critical';
-type ReviewClaim = { ownerId: string; unitId: string; ownerKind: 'Briefing Card' | 'Drill'; evidence: ClaimEvidence };
+type ReviewClaim = {
+  ownerId: string;
+  /** Checkpoint id, or the Live Call Sim id for rubric evidence. */
+  unitId: string;
+  ownerKind: 'Briefing Card' | 'Drill' | 'Sim rubric';
+  evidence: ClaimEvidence;
+};
 
 const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: 'all', label: 'All evidence' },
@@ -31,15 +44,24 @@ const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: 'critical', label: 'Critical' },
 ];
 
-function claimsForDraft(draft: TrackVersionDoc): ReviewClaim[] {
-  return draft.units.flatMap((unit) => [
-    ...unit.briefingCards.flatMap((card) =>
-      (card.evidence ?? []).map((evidence) => ({ ownerId: card.id, unitId: unit.id, ownerKind: 'Briefing Card' as const, evidence })),
-    ),
-    ...unit.drills.flatMap((drill) =>
-      (drill.evidence ?? []).map((evidence) => ({ ownerId: drill.id, unitId: unit.id, ownerKind: 'Drill' as const, evidence })),
-    ),
-  ]);
+export function claimsForDraft(draft: TrackVersionDoc, secrets: SecretSimScenarioConfig[] = []): ReviewClaim[] {
+  const scenarioIds = new Set(draft.simScenarios.map((scenario) => scenario.id));
+  return [
+    ...draft.units.flatMap((unit) => [
+      ...unit.briefingCards.flatMap((card) =>
+        (card.evidence ?? []).map((evidence) => ({ ownerId: card.id, unitId: unit.id, ownerKind: 'Briefing Card' as const, evidence })),
+      ),
+      ...unit.drills.flatMap((drill) =>
+        (drill.evidence ?? []).map((evidence) => ({ ownerId: drill.id, unitId: unit.id, ownerKind: 'Drill' as const, evidence })),
+      ),
+    ]),
+    // Live Call Sim rubric criteria are graded against the Playbook too, so their exact evidence needs approval.
+    ...secrets
+      .filter((config) => scenarioIds.has(config.scenarioId))
+      .flatMap((config) => config.rubricCriteria.flatMap((criterion) =>
+        (criterion.evidence ?? []).map((evidence) => ({ ownerId: criterion.id, unitId: config.scenarioId, ownerKind: 'Sim rubric' as const, evidence })),
+      )),
+  ];
 }
 
 function pageFor(pages: SourcePageEvidence[], ref: SourceExcerptRef): SourcePageEvidence | undefined {
@@ -48,7 +70,27 @@ function pageFor(pages: SourcePageEvidence[], ref: SourceExcerptRef): SourcePage
   );
 }
 
-export function SourceReview({ trackId, draft }: { trackId: string; draft: TrackVersionDoc }) {
+/** Gate codes that a "rebind draft to current approved revision" can clear (after exact re-verification). */
+const REBINDABLE_CODES = new Set(['SOURCE_REVISION_MISSING', 'SCENARIO_SOURCE_REVISION_MISMATCH']);
+
+export function SourceReview({
+  trackId,
+  draft,
+  secrets = [],
+  hasUnsavedChanges = false,
+  onDraftRebound,
+  onEvidenceApproved,
+}: {
+  trackId: string;
+  draft: TrackVersionDoc;
+  /** Draft Sim persona/rubric configs (internal ops only): their rubric evidence is reviewed here too. */
+  secrets?: SecretSimScenarioConfig[];
+  /** Called with the server-verified evidence after an approval, so the Studio's local draft shows it. */
+  onEvidenceApproved?: (evidence: ClaimEvidence) => void;
+  hasUnsavedChanges?: boolean;
+  /** Called after the server rebinds the draft, so the Studio's local draft and Sim contexts follow. */
+  onDraftRebound?: (sourceRevision: string) => void;
+}) {
   const bundleId = draft.sourceBundleId ?? null;
   const [review, setReview] = useState<SourceReviewData>(EMPTY_REVIEW);
   const [loading, setLoading] = useState(Boolean(bundleId));
@@ -59,6 +101,7 @@ export function SourceReview({ trackId, draft }: { trackId: string; draft: Track
   const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null);
   const [transcriptionPageId, setTranscriptionPageId] = useState<string | null>(null);
   const [transcriptionText, setTranscriptionText] = useState('');
+  const [rebindProblems, setRebindProblems] = useState<RebindProblem[]>([]);
 
   const load = useCallback(async () => {
     if (!bundleId) {
@@ -79,8 +122,8 @@ export function SourceReview({ trackId, draft }: { trackId: string; draft: Track
 
   useEffect(() => { void load(); }, [load]);
 
-  const claims = useMemo(() => claimsForDraft(draft), [draft]);
-  const gate = useMemo(() => evaluatePublicationGates({ draft, ...review }), [draft, review]);
+  const claims = useMemo(() => claimsForDraft(draft, secrets), [draft, secrets]);
+  const gate = useMemo(() => evaluatePublicationGates({ draft, ...review, secrets }), [draft, review, secrets]);
   const filteredClaims = useMemo(() => claims.filter((item) => {
     if (filter === 'all') return true;
     if (filter === 'critical') return item.evidence.critical;
@@ -96,21 +139,88 @@ export function SourceReview({ trackId, draft }: { trackId: string; draft: Track
     return !document || document.revisionId !== ref.revisionId;
   }));
 
+  const revisionIssues = gate.issues.filter((issue) => REBINDABLE_CODES.has(issue.code));
+  const bundleApprovedNow = Boolean(
+    review.bundle &&
+    (review.bundle.status === 'approved' || review.bundle.status === 'published') &&
+    review.bundle.approvedSourceRevision === review.bundle.revisionHash &&
+    review.bundle.approvedByUid,
+  );
+  const canRebind = revisionIssues.length > 0 && bundleApprovedNow && review.bundle?.id === draft.sourceBundleId;
+
+  async function rebind() {
+    if (!bundleId) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    setRebindProblems([]);
+    try {
+      const result = await rebindDraftToSource(trackId, bundleId, review.bundle?.revisionHash);
+      onDraftRebound?.(result.sourceRevision);
+      await load();
+      setRebindProblems(result.warnings);
+      setNotice(
+        `Draft rebound to the approved source revision after every approved excerpt re-verified exactly.${result.warnings.length > 0 ? ` ${result.warnings.length} unapproved excerpt${result.warnings.length === 1 ? ' still does' : 's still do'} not match and stay blocked below.` : ''}`,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The draft was not rebound.');
+      if (cause instanceof RebindDraftError) setRebindProblems(cause.mismatches);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function save(action: SourceReviewAction, body: Record<string, unknown>, message: string) {
     if (!bundleId) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await postSourceReview(trackId, action, {
+      const result = await postSourceReview(trackId, action, {
         bundleId,
         expectedRevisionHash: review.bundle?.revisionHash,
         ...body,
       });
+      const approved = action === 'excerpt' ? approvedEvidenceFrom(result) : null;
+      if (approved) onEvidenceApproved?.(approved);
       await load();
       setNotice(message);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The Source Review change did not save.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rematch(evidenceId: string) {
+    if (!bundleId || hasUnsavedChanges) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const evidence = await rematchEvidence(trackId, bundleId, evidenceId, review.bundle?.revisionHash);
+      onEvidenceApproved?.(evidence);
+      await load();
+      setNotice('Exact source passage found. Read it against the claim, then approve it.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The exact source passage was not found.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pick(evidenceId: string, page: SourcePageEvidence, exactText: string) {
+    if (!bundleId || hasUnsavedChanges) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const evidence = await pickExcerpt(trackId, { bundleId, evidenceId, pageId: page.id, exactText, expectedRevisionHash: review.bundle?.revisionHash });
+      onEvidenceApproved?.(evidence);
+      await load();
+      setNotice('Excerpt replaced with the sentence you picked. Check it states the claim, then approve it.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The excerpt was not saved.');
     } finally {
       setBusy(false);
     }
@@ -166,6 +276,48 @@ export function SourceReview({ trackId, draft }: { trackId: string; draft: Track
         ) : null}
       </section>
 
+      {revisionIssues.length > 0 && review.bundle ? (
+        <section className="pulse-card border-pulse-amber/40 p-5" aria-label="Source revision changed" data-testid="rebind-draft">
+          <SectionTitle icon={<Link2 aria-hidden className="size-4" />} title="The source revision changed after this draft was built" />
+          <p className="mt-1 max-w-3xl text-sm text-pulse-secondary">
+            {canRebind
+              ? 'Rebind the draft to the current approved revision. Pulse first re-checks every approved claim, rubric, Sim gate and asset excerpt against the current pages; it rebinds only if all of them still match exactly. All other publish gates still apply.'
+              : bundleApprovedNow
+                ? 'This draft was built from a different source bundle. Build a new draft from the current bundle.'
+                : 'Approve the current source bundle revision first. Then you can rebind the draft to it.'}
+          </p>
+          {canRebind ? (
+            <button
+              type="button"
+              className="pulse-btn pulse-btn-primary mt-3"
+              disabled={busy || loading || hasUnsavedChanges}
+              title={hasUnsavedChanges ? 'Save the draft first.' : undefined}
+              onClick={() => void rebind()}
+            >
+              <Link2 aria-hidden className="size-4" /> Rebind draft to current approved revision
+            </button>
+          ) : null}
+          {canRebind && hasUnsavedChanges ? <p className="mt-2 text-xs text-pulse-amber">Save the draft before you rebind it.</p> : null}
+        </section>
+      ) : null}
+
+      {rebindProblems.length > 0 ? (
+        <section className="pulse-card p-5" aria-label="Excerpts that do not match the current source">
+          <SectionTitle title="Excerpts that do not match the current source pages" />
+          <ul className="mt-3 flex max-h-72 flex-col gap-2 overflow-y-auto">
+            {rebindProblems.map((problem, index) => (
+              <li key={`${problem.ownerId}-${index}`} className="rounded-pulse-md border border-pulse-amber/40 bg-pulse-amber/10 p-3 text-xs">
+                <p className="font-medium">
+                  {problem.ownerType.replaceAll('_', ' ')} <span className="pulse-metric">{problem.ownerId}</span>
+                  {problem.evidenceId ? <span className="pulse-metric text-pulse-muted"> · {problem.evidenceId}</span> : null} · page {problem.pageNumber} · {problem.reason.replaceAll('_', ' ')}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap text-pulse-secondary">{problem.exactText}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {error ? <p role="alert" className="rounded-pulse-md border border-pulse-crimson/40 bg-pulse-crimson/10 p-3 text-sm text-pulse-crimson">{error}</p> : null}
       {notice ? <p role="status" className="rounded-pulse-md border border-pulse-emerald/40 bg-pulse-emerald/10 p-3 text-sm text-pulse-emerald">{notice}</p> : null}
       {loading ? <p role="status" className="flex items-center gap-2 text-sm text-pulse-muted"><LoaderCircle aria-hidden className="size-4 animate-spin" /> Loading persisted source evidence…</p> : null}
@@ -199,7 +351,7 @@ export function SourceReview({ trackId, draft }: { trackId: string; draft: Track
           <SectionTitle title="Generated claim ↔ exact source excerpt" />
           <div className="flex flex-wrap gap-1" role="group" aria-label="Evidence filters">
             {FILTERS.map((item) => (
-              <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)} className={cn('rounded-pulse-sm px-2.5 py-1 text-xs font-medium', filter === item.id ? 'bg-pulse-indigo text-white' : 'bg-pulse-surface-1 text-pulse-muted hover:text-pulse-primary')}>{item.label}</button>
+              <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)} className={cn('rounded-pulse-sm px-2.5 py-1 text-xs font-medium', filter === item.id ? 'bg-pulse-indigo text-pulse-on-accent' : 'bg-pulse-surface-1 text-pulse-muted hover:text-pulse-primary')}>{item.label}</button>
             ))}
           </div>
         </div>
@@ -219,7 +371,7 @@ export function SourceReview({ trackId, draft }: { trackId: string; draft: Track
             </div>
             {selectedClaim ? (
               <div className="min-w-0 rounded-pulse-md border border-pulse-border-subtle p-4">
-                <p className="text-xs text-pulse-muted">{selectedClaim.ownerKind} <span className="pulse-metric">{selectedClaim.ownerId}</span> · Checkpoint <span className="pulse-metric">{selectedClaim.unitId}</span></p>
+                <p className="text-xs text-pulse-muted">{selectedClaim.ownerKind} <span className="pulse-metric">{selectedClaim.ownerId}</span> · {selectedClaim.ownerKind === 'Sim rubric' ? 'Live Call Sim' : 'Checkpoint'} <span className="pulse-metric">{selectedClaim.unitId}</span></p>
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
                   <div className="rounded-pulse-md bg-pulse-surface-1 p-3"><p className="pulse-label">Generated claim</p><p className="mt-2 whitespace-pre-wrap text-sm">{selectedClaim.evidence.claim}</p></div>
                   <div className="flex flex-col gap-2">
@@ -230,11 +382,25 @@ export function SourceReview({ trackId, draft }: { trackId: string; draft: Track
                   </div>
                 </div>
                 {selectedClaim.evidence.approvalStatus !== 'approved' ? (
-                  <button type="button" className="pulse-btn pulse-btn-primary mt-4" disabled={busy || verifyClaimEvidence(selectedClaim.evidence, review.pages, review.conflicts).support !== 'supported'} onClick={() => void save('excerpt', { evidenceId: selectedClaim.evidence.id, claimId: selectedClaim.evidence.id, approvalStatus: 'approved' }, 'Exact claim evidence approved.')}>
+                  <button type="button" className="pulse-btn pulse-btn-primary mt-4" title={hasUnsavedChanges ? 'Save the draft first.' : undefined} disabled={busy || hasUnsavedChanges || verifyClaimEvidence(selectedClaim.evidence, review.pages, review.conflicts).support !== 'supported'} onClick={() => void save('excerpt', { evidenceId: selectedClaim.evidence.id, claimId: selectedClaim.evidence.id, approvalStatus: 'approved' }, 'Exact claim evidence approved.')}>
                     <Check aria-hidden className="size-4" /> Approve exact evidence
                   </button>
                 ) : <StateBadge state="approved" />}
-                {verifyClaimEvidence(selectedClaim.evidence, review.pages, review.conflicts).support !== 'supported' ? <p className="mt-2 text-xs text-pulse-amber">Approval stays unavailable until every exact excerpt matches and no open conflict affects this claim.</p> : null}
+                {hasUnsavedChanges && selectedClaim.evidence.approvalStatus !== 'approved' ? <p className="mt-2 text-xs text-pulse-amber">Save the draft before approving or changing evidence: approval applies to the saved version of this item.</p> : null}
+                {verifyClaimEvidence(selectedClaim.evidence, review.pages, review.conflicts).support !== 'supported' ? (
+                  <>
+                    <p className="mt-2 text-xs text-pulse-amber">Approval stays unavailable until every exact excerpt matches and no open conflict affects this claim. If the excerpt only differs from the Playbook in quotes, case or line breaks, Pulse can find the exact passage; otherwise regenerate or edit the item.</p>
+                    <button type="button" className="pulse-btn mt-2" disabled={busy || hasUnsavedChanges} onClick={() => void rematch(selectedClaim.evidence.id)}>
+                      <RefreshCw aria-hidden className="size-4" /> Find exact source passage
+                    </button>
+                    <ExcerptPicker
+                      claim={selectedClaim.evidence.claim}
+                      pages={selectedClaim.evidence.excerpts.map((ref) => pageFor(review.pages, ref) ?? review.pages.find((page) => page.pageNumber === ref.pageNumber)).filter((page): page is SourcePageEvidence => Boolean(page))}
+                      busy={busy || hasUnsavedChanges}
+                      onPick={(page, sentence) => void pick(selectedClaim.evidence.id, page, sentence)}
+                    />
+                  </>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -287,6 +453,31 @@ export function SourceReview({ trackId, draft }: { trackId: string; draft: Track
         {gate.eligible ? <p className="mt-3 flex items-center gap-2 text-sm text-pulse-emerald"><Check aria-hidden className="size-4" /> Exact evidence, approvals, inherited coverage, assets, and conflict gates pass.</p> : <ul className="mt-3 flex max-h-96 flex-col gap-2 overflow-y-auto">{gate.issues.map((issue, index) => <li key={`${issue.code}-${issue.affectedId}-${index}`} className="rounded-pulse-md border border-pulse-crimson/30 bg-pulse-crimson/5 p-3"><p className="flex flex-wrap items-center gap-2 text-xs font-semibold text-pulse-crimson"><AlertTriangle aria-hidden className="size-3.5" />{issue.code}<span className="pulse-metric font-normal text-pulse-muted">{issue.affectedType}: {issue.affectedId}</span></p><p className="mt-1 text-sm text-pulse-secondary">{issue.message}</p></li>)}</ul>}
       </section>
     </div>
+  );
+}
+
+/** Pick a verbatim sentence of the cited page as the claim's excerpt (the trainer still approves it after). */
+function ExcerptPicker({ claim, pages, busy, onPick }: { claim: string; pages: SourcePageEvidence[]; busy: boolean; onPick: (page: SourcePageEvidence, sentence: string) => void }) {
+  const unique = pages.filter((page, index) => pages.findIndex((other) => other.id === page.id) === index);
+  if (unique.length === 0) return null;
+  return (
+    <details className="mt-3 rounded-pulse-md border border-pulse-border-subtle p-3" data-testid="excerpt-picker">
+      <summary className="cursor-pointer text-xs font-semibold">Choose a sentence from the source page</summary>
+      {unique.map((page) => (
+        <div key={page.id} className="mt-2">
+          <p className="pulse-label">Page {page.pageNumber}</p>
+          <ul className="mt-1 flex flex-col gap-1">
+            {pageSentenceChoices(claim, page).map((sentence) => (
+              <li key={sentence}>
+                <button type="button" className="w-full rounded-pulse-sm bg-pulse-surface-1 p-2 text-left text-xs hover:bg-pulse-surface-2" disabled={busy} aria-label={`Use this sentence: ${sentence}`} onClick={() => onPick(page, sentence)}>
+                  {sentence}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </details>
   );
 }
 

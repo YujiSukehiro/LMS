@@ -124,7 +124,7 @@ describe('critical source prompt budgeting', () => {
 
     for (const prompt of [unitPrompt, blueprintPrompt, simPrompt]) {
       expect(prompt).toContain('ruleId=shared-identity-optout');
-      expect(prompt).toContain('SOURCE DOCUMENT shared-foundation | REVISION shared-foundation-rev1 | PAGE 14');
+      expect(prompt).toContain('(document shared-foundation, page 14)');
       expect(prompt).toContain(sharedText);
     }
   });
@@ -139,7 +139,7 @@ describe('critical source prompt budgeting', () => {
       charBudget: sharedText.length + 20,
     });
 
-    expect(result.pages.map(sourcePageRef)).toEqual(['shared-foundation@shared-foundation-rev1#14']);
+    expect(result.pages.map((page) => sourcePageRef({ ...page, pageNumber: page.sourcePageNumber }))).toEqual(['shared-foundation@shared-foundation-rev1#14']);
     expect(result.report.omittedPages).toContainEqual(expect.objectContaining({ documentId: 'ED', pageNumber: 8, critical: false, reason: 'prompt_budget' }));
     expect(result.report.omittedExcerpts).toEqual([]);
   });

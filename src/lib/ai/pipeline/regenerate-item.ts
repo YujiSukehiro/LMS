@@ -15,8 +15,10 @@ import {
   type TrackVersionDoc,
 } from '@/lib/schemas/curriculum';
 import type { RegenerateItemRequest } from '@/lib/schemas/api';
-import { getLLMGateway } from '@/lib/ai/gateway';
-import { assertGeneratedClaimEvidence } from '@/lib/ai/pipeline/generate-track';
+import { getActiveAiRuntime, getLLMGateway } from '@/lib/ai/gateway';
+import { assertGeneratedClaimEvidence, isLocalProvider } from '@/lib/ai/pipeline/generate-track';
+import { regroundStoredEvidence, sourcePageLabels, type EvidenceSource } from '@/lib/ai/prompts/evidence';
+import { UNIT_OVERHEAD_TOKENS, localSourceCharBudget } from '@/lib/ai/pipeline/source-budget';
 import { loadSourceReview, type SourceReviewData } from '@/lib/services/source-store';
 import type { LLMGateway } from '@/lib/ai/types';
 import { selectPages, type ExtractedPage } from '@/lib/ai/pdf-extractor';
@@ -24,6 +26,8 @@ import type { UnitOutline } from '@/lib/ai/prompts/blueprint';
 import {
   BRIEFING_CARD_SCHEMA_NAME,
   DRILL_SCHEMA_NAME,
+  cardsMaxOutputTokens,
+  drillsMaxOutputTokens,
   buildCardGenerationSchema,
   buildDrillGenerationSchema,
   buildRegenerateCardUserPrompt,
@@ -31,12 +35,14 @@ import {
   buildUnitSystemPrompt,
   finalizeBriefingCard,
   finalizeDrill,
+  type UnitBuildContext,
   type UnitPromptInput,
 } from '@/lib/ai/prompts/unit-builder';
 import {
   SINGLE_SIM_SCHEMA_NAME,
   buildRegenerateScenarioUserPrompt,
   buildSimSystemPrompt,
+  SIM_SINGLE_SCENARIO_MAX_OUTPUT_TOKENS,
   buildSingleScenarioSchema,
   finalizeScenario,
 } from '@/lib/ai/prompts/sim-builder';
@@ -105,7 +111,37 @@ function unitContext(
     pages,
     sourceReview,
     otherUnitTitles: draft.units.filter((other) => other.id !== unit.id).map((other) => other.title),
+    sourceCharBudget: isLocalProvider(getActiveAiRuntime().provider)
+      ? localSourceCharBudget({ plannedOutputTokens: cardsMaxOutputTokens(1), overheadTokens: UNIT_OVERHEAD_TOKENS })
+      : undefined,
   };
+}
+
+/** Re-read the draft inside the write transaction and replace only the regenerated item. */
+async function commitItem(
+  trackId: string,
+  expectedSourceRevision: string | null | undefined,
+  replace: (latest: TrackVersionDoc) => TrackVersionDoc,
+): Promise<void> {
+  await adminDb.runTransaction(async (tx) => {
+    const latest = await loadVersion(trackId, DRAFT_VERSION_ID, tx);
+    if (!latest) throw new RegenerateItemError(409, 'NO_DRAFT', 'The draft was removed while the item was regenerating. Reload the Studio.');
+    if ((latest.sourceRevision ?? null) !== (expectedSourceRevision ?? null)) {
+      throw new RegenerateItemError(409, 'SOURCE_REVISION_STALE', 'The draft changed to a different source revision while the item was regenerating. Reload the Studio.');
+    }
+    const next = replace(latest);
+    tx.set(draftRef(trackId), TrackVersionDocSchema.parse(next));
+    tx.update(trackRef(trackId), { updatedAt: Date.now() });
+  });
+}
+
+function requireUnit(latest: TrackVersionDoc, unitId: string): TrackVersionDoc {
+  if (!latest.units.some((existing) => existing.id === unitId)) throw itemGone('Unit');
+  return latest;
+}
+
+function itemGone(kind: string): RegenerateItemError {
+  return new RegenerateItemError(409, 'ITEM_CHANGED', `This ${kind} was removed from the draft while it was regenerating. Reload the Studio.`);
 }
 
 export async function regenerateDraftItem(
@@ -132,7 +168,8 @@ export async function regenerateDraftItem(
     throw new RegenerateItemError(409, 'SOURCE_REVISION_STALE', 'The source bundle changed. Start a new draft from the approved source revision before regenerating an item.');
   }
   const pillarIds = draft.competencyPillars.map((pillar) => pillar.id);
-  const now = Date.now();
+  const evidenceSource: EvidenceSource | undefined = sourceReview ? { pages: sourceReview.pages, conflicts: sourceReview.conflicts } : undefined;
+  const sourceLabels = sourceReview ? sourcePageLabels(sourceReview.pages) : null;
 
   if (request.targetType === 'SCENARIO') {
     const index = draft.simScenarios.findIndex((scenario) => scenario.id === request.itemId);
@@ -145,7 +182,16 @@ export async function regenerateDraftItem(
         ...draft.units.flatMap((unit) => unitCitedPages(unit)),
       ]),
     ];
-    const ctx = { pillarIds, allowedPages: allPages.map((page) => page.pageNumber) };
+    const ctx = {
+      pillarIds,
+      allowedPages: sourceLabels ?? allPages.map((page) => page.pageNumber),
+      requireEvidence: Boolean(sourceReview),
+      scenarioDefaults: {
+        divisionId: track.divisionId,
+        product: track.campaignCode || track.title,
+        ...(draft.sourceRevision ? { sourceRevision: draft.sourceRevision } : {}),
+      },
+    };
     const generated = await gateway.generateStructured({
       tier: 'heavy',
       systemPrompt: buildSimSystemPrompt(track.divisionId),
@@ -165,26 +211,46 @@ export async function regenerateDraftItem(
       }),
       schema: buildSingleScenarioSchema(ctx),
       schemaName: SINGLE_SIM_SCHEMA_NAME,
+      maxOutputTokens: SIM_SINGLE_SCENARIO_MAX_OUTPUT_TOKENS,
     });
-    const pair = finalizeScenario(generated, current.id, ctx);
+    const finalized = finalizeScenario(generated, current.id, ctx, track.divisionId);
+    const pair = evidenceSource
+      ? {
+          ...finalized,
+          secretConfig: {
+            ...finalized.secretConfig,
+            rubricCriteria: finalized.secretConfig.rubricCriteria.map((criterion) => ({
+              ...criterion,
+              ...(criterion.evidence ? { evidence: regroundStoredEvidence(criterion.evidence, criterion.id, evidenceSource, ctx.allowedPages) } : {}),
+            })),
+          },
+        }
+      : finalized;
     if (sourceReview) {
       for (const criterion of pair.secretConfig.rubricCriteria) {
         assertGeneratedClaimEvidence(criterion.id, criterion.evidence, sourceReview);
       }
     }
-    const simScenarios = draft.simScenarios.map((scenario, i) => (i === index ? pair.publicScenario : scenario));
-    const otherSecrets = (secrets?.scenarios ?? []).filter((config) => config.scenarioId !== current.id);
-    const secretOrder = new Map(simScenarios.map((scenario, i) => [scenario.id, i]));
-    const scenarios = [...otherSecrets, pair.secretConfig].sort(
-      (a, b) => (secretOrder.get(a.scenarioId) ?? 99) - (secretOrder.get(b.scenarioId) ?? 99),
-    );
-    const nextDraft = TrackVersionDocSchema.parse({ ...draft, simScenarios });
-    const nextSecrets = EvalRubricsDocSchema.parse({ trackId, versionId: DRAFT_VERSION_ID, scenarios, updatedAt: now });
-    const batch = adminDb.batch();
-    batch.set(draftRef(trackId), nextDraft);
-    batch.set(secretsRef(trackId, DRAFT_VERSION_ID), nextSecrets);
-    batch.update(trackRef(trackId), { updatedAt: now });
-    await batch.commit();
+    await adminDb.runTransaction(async (tx) => {
+      const [latest, latestSecrets] = await Promise.all([
+        loadVersion(trackId, DRAFT_VERSION_ID, tx),
+        loadSecrets(trackId, DRAFT_VERSION_ID, tx),
+      ]);
+      if (!latest || (latest.sourceRevision ?? null) !== (draft.sourceRevision ?? null)) {
+        throw new RegenerateItemError(409, 'SOURCE_REVISION_STALE', 'The draft changed while the scenario was regenerating. Reload the Studio.');
+      }
+      if (!latest.simScenarios.some((scenario) => scenario.id === current.id)) throw itemGone('Simulation scenario');
+      const simScenarios = latest.simScenarios.map((scenario) => (scenario.id === current.id ? pair.publicScenario : scenario));
+      const otherSecrets = (latestSecrets?.scenarios ?? []).filter((config) => config.scenarioId !== current.id);
+      const secretOrder = new Map(simScenarios.map((scenario, i) => [scenario.id, i]));
+      const scenarios = [...otherSecrets, pair.secretConfig].sort(
+        (a, b) => (secretOrder.get(a.scenarioId) ?? 99) - (secretOrder.get(b.scenarioId) ?? 99),
+      );
+      const now = Date.now();
+      tx.set(draftRef(trackId), TrackVersionDocSchema.parse({ ...latest, simScenarios }));
+      tx.set(secretsRef(trackId, DRAFT_VERSION_ID), EvalRubricsDocSchema.parse({ trackId, versionId: DRAFT_VERSION_ID, scenarios, updatedAt: now }));
+      tx.update(trackRef(trackId), { updatedAt: now });
+    });
     return pair.publicScenario;
   }
 
@@ -193,9 +259,10 @@ export async function regenerateDraftItem(
   if (unitIndex === -1) throw new RegenerateItemError(404, 'NOT_FOUND', 'This Unit does not exist in the draft.');
   const unit = draft.units[unitIndex];
   const input = unitContext(track, draft, unit, allPages, sourceReview);
-  const allowedPages = input.pages.map((page) => page.pageNumber);
+  // Approved-source drafts cite PAGE labels of the whole bundle (as in the full build).
+  const allowedPages = sourceLabels ?? input.pages.map((page) => page.pageNumber);
+  const requireEvidence = Boolean(sourceReview);
   let item: BriefingCard | DrillItem;
-  let nextUnit: TrackUnit;
 
   if (request.targetType === 'CARD') {
     const cardIndex = unit.briefingCards.findIndex((card) => card.id === request.itemId);
@@ -210,43 +277,59 @@ export async function regenerateDraftItem(
         siblingHeadlines: unit.briefingCards.filter((card) => card.id !== current.id).map((card) => card.headline),
         trainerHint: request.trainerHint,
       }),
-      schema: buildCardGenerationSchema({ allowedPages }),
+      schema: buildCardGenerationSchema({ allowedPages, requireEvidence, evidenceSource }),
       schemaName: BRIEFING_CARD_SCHEMA_NAME,
+      maxOutputTokens: cardsMaxOutputTokens(1),
     });
-    const card = finalizeBriefingCard(generated, current.id, allowedPages);
+    const card = finalizeBriefingCard(generated, current.id, allowedPages, evidenceSource);
     if (sourceReview) assertGeneratedClaimEvidence(card.id, card.evidence, sourceReview);
     item = card;
-    nextUnit = { ...unit, briefingCards: unit.briefingCards.map((existing, i) => (i === cardIndex ? card : existing)) };
+    await commitItem(trackId, draft.sourceRevision, (latest) => ({
+      ...requireUnit(latest, unit.id),
+      units: latest.units.map((existing) => {
+        if (existing.id !== unit.id) return existing;
+        if (!existing.briefingCards.some((other) => other.id === card.id)) throw itemGone('BriefingCard');
+        return { ...existing, briefingCards: existing.briefingCards.map((other) => (other.id === card.id ? card : other)) };
+      }),
+    }));
   } else {
     const drillIndex = unit.drills.findIndex((drill) => drill.id === request.itemId);
     if (drillIndex === -1) throw new RegenerateItemError(404, 'NOT_FOUND', 'This Drill does not exist in the Unit.');
     const current = unit.drills[drillIndex];
-    const ctx = { pillarIds, allowedPages };
+    const siblings = unit.drills.filter((drill) => drill.id !== current.id);
+    // The new Drill must differ from the one it replaces and must not repeat another Drill of the Track.
+    const ctx: UnitBuildContext = {
+      pillarIds,
+      allowedPages,
+      requireEvidence,
+      evidenceSource,
+      replacing: current,
+      avoidDrills: draft.units.flatMap((other) => other.drills).filter((drill) => drill.id !== current.id),
+    };
     const generated = await gateway.generateStructured({
       tier: 'heavy',
       systemPrompt: buildUnitSystemPrompt(track.divisionId),
       userPrompt: buildRegenerateDrillUserPrompt({
         ...input,
         current,
-        siblingPrompts: unit.drills.filter((drill) => drill.id !== current.id).map((drill) => drill.prompt),
+        siblingPrompts: siblings.map((drill) => drill.prompt),
         trainerHint: request.trainerHint,
       }),
       schema: buildDrillGenerationSchema(current.kind, ctx),
       schemaName: DRILL_SCHEMA_NAME,
+      maxOutputTokens: drillsMaxOutputTokens(1),
     });
     const drill = finalizeDrill(generated, current.id, ctx);
     if (sourceReview) assertGeneratedClaimEvidence(drill.id, drill.evidence, sourceReview);
     item = drill;
-    nextUnit = { ...unit, drills: unit.drills.map((existing, i) => (i === drillIndex ? drill : existing)) };
+    await commitItem(trackId, draft.sourceRevision, (latest) => ({
+      ...requireUnit(latest, unit.id),
+      units: latest.units.map((existing) => {
+        if (existing.id !== unit.id) return existing;
+        if (!existing.drills.some((other) => other.id === drill.id)) throw itemGone('Drill');
+        return { ...existing, drills: existing.drills.map((other) => (other.id === drill.id ? drill : other)) };
+      }),
+    }));
   }
-
-  const nextDraft = TrackVersionDocSchema.parse({
-    ...draft,
-    units: draft.units.map((existing, i) => (i === unitIndex ? nextUnit : existing)),
-  });
-  const batch = adminDb.batch();
-  batch.set(draftRef(trackId), nextDraft);
-  batch.update(trackRef(trackId), { updatedAt: now });
-  await batch.commit();
   return item;
 }

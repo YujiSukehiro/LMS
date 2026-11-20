@@ -1,21 +1,18 @@
 import Link from 'next/link';
-import { ChartColumn, CircleCheck, Layers, LoaderCircle, Pencil, Plus } from 'lucide-react';
+import { ChartColumn, CircleAlert, CircleCheck, Layers, LoaderCircle, Pencil, Plus } from 'lucide-react';
 import type { SessionUser } from '@/lib/schemas/domain';
 import { loadAllTracks, loadRollup, rankMissedItems } from '@/components/analytics/server-data';
 import { rollupIdForGlobal } from '@/lib/schemas/analytics';
 import { EmptyState, KpiStrip, SectionHeader } from '@/components/analytics/KpiStrip';
 import { MissedRulesTable } from '@/components/analytics/MissedRulesTable';
 import { TrackStatusPill } from '@/components/studio/TrackStatusPill';
+import { trackDisplayStatus, trackStatusCounts } from '@/components/studio/track-display-status';
 import { DivisionPill } from '../DivisionPill';
 import { relativeTime } from '../labels';
 
 export async function TrainerHome({ user }: { user: SessionUser }) {
   const [tracks, global] = await Promise.all([loadAllTracks(), loadRollup(rollupIdForGlobal())]);
-  const counts = {
-    GENERATING: tracks.filter((t) => t.status === 'GENERATING').length,
-    DRAFT: tracks.filter((t) => t.status === 'DRAFT').length,
-    PUBLISHED: tracks.filter((t) => t.status === 'PUBLISHED').length,
-  };
+  const counts = trackStatusCounts(tracks);
   const recent = tracks.slice(0, 6);
   const trackTitles = Object.fromEntries(tracks.map((t) => [t.id, t.title]));
   const missed = rankMissedItems([global], 6);
@@ -43,20 +40,25 @@ export async function TrainerHome({ user }: { user: SessionUser }) {
       </div>
 
       <KpiStrip
+        // Five tiles when a build failed: keep them on one row on wide screens instead of orphaning one.
+        className={counts.BUILD_FAILED > 0 ? 'md:grid-cols-3 xl:grid-cols-5' : undefined}
         items={[
           { label: 'All Tracks', value: String(tracks.length), icon: <Layers aria-hidden className="size-3.5" /> },
           { label: 'Drafts', value: String(counts.DRAFT), icon: <Pencil aria-hidden className="size-3.5" />, tone: counts.DRAFT > 0 ? 'amber' : 'default' },
           { label: 'Generating', value: String(counts.GENERATING), icon: <LoaderCircle aria-hidden className="size-3.5" />, tone: 'indigo' },
+          ...(counts.BUILD_FAILED > 0
+            ? [{ label: 'Build failed', value: String(counts.BUILD_FAILED), icon: <CircleAlert aria-hidden className="size-3.5" />, tone: 'crimson' as const }]
+            : []),
           { label: 'Published', value: String(counts.PUBLISHED), icon: <CircleCheck aria-hidden className="size-3.5" />, tone: 'emerald' },
         ]}
       />
 
       <div className="grid gap-4 xl:grid-cols-5">
-        <section className="pulse-card flex flex-col gap-4 p-4 md:p-5 xl:col-span-3">
+        <section className="pulse-card flex min-w-0 flex-col gap-4 p-4 md:p-5 xl:col-span-3">
           <SectionHeader
             title="Recently updated Tracks"
             actions={
-              <Link href="/studio" className="text-sm font-semibold text-[#a5b4fc] hover:underline">
+              <Link href="/studio" className="text-sm font-semibold text-pulse-indigo-text hover:underline">
                 Open Track Studio
               </Link>
             }
@@ -83,7 +85,7 @@ export async function TrainerHome({ user }: { user: SessionUser }) {
                   >
                     <DivisionPill divisionId={track.divisionId} short />
                     <span className="min-w-0 flex-1 truncate font-medium">{track.title}</span>
-                    <TrackStatusPill status={track.status} />
+                    <TrackStatusPill status={trackDisplayStatus(track)} />
                     <span className="pulse-metric w-20 text-right text-xs text-pulse-muted">{relativeTime(track.updatedAt, now)}</span>
                   </Link>
                 </li>
@@ -92,7 +94,7 @@ export async function TrainerHome({ user }: { user: SessionUser }) {
           )}
         </section>
 
-        <section className="pulse-card flex flex-col gap-4 p-4 md:p-5 xl:col-span-2">
+        <section className="pulse-card flex min-w-0 flex-col gap-4 p-4 md:p-5 xl:col-span-2">
           <SectionHeader title="Top missed items" description="All Cohorts, first-try misses." />
           <MissedRulesTable rows={missed} trackTitles={trackTitles} linkToStudio />
         </section>

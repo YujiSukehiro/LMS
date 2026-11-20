@@ -21,10 +21,8 @@ import {
 import { PlaybookPdfError, extractPlaybookPdf, sourcePageExtractionFlags } from '@/lib/ai/pdf-extractor';
 import {
   buildSourcePageBatches,
-  draftRef,
   isGenerationRunning,
   loadTrack,
-  secretsRef,
   sourcePagesCollection,
   trackRef,
   tracksCollection,
@@ -43,6 +41,7 @@ import {
   sourceRulePacksCollection,
   type SourceReviewData,
 } from '@/lib/services/source-store';
+import { bundleLegacyPages } from './legacy-pages';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -272,6 +271,8 @@ export async function POST(req: Request): Promise<NextResponse> {
           sourcePageCount: extracted.pageCount,
           activeSourceBundleId: bundleId,
           currentDraftVersionId: DRAFT_VERSION_ID,
+          // The saved Checkpoint target was measured on the old source; the trainer re-picks it on the Content map.
+          unitTarget: null,
           updatedAt: now,
         }
       : {
@@ -298,20 +299,22 @@ export async function POST(req: Request): Promise<NextResponse> {
         },
   );
 
-  const pageBatches = buildSourcePageBatches(trackId, extracted.pages, now);
+  // Legacy sourcePages cover every bundle document, numbered with the pipeline's PAGE labels.
+  const legacyPages = inherited ? bundleLegacyPages(documents, pages) : extracted.pages;
+  const pageBatches = buildSourcePageBatches(trackId, legacyPages, now);
   const newBatchIds = new Set(pageBatches.map((pageBatch) => pageBatch.id));
   const oldBatches = existing ? await sourcePagesCollection(trackId).listDocuments() : [];
   const operations: WriteOperation[] = [
     { kind: 'set', ref: sourceBundlesCollection(trackId).doc(bundleId), data: bundle },
     ...pages.map((page): WriteOperation => ({ kind: 'set', ref: sourcePageEvidenceCollection(trackId, bundleId).doc(page.id), data: page })),
-    ...(inherited?.rulePacks ?? []).map((pack): WriteOperation => ({ kind: 'set', ref: sourceRulePacksCollection(trackId, bundleId).doc(pack.id), data: pack })),
+    ...(inherited?.rulePacks ?? []).filter((pack) => bundle.sharedRulePackIds.includes(pack.id)).map((pack): WriteOperation => ({ kind: 'set', ref: sourceRulePacksCollection(trackId, bundleId).doc(pack.id), data: pack })),
     ...(inherited?.assets ?? []).map((asset): WriteOperation => ({ kind: 'set', ref: sourceAssetsCollection(trackId, bundleId).doc(asset.id), data: asset })),
     ...(inherited?.conflicts ?? []).map((conflict): WriteOperation => ({ kind: 'set', ref: sourceConflictsCollection(trackId, bundleId).doc(conflict.id), data: conflict })),
   ];
   if (existing) {
     for (const ref of oldBatches) if (!newBatchIds.has(ref.id)) operations.push({ kind: 'delete', ref });
-    operations.push({ kind: 'delete', ref: secretsRef(trackId, DRAFT_VERSION_ID) });
-    operations.push({ kind: 'delete', ref: draftRef(trackId) });
+    // The previous draft and its secrets stay until the new build commits (commitDraft overwrites both),
+    // so a failed or abandoned rebuild still leaves a usable draft.
   }
   for (const pageBatch of pageBatches) {
     operations.push({ kind: 'set', ref: sourcePagesCollection(trackId).doc(pageBatch.id), data: pageBatch });

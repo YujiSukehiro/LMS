@@ -1,4 +1,5 @@
 import type { ZodIssue } from 'zod';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import {
   FILL_BLANK_TOKEN,
   PublicSimScenarioSchema,
@@ -222,7 +223,8 @@ export function validateStudioDraft(input: {
 
   input.simScenarios.forEach((scenario, i) => {
     const target: StudioTarget = { kind: 'scenario', scenarioId: scenario.id };
-    const prefix = `Live Call Sim ${i + 1}`;
+    const simLabel = TRAINING_POLICY.simulationInteractionMode === 'verbal_only' ? 'Verbal Practice' : 'Live Call Sim';
+    const prefix = `${simLabel} ${i + 1}`;
     const parsed = PublicSimScenarioSchema.safeParse(scenario);
     if (!parsed.success) issues.push(...zodIssues(parsed.error.issues, target, prefix));
     if (blank(scenario.title)) issues.push({ target, where: `${prefix} › Scenario title`, message: 'must not be empty' });

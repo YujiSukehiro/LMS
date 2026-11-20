@@ -16,6 +16,7 @@ import {
   type SourceExcerptRef,
   type SourcePageEvidence,
 } from '@/lib/schemas/source-truth';
+import { thinUnitProblems } from '@/lib/ai/pipeline/content-depth';
 
 /** Exact matching after only Unicode and whitespace normalization; wording and punctuation remain significant. */
 export function normalizeSourceText(value: string): string {
@@ -223,7 +224,11 @@ export interface PublicationGateInput {
 /** Fail closed on unsupported evidence, missing approvals, omitted inherited rules, and affected open conflicts. */
 export function evaluatePublicationGates(input: PublicationGateInput): PublicationGateReport {
   const issues: PublicationGateIssue[] = [];
-  const { draft, bundle, pages, rulePacks, assets, conflicts } = input;
+  const { draft, bundle, pages, assets, conflicts } = input;
+  // Only packs the trainer selected for this bundle participate. Unselected packs in the subcollection cannot be
+  // approved (source review rejects them) and generation filters them out, so gating on them would block forever.
+  const selectedPackIds = bundle ? new Set(bundle.sharedRulePackIds) : null;
+  const rulePacks = selectedPackIds ? input.rulePacks.filter((pack) => selectedPackIds.has(pack.id)) : input.rulePacks;
   const sourceRevision = draft.sourceRevision ?? 'legacy_unknown';
   if (!bundle || draft.sourceBundleId !== bundle.id || draft.sourceRevision !== bundle.revisionHash) {
     issues.push(issue('SOURCE_REVISION_MISSING', 'Select the exact approved source bundle revision used by this draft.', 'source', draft.sourceBundleId ?? 'legacy_unknown'));
@@ -242,6 +247,14 @@ export function evaluatePublicationGates(input: PublicationGateInput): Publicati
   const openConflicts = conflicts.filter((conflict) => conflict.status === 'open' || conflict.status === 'sme_review');
   for (const conflict of openConflicts) {
     issues.push(issue('SME_DECISION_REQUIRED', `Conflict ${conflict.id} requires an SME decision for its affected items.`, 'conflict', conflict.id, conflict.severity));
+  }
+
+  // Learners only ever get complete Checkpoints: a Unit a local build could only partly fill (it carries
+  // reviewNotes) stays blocked until it meets the curriculum minimums (DEPTH_LIMITS in content-depth.ts).
+  for (const unit of draft.units) {
+    for (const problem of thinUnitProblems([unit])) {
+      issues.push(issue('UNIT_CONTENT_INCOMPLETE', `Add content before publishing: ${problem}`, 'unit', unit.id, 'major'));
+    }
   }
 
   const claims: Array<{ ownerId: string; evidence: ClaimEvidence }> = [];
@@ -282,9 +295,6 @@ export function evaluatePublicationGates(input: PublicationGateInput): Publicati
       if (rule.approvalStatus !== 'approved' || evidence.approvalStatus !== 'approved' || evidence.support !== 'supported') {
         issues.push(issue('RULE_NOT_GROUNDED', `Required rule ${rule.id} lacks approved exact evidence.`, 'rule', rule.id));
       }
-      if (rule.requiredKnowledge && !coveredRuleIds.has(rule.id)) {
-        issues.push(issue('RULE_COVERAGE_MISSING', `Required rule ${rule.id} is not covered by curriculum evidence.`, 'rule', rule.id));
-      }
     }
   }
 
@@ -314,6 +324,16 @@ export function evaluatePublicationGates(input: PublicationGateInput): Publicati
     if (!CanonicalDispositionSchema.safeParse(secret.expectedDisposition).success) {
       issues.push(issue('SCENARIO_DISPOSITION_INVALID', `Scenario ${scenario.id} must use a canonical expected disposition.`, 'scenario', scenario.id));
     }
+    // Every learner-visible option must be canonical, or the Sim offers choices the wrap-up will reject.
+    const nonCanonicalOptions = scenario.dispositionOptions.filter((option) => !CanonicalDispositionSchema.safeParse(option).success);
+    if (nonCanonicalOptions.length > 0) {
+      issues.push(issue(
+        'SCENARIO_DISPOSITION_OPTION_INVALID',
+        `Scenario ${scenario.id} offers disposition options that are not canonical (${nonCanonicalOptions.map((option) => `"${option}"`).join(', ')}). Change each option to one of: ${CanonicalDispositionSchema.options.join(', ')}.`,
+        'scenario',
+        scenario.id,
+      ));
+    }
     for (const criterion of secret.rubricCriteria) {
       if (!criterion.evidence?.length) issues.push(issue('CLAIM_EVIDENCE_MISSING', `Scenario rubric ${criterion.id} needs exact source evidence.`, 'claim', criterion.id, 'major'));
       for (const original of criterion.evidence ?? []) {
@@ -341,6 +361,15 @@ export function evaluatePublicationGates(input: PublicationGateInput): Publicati
     }
   }
 
+  // Coverage runs after the scenario loop so rules grounded only by Sim rubric evidence count as covered.
+  for (const pack of rulePacks) {
+    for (const rule of pack.rules) {
+      if (requiredRuleIds.has(rule.id) && rule.requiredKnowledge && !coveredRuleIds.has(rule.id)) {
+        issues.push(issue('RULE_COVERAGE_MISSING', `Required rule ${rule.id} is not covered by curriculum evidence.`, 'rule', rule.id));
+      }
+    }
+  }
+
   for (const asset of assets) {
     if (asset.status === 'approved' && (!asset.approvedByUid || !asset.approvedAt)) {
       issues.push(issue('ASSET_APPROVAL_INVALID', `Operational asset ${asset.id} lacks approver identity.`, 'asset', asset.id));
@@ -357,6 +386,128 @@ export function evaluatePublicationGates(input: PublicationGateInput): Publicati
     checkedSourceRevision: sourceRevision,
     checkedAt: input.now ?? Date.now(),
   });
+}
+
+export interface RebindExcerptProblem {
+  ownerType: 'briefing_card' | 'drill' | 'rubric' | 'scenario_gate' | 'asset';
+  ownerId: string;
+  /** Claim evidence id, or the gate id for scenario gate references. */
+  evidenceId: string | null;
+  excerpt: SourceExcerptRef;
+  reason: ExcerptVerification['reason'];
+}
+
+export type DraftRebindResult =
+  | {
+      ok: true;
+      draft: TrackVersionDoc;
+      previousSourceRevision: string | null;
+      sourceRevision: string;
+      /** Unapproved evidence that does not match the new pages. It stays blocked by the publication gates. */
+      warnings: RebindExcerptProblem[];
+    }
+  | {
+      ok: false;
+      code: 'SOURCE_BUNDLE_MISMATCH' | 'SOURCE_NOT_APPROVED' | 'ALREADY_BOUND' | 'REBIND_EXCERPT_MISMATCH';
+      message: string;
+      mismatches: RebindExcerptProblem[];
+      warnings: RebindExcerptProblem[];
+    };
+
+export interface DraftRebindInput {
+  draft: TrackVersionDoc;
+  bundle: SourceBundle;
+  pages: SourcePageEvidence[];
+  assets: OperationalAsset[];
+  secrets: SecretSimScenarioConfig[];
+}
+
+/**
+ * Plan "rebind draft to current approved revision" after a source revision changed (for example a
+ * re-approved transcription). Only when the bundle is approved at its current hash, and every approved
+ * claim/rubric excerpt, every scenario gate reference and every approved asset reference still matches
+ * the current pages exactly (`verifySourceExcerpt`), does it return the draft with `sourceRevision` and
+ * each `scenario.context.sourceRevision` rewritten. Nothing else changes, so the publication gates still
+ * re-check all evidence, approvals and conflicts afterwards. Unapproved evidence is reported as warnings:
+ * it was never trusted and remains blocked by CLAIM_UNSUPPORTED / TRAINER_APPROVAL_REQUIRED.
+ */
+export function planDraftRebind(input: DraftRebindInput): DraftRebindResult {
+  const { draft, bundle, pages, assets, secrets } = input;
+  const mismatches: RebindExcerptProblem[] = [];
+  const warnings: RebindExcerptProblem[] = [];
+  const fail = (code: Exclude<DraftRebindResult, { ok: true }>['code'], message: string): DraftRebindResult =>
+    ({ ok: false, code, message, mismatches, warnings });
+
+  if (draft.sourceBundleId !== bundle.id) {
+    return fail('SOURCE_BUNDLE_MISMATCH', 'This draft was built from a different source bundle. Build a new draft from this bundle instead.');
+  }
+  if (
+    (bundle.status !== 'approved' && bundle.status !== 'published') ||
+    bundle.approvedSourceRevision !== bundle.revisionHash ||
+    !bundle.approvedByUid ||
+    !bundle.approvedAt
+  ) {
+    return fail('SOURCE_NOT_APPROVED', 'Approve the current source bundle revision before rebinding the draft to it.');
+  }
+  const scenariosBound = draft.simScenarios.every((scenario) => !scenario.context || scenario.context.sourceRevision === bundle.revisionHash);
+  if (draft.sourceRevision === bundle.revisionHash && scenariosBound) {
+    return fail('ALREADY_BOUND', 'The draft is already bound to the current approved source revision.');
+  }
+
+  const checkEvidence = (ownerType: RebindExcerptProblem['ownerType'], ownerId: string, evidence: ClaimEvidence[] | undefined) => {
+    for (const item of evidence ?? []) {
+      for (const excerpt of item.excerpts) {
+        const result = verifySourceExcerpt(excerpt, pages, { critical: item.critical, requiresInterfaceDetails: item.requiresInterfaceDetails });
+        if (result.matched) continue;
+        (item.approvalStatus === 'approved' ? mismatches : warnings).push({ ownerType, ownerId, evidenceId: item.id, excerpt, reason: result.reason });
+      }
+    }
+  };
+  for (const unit of draft.units) {
+    for (const card of unit.briefingCards) checkEvidence('briefing_card', card.id, card.evidence);
+    for (const drill of unit.drills) checkEvidence('drill', drill.id, drill.evidence);
+  }
+  for (const config of secrets) {
+    for (const criterion of config.rubricCriteria) checkEvidence('rubric', criterion.id, criterion.evidence);
+  }
+  for (const scenario of draft.simScenarios) {
+    for (const [gateId, refs] of Object.entries(scenario.evidenceRequirements?.gateSourceRefs ?? {})) {
+      for (const excerpt of refs) {
+        const result = verifySourceExcerpt(excerpt, pages, { critical: true });
+        if (!result.matched) mismatches.push({ ownerType: 'scenario_gate', ownerId: scenario.id, evidenceId: gateId, excerpt, reason: result.reason });
+      }
+    }
+  }
+  for (const asset of assets) {
+    for (const excerpt of asset.sourceRefs) {
+      const result = verifySourceExcerpt(excerpt, pages, {
+        critical: true,
+        requiresInterfaceDetails: asset.kind === 'workflow' && asset.requiresInterfaceDetails,
+      });
+      if (!result.matched) {
+        (asset.status === 'approved' ? mismatches : warnings).push({ ownerType: 'asset', ownerId: asset.id, evidenceId: null, excerpt, reason: result.reason });
+      }
+    }
+  }
+  if (mismatches.length > 0) {
+    return fail(
+      'REBIND_EXCERPT_MISMATCH',
+      `${mismatches.length} approved excerpt${mismatches.length === 1 ? ' no longer matches' : 's no longer match'} the current source pages. Fix or regenerate those items, or build a new draft.`,
+    );
+  }
+  return {
+    ok: true,
+    previousSourceRevision: draft.sourceRevision ?? null,
+    sourceRevision: bundle.revisionHash,
+    warnings,
+    draft: {
+      ...draft,
+      sourceRevision: bundle.revisionHash,
+      simScenarios: draft.simScenarios.map((scenario) =>
+        scenario.context ? { ...scenario, context: { ...scenario.context, sourceRevision: bundle.revisionHash } } : scenario,
+      ),
+    },
+  };
 }
 
 /** Utility for targeted fixture tests and trainers reviewing a proposed offer. */

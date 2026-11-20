@@ -83,13 +83,36 @@ function nonEmpty(value: string | undefined): string | undefined {
   return trimmed || undefined;
 }
 
+/** Default loopback URL for the OpenAI-compatible profile: the MLX dev runtime (8080 is the Firestore emulator). */
+export const DEFAULT_LOCAL_OPENAI_COMPATIBLE_BASE_URL = 'http://127.0.0.1:8081';
+
+/**
+ * Validate an Ollama daemon URL. Ollama may legitimately run on another LAN host, so unlike the
+ * OpenAI-compatible profile it is not restricted to loopback; credentials, queries, and fragments are rejected.
+ */
+export function normalizeHttpBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error(`Base URL "${value}" is not a valid http(s) URL, such as http://127.0.0.1:11434.`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`Base URL "${value}" must use http:// or https://.`);
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error('Base URL must not contain credentials, a query string, or a fragment.');
+  }
+  return url.toString().replace(/\/+$/, '');
+}
+
 /** Validate and normalize a local HTTP endpoint. Credentials, query strings, and fragments are rejected. */
 export function normalizeLoopbackBaseUrl(value: string): string {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error('Local runtime base URL must be a valid HTTP loopback URL, such as http://127.0.0.1:8080.');
+    throw new Error('Local runtime base URL must be a valid HTTP loopback URL, such as http://127.0.0.1:8081.');
   }
   const hostname = url.hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
   if (url.protocol !== 'http:' || !['localhost', '127.0.0.1', '::1'].includes(hostname)) {
@@ -118,7 +141,7 @@ export function createLocalRuntimeProfile(input: CreateLocalRuntimeProfileInput)
     id: input.id ?? `${input.provider}-local`,
     provider: input.provider,
     runtimeLabel: nonEmpty(input.runtimeLabel),
-    baseUrl: normalizeLoopbackBaseUrl(input.baseUrl),
+    baseUrl: input.provider === 'ollama' ? normalizeHttpBaseUrl(input.baseUrl) : normalizeLoopbackBaseUrl(input.baseUrl),
     models: {
       structuredGeneration: nonEmpty(input.models.structuredGeneration),
       streamingChat: nonEmpty(input.models.streamingChat),
@@ -131,13 +154,17 @@ export function createLocalRuntimeProfile(input: CreateLocalRuntimeProfileInput)
   });
 }
 
-/** Build the generic local profile without reading or logging any credentials. */
+/**
+ * Build the generic local profile without reading or logging any credentials. An unset
+ * OPENAI_COMPATIBLE_BASE_URL uses the same default as the provider (DEFAULT_LOCAL_OPENAI_COMPATIBLE_BASE_URL),
+ * so health reporting and generation always target the same endpoint. Missing models are reported by preflight
+ * as not_configured.
+ */
 export function openAICompatibleProfileFromEnv(
   env: Record<string, string | undefined> = process.env,
   now: Date = new Date(),
-): LocalRuntimeProfile | null {
-  const baseUrl = nonEmpty(env.OPENAI_COMPATIBLE_BASE_URL);
-  if (!baseUrl) return null;
+): LocalRuntimeProfile {
+  const baseUrl = nonEmpty(env.OPENAI_COMPATIBLE_BASE_URL) ?? DEFAULT_LOCAL_OPENAI_COMPATIBLE_BASE_URL;
   const heavyModel = nonEmpty(env.OPENAI_COMPATIBLE_HEAVY_MODEL);
   return createLocalRuntimeProfile({
     provider: 'openai_compatible',

@@ -1,13 +1,8 @@
 import type { Metadata } from 'next';
 import { LoginForm } from './LoginForm';
+import { safeNextPath } from './safe-next-path';
 
 export const metadata: Metadata = { title: 'Sign In' };
-
-function safeNextPath(value: string | string[] | undefined): string {
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/login')) return '/';
-  return raw;
-}
 
 const REASON_MESSAGES: Record<string, string> = {
   'session-ended': 'Your session ended. Sign in again to continue.',

@@ -18,6 +18,9 @@ import {
   type DrillItem,
   type PublicSimScenario,
   type SecretSimScenarioConfig,
+  type TrackUnit,
+  TrackUnitSchema,
+  DrillItemSchema,
 } from '@/lib/schemas/curriculum';
 import type { DivisionId } from '@/lib/schemas/domain';
 import { PublicationGateReportSchema, type PublicationGateReport } from '@/lib/schemas/source-truth';
@@ -115,6 +118,21 @@ export async function regenerateItem(
   return parsed.data.item;
 }
 
+/** Add ONE new source-grounded Drill to a Checkpoint (regenerate-item route, `action: add_drill`). */
+export async function addDrill(trackId: string, unitId: string, trainerHint?: string): Promise<{ drill: DrillItem; unit: TrackUnit }> {
+  const response = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/regenerate-item`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'add_drill', unitId, ...(trainerHint ? { trainerHint } : {}) }),
+  });
+  if (!response.ok) throw await errorFrom(response, 'The Drill was not added');
+  const body = (await response.json()) as { item?: unknown; unit?: unknown };
+  const drill = DrillItemSchema.safeParse(body.item);
+  const unit = TrackUnitSchema.safeParse(body.unit);
+  if (!drill.success || !unit.success) throw new Error('The server sent an unexpected Drill.');
+  return { drill: drill.data, unit: unit.data };
+}
+
 export async function publishTrack(trackId: string, assignedCohortIds: string[]): Promise<string> {
   const response = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/publish`, {
     method: 'POST',
@@ -159,4 +177,36 @@ export async function fetchDraftSecrets(trackId: string): Promise<SecretSimScena
   if (asDoc.success) return asDoc.data.scenarios;
   const asList = SecretSimScenarioConfigSchema.array().safeParse(secrets);
   return asList.success ? asList.data : null;
+}
+
+export interface ContentMap {
+  trackId: string;
+  title: string;
+  pageCount: number;
+  words: number;
+  ruleSignals: number;
+  headings: number;
+  operationalPages: number;
+  recommended: { min: number; target: number; max: number };
+  limits: { min: number; max: number };
+  unitTarget: number | null;
+  estimatedMinutesByTarget: Record<string, number>;
+  pages: Array<{ pageNumber: number; words: number; ruleSignals: number; needsTranscription: boolean }>;
+}
+
+/** GET /api/tracks/{trackId}/content-map — measured source depth before the AI build. */
+export async function fetchContentMap(trackId: string): Promise<ContentMap> {
+  const response = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/content-map`, { cache: 'no-store' });
+  if (!response.ok) throw await errorFrom(response, 'The content map did not load.');
+  return (await response.json()) as ContentMap;
+}
+
+/** POST /api/tracks/{trackId}/content-map — save the trainer's checkpoint target (null = measured target). */
+export async function saveUnitTarget(trackId: string, unitTarget: number | null): Promise<void> {
+  const response = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/content-map`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unitTarget }),
+  });
+  if (!response.ok) throw await errorFrom(response, 'The checkpoint target was not saved.');
 }

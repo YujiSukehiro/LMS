@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { Cpu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AiHealthResponse } from '@/lib/schemas/api';
+import type { UserRole } from '@/lib/schemas/domain';
+import { shouldCheckAiHealth } from './ai-runtime';
 
 export interface AiRuntimeInfo {
   provider: 'ollama' | 'gemini' | 'openai_compatible' | 'manual_chat' | 'replay';
@@ -21,26 +23,27 @@ const PROVIDER_LABELS: Record<AiRuntimeInfo['provider'], string> = {
 };
 
 /** Shows the honest runtime mode and, for internal ops, its latest capability status. */
-export function AiRuntimePill({ runtime, className }: { runtime: AiRuntimeInfo; className?: string }) {
+export function AiRuntimePill({ runtime, role, className }: { runtime: AiRuntimeInfo; role?: UserRole; className?: string }) {
   const [health, setHealth] = useState<AiHealthResponse | null>(null);
+  const checkHealth = shouldCheckAiHealth(runtime.provider, role);
 
   useEffect(() => {
-    if (runtime.provider === 'manual_chat' || runtime.provider === 'replay') return;
+    if (!checkHealth) return;
     const controller = new AbortController();
     void fetch('/api/system/ai-health', { signal: controller.signal, cache: 'no-store' })
       .then(async (response) => response.ok ? AiHealthResponseSchemaSafe(await response.json()) : null)
       .then((report) => { if (report) setHealth(report); })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [runtime.provider]);
+  }, [checkHealth]);
 
-  const baseLabel = PROVIDER_LABELS[runtime.provider];
+  const baseLabel = runtime.runtimeLabel ?? PROVIDER_LABELS[runtime.provider];
   const label = health?.status === 'blocked'
-    ? 'Local chat blocked'
+    ? `${baseLabel} blocked`
     : health?.status === 'degraded'
       ? `${baseLabel} degraded`
       : health?.status === 'not_configured'
-        ? 'Local AI not configured'
+        ? `${baseLabel} not configured`
         : health?.status === 'ready'
           ? `${baseLabel} ready · ${runtime.heavyModel}`
           : runtime.provider === 'replay' || runtime.provider === 'manual_chat'

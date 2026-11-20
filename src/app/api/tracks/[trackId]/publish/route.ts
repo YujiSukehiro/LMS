@@ -115,13 +115,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
           if (!(error instanceof SourceBundleNotFoundError)) throw error;
         }
       }
+      // The gate report also carries UNIT_CONTENT_INCOMPLETE: learners only ever get complete
+      // Checkpoints, so a Unit a local build could only partly fill (see reviewNotes) stays a draft.
       const gateReport = evaluatePublicationGates({ draft, ...source, secrets: secrets?.scenarios ?? [], runScenarioQAFixture });
       if (!gateReport.eligible) {
         const count = gateReport.issues.filter((issue) => issue.blocking).length;
+        const thinUnits = gateReport.issues.filter((issue) => issue.code === 'UNIT_CONTENT_INCOMPLETE').length;
         throw new PublishError(
           409,
           'PUBLICATION_GATES_FAILED',
-          `Publication is blocked by ${count} source review issue${count === 1 ? '' : 's'}. Resolve each item in Source Review and try again.`,
+          `Publication is blocked by ${count} issue${count === 1 ? '' : 's'}${thinUnits > 0 ? ` (${thinUnits} Checkpoint${thinUnits === 1 ? ' needs' : 's need'} more content)` : ''}. Resolve each item in Source Review and try again.`,
           gateReport,
         );
       }
@@ -268,3 +271,4 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
     throw error;
   }
 }
+

@@ -66,6 +66,7 @@ vi.mock('@/lib/services/simulation-engine', async (importOriginal) => {
     evaluateSimulation: mockEvaluateSimulation,
     loadOwnedSimSession: mockLoadOwnedSimSession,
     simSessionsCollection: mockSimSessionsCollection,
+    countSimSessionsTowardLimitToday: async () => 0,
   };
 });
 vi.mock('@/lib/services/track-loader', () => ({
@@ -277,7 +278,12 @@ const mockSessionRef = {
   id: 'session-new',
   set: vi.fn(),
   collection: () => ({ doc: (id: string) => ({ id }) }),
-  firestore: { batch: () => ({ set: mockBatchSet, commit: mockBatchCommit }) },
+  firestore: {
+    batch: () => ({ set: mockBatchSet, commit: mockBatchCommit }),
+    collection: () => ({ doc: (id: string) => ({ id, path: `simStartLocks/${id}` }) }),
+    // Start's find-or-create transaction: no existing lock, writes are recorded like the old batch.
+    runTransaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({ get: async () => ({ exists: false }), set: mockBatchSet }),
+  },
 };
 const mockTxGet = vi.fn();
 const mockTxUpdate = vi.fn();

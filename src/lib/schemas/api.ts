@@ -2,7 +2,7 @@
  * Frozen REST + SSE contracts shared by API route handlers and UI components (docs/06 §2).
  */
 import { z } from 'zod';
-import { DivisionIdSchema, UserDocSchema, UserRoleSchema } from './domain';
+import { CohortDocSchema, DivisionIdSchema, RosterInviteDocSchema, UserDocSchema, UserRoleSchema } from './domain';
 import {
   BriefingCardSchema,
   DrillItemSchema,
@@ -222,6 +222,18 @@ export const CompleteUnitResponseSchema = z.object({
 });
 export type CompleteUnitResponse = z.infer<typeof CompleteUnitResponseSchema>;
 
+export const CompleteReviewRequestSchema = z.object({
+  trackIds: z.array(z.string().min(1)).max(20),
+  reviewedCount: z.number().int().min(1).max(100),
+  idempotencyKey: z.string().min(8).max(200),
+}).strict();
+export type CompleteReviewRequest = z.infer<typeof CompleteReviewRequestSchema>;
+export const CompleteReviewResponseSchema = z.object({
+  xpAwarded: z.number().int().nonnegative(),
+  newlyCertifiedTrackIds: z.array(z.string()),
+});
+export type CompleteReviewResponse = z.infer<typeof CompleteReviewResponseSchema>;
+
 // ---------- Simulations ----------
 export const StartSimRequestSchema = z.object({
   trackId: z.string(),
@@ -231,7 +243,14 @@ export const StartSimRequestSchema = z.object({
 export type StartSimRequest = z.infer<typeof StartSimRequestSchema>;
 export const StartSimResponseSchema = z.object({ session: SimSessionDocSchema });
 
-export const SimMessageRequestSchema = z.object({ content: z.string().min(1).max(2000) });
+export const SimMessageRequestSchema = z.object({
+  content: z.string().min(1).max(2000),
+  /**
+   * Optional, client-generated per learner message and reused on retries. A key that already produced a saved
+   * turn returns that turn's stored reply instead of appending the message again. Absent = legacy behavior.
+   */
+  idempotencyKey: z.string().min(8).max(200).regex(/^[\w-]+$/).optional(),
+});
 export const SimulationActionRequestSchema = z.object({ action: SimulationActionSchema }).strict();
 export const SimulationActionResponseSchema = z.object({
   session: SimSessionDocSchema,
@@ -306,7 +325,7 @@ export const SimTokenEventSchema = z.object({ token: z.string() });
 export const SimDoneEventSchema = z.object({ simEnded: z.boolean(), turnCount: z.number().int() });
 export type SimDoneEvent = z.infer<typeof SimDoneEventSchema>;
 
-export const EvaluateSimRequestSchema = z.object({ selectedDisposition: z.string().min(1).max(80) });
+export const EvaluateSimRequestSchema = z.object({ selectedDisposition: z.string().min(1).max(80).optional() });
 export const EvaluateSimResponseSchema = z.object({
   evaluation: SimEvaluationSchema,
   certified: z.boolean(),
@@ -356,6 +375,96 @@ export type RosterImportResponse = z.infer<typeof RosterImportResponseSchema>;
 
 export const RosterStatusRequestSchema = z.object({ active: z.boolean() });
 export const RosterStatusResponseSchema = z.object({ ok: z.literal(true), uid: z.string(), active: z.boolean() });
+
+export const RosterUpdatePermissionsRequestSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(100).optional(),
+    role: UserRoleSchema,
+    partnerCohortId: z.string().min(2).max(32),
+    divisionIds: z.array(DivisionIdSchema).min(1),
+  })
+  .strict();
+export type RosterUpdatePermissionsRequest = z.infer<typeof RosterUpdatePermissionsRequestSchema>;
+export const RosterUpdatePermissionsResponseSchema = z.object({
+  ok: z.literal(true),
+  user: UserDocSchema,
+  sessionRevoked: z.boolean(),
+});
+export type RosterUpdatePermissionsResponse = z.infer<typeof RosterUpdatePermissionsResponseSchema>;
+
+export const RosterResetPasswordRequestSchema = z
+  .object({
+    newPassword: z.string().min(8).max(128).optional(),
+  })
+  .strict();
+export type RosterResetPasswordRequest = z.infer<typeof RosterResetPasswordRequestSchema>;
+export const RosterResetPasswordResponseSchema = z.object({
+  ok: z.literal(true),
+  uid: z.string(),
+  loginIdentifier: z.string(),
+  temporaryPassword: z.string(),
+});
+export type RosterResetPasswordResponse = z.infer<typeof RosterResetPasswordResponseSchema>;
+
+export const RosterCreateInviteRequestSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email(),
+    displayName: z.string().trim().min(1).max(100),
+    role: UserRoleSchema,
+    partnerCohortId: z.string().min(2).max(32),
+    divisionIds: z.array(DivisionIdSchema).min(1),
+    expiresInDays: z.number().int().min(1).max(90).default(30),
+  })
+  .strict();
+export type RosterCreateInviteRequest = z.infer<typeof RosterCreateInviteRequestSchema>;
+export const RosterCreateInviteResponseSchema = z.object({
+  ok: z.literal(true),
+  invite: RosterInviteDocSchema,
+});
+export type RosterCreateInviteResponse = z.infer<typeof RosterCreateInviteResponseSchema>;
+
+export const RosterRevokeInviteRequestSchema = z
+  .object({
+    status: z.literal('REVOKED'),
+  })
+  .strict();
+export const RosterRevokeInviteResponseSchema = z.object({
+  ok: z.literal(true),
+  inviteId: z.string(),
+  status: z.literal('REVOKED'),
+});
+
+export const RosterCreateCohortRequestSchema = z
+  .object({
+    id: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z0-9_]{2,32}$/, 'Cohort ID must be 2–32 uppercase letters, numbers, or underscores.'),
+    name: z.string().trim().min(2).max(80),
+    defaultDivisionIds: z.array(DivisionIdSchema).min(1),
+    joinCodeEnabled: z.boolean().default(true),
+  })
+  .strict();
+export type RosterCreateCohortRequest = z.infer<typeof RosterCreateCohortRequestSchema>;
+export const RosterCohortResponseSchema = z.object({
+  ok: z.literal(true),
+  cohort: CohortDocSchema,
+});
+export type RosterCohortResponse = z.infer<typeof RosterCohortResponseSchema>;
+
+export const RosterUpdateCohortRequestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('toggle_join_code'), enabled: z.boolean() }).strict(),
+  z.object({ action: z.literal('rotate_join_code') }).strict(),
+  z
+    .object({
+      action: z.literal('update_details'),
+      name: z.string().trim().min(2).max(80),
+      defaultDivisionIds: z.array(DivisionIdSchema).min(1),
+    })
+    .strict(),
+]);
+export type RosterUpdateCohortRequest = z.infer<typeof RosterUpdateCohortRequestSchema>;
 
 // ---------- System ----------
 export const AiHealthResponseSchema = z.object({

@@ -11,8 +11,8 @@ export function TopBar({ user, runtime }: { user: SessionUser; runtime: AiRuntim
         <CohortBadge cohortId={user.partnerCohortId} />
         <RoleBadge role={user.role} className="hidden sm:inline-flex" />
       </div>
-      <AiRuntimePill runtime={runtime} className="hidden md:inline-flex" />
-      <UserMenu displayName={user.displayName} email={user.email} />
+      <AiRuntimePill runtime={runtime} role={user.role} className="hidden md:inline-flex" />
+      <UserMenu uid={user.uid} displayName={user.displayName} email={user.email} />
     </header>
   );
 }

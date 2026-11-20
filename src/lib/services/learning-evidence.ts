@@ -32,6 +32,7 @@ import {
 import { buildLearningAnalytics, type CurrentLearningAnalytics } from './learning-analytics';
 import { drillRuleIds } from './drill-grader';
 import { ServiceError } from './errors';
+import { scenarioCoverageDocId } from './scenario-coverage';
 import { isTrackVisibleToLearner, loadTrack, loadVersion } from './track-loader';
 
 export interface CurrentLearningEvidenceData {
@@ -61,7 +62,7 @@ export function certificationsCollection() {
 }
 
 export function scenarioCoverageRef(learnerId: string, trackId: string, versionId: string, scenarioId: string) {
-  return adminDb.collection('scenarioCoverage').doc(`coverage_${learnerId}_${trackId}_${versionId}_${scenarioId}`);
+  return adminDb.collection('scenarioCoverage').doc(scenarioCoverageDocId(learnerId, trackId, versionId, scenarioId));
 }
 
 /** Authoritative Drill-to-rule mapping from the frozen TrackVersion, not from attempt feedback. */
@@ -149,11 +150,18 @@ export async function loadCurrentLearningEvidenceData(args: {
     if (!parsed.success) throw invalidData('ATTEMPT_DATA_INVALID', 'A saved Drill attempt is not valid. Contact a Trainer.');
     return parsed.data;
   });
-  const reviewSchedules = schedulesSnap.docs.flatMap((doc) => {
+  const scheduleByKey = new Map<string, ReviewScheduleDoc>();
+  for (const doc of schedulesSnap.docs) {
     const parsed = ReviewScheduleDocSchema.safeParse({ ...doc.data(), id: doc.id });
     if (!parsed.success) throw invalidData('REVIEW_SCHEDULE_INVALID', 'A saved review schedule is not valid. Contact a Trainer.');
-    return parsed.data.trackId === trackId && parsed.data.curriculumVersion === versionId ? [parsed.data] : [];
-  });
+    if (parsed.data.trackId !== trackId || parsed.data.curriculumVersion !== versionId) continue;
+    const key = `${parsed.data.trackId}:${parsed.data.curriculumVersion}:${parsed.data.drillId}`;
+    const prev = scheduleByKey.get(key);
+    if (!prev || Date.parse(parsed.data.updatedAt) >= Date.parse(prev.updatedAt)) {
+      scheduleByKey.set(key, parsed.data);
+    }
+  }
+  const reviewSchedules = [...scheduleByKey.values()];
   const scenarioCoverage = coverageSnap.docs.map((doc) => {
     const parsed = ScenarioCoverageDocSchema.safeParse({ ...doc.data(), id: doc.id });
     if (!parsed.success) throw invalidData('SCENARIO_COVERAGE_INVALID', 'Saved Simulation coverage is not valid. Contact a Trainer.');

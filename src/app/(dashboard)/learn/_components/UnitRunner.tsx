@@ -12,7 +12,9 @@ import type { CompetencyPillar, TrackUnit } from '@/lib/schemas/curriculum';
 import type { LearnerDrill } from '@/lib/schemas/learning';
 import { XP_RULES } from '@/lib/schemas/constants';
 import { cn } from '@/lib/utils';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { describeApiError, describeNetworkError } from '../_lib/api-errors';
+import { checkpointScoreLine, type DrillRoundSummary } from '@/components/learn/round-score';
 
 export type LearnerUnit = Omit<TrackUnit, 'drills'> & { drills: LearnerDrill[] };
 
@@ -41,9 +43,11 @@ interface Outcome {
   xpAwarded: number | null;
   masteryPct: number | null;
   certified: boolean;
+  /** This sitting's score; shown instead of first-try accuracy on a replay. */
+  round: DrillRoundSummary | null;
 }
 
-function localOutcome(results: DrillResult[]): Omit<Outcome, 'xpAwarded' | 'masteryPct' | 'certified'> {
+function localOutcome(results: DrillResult[]): Omit<Outcome, 'xpAwarded' | 'masteryPct' | 'certified' | 'round'> {
   const firstTryCorrect = results.filter((r) => r.passedFirstTry).length;
   const total = results.length;
   return { firstTryCorrect, total, accuracyPct: total === 0 ? 100 : Math.round((firstTryCorrect / total) * 100) };
@@ -78,6 +82,7 @@ export function UnitRunner({
   const [cardIndex, setCardIndex] = useState(0);
   const [drillProgress, setDrillProgress] = useState<DrillRunnerProgress | null>(null);
   const [results, setResults] = useState<DrillResult[] | null>(null);
+  const roundRef = useRef<DrillRoundSummary | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const completionKeyRef = useRef<string | null>(null);
@@ -98,7 +103,7 @@ export function UnitRunner({
 
   const save = useCallback(
     async (drillResults: DrillResult[]) => {
-      const local = localOutcome(drillResults);
+      const local = { ...localOutcome(drillResults), round: roundRef.current };
       if (isPreview) {
         setOutcome({ ...local, xpAwarded: null, masteryPct: null, certified: false });
         setPhase('complete');
@@ -146,7 +151,8 @@ export function UnitRunner({
   );
 
   const onDrillsComplete = useCallback(
-    (drillResults: DrillResult[]) => {
+    (drillResults: DrillResult[], round: DrillRoundSummary) => {
+      roundRef.current = round;
       setResults(drillResults);
       void save(drillResults);
     },
@@ -290,14 +296,15 @@ function CompletionPanel({
   nextUnitHref: string | null;
   simHref: string | null;
 }) {
+  const score = checkpointScoreLine(outcome, outcome.round);
   const accuracyTone =
-    outcome.accuracyPct >= 85 ? 'text-pulse-emerald' : outcome.accuracyPct >= 70 ? 'text-pulse-amber' : 'text-pulse-crimson';
+    score.pct >= 85 ? 'text-pulse-emerald' : score.pct >= 70 ? 'text-pulse-amber' : 'text-pulse-crimson';
   return (
     <section
       aria-labelledby="checkpoint-complete-heading"
       className="pulse-card-elevated pulse-slide-up flex flex-col items-center gap-6 p-8 text-center"
     >
-      <span className="grid size-16 place-items-center rounded-full bg-pulse-emerald text-[#04140e]">
+      <span className="grid size-16 place-items-center rounded-full bg-pulse-emerald text-pulse-on-emerald">
         <Trophy aria-hidden className="size-8" />
       </span>
       <div>
@@ -309,11 +316,9 @@ function CompletionPanel({
 
       <dl className="grid w-full max-w-md grid-cols-2 gap-3">
         <div className="rounded-pulse-md border border-pulse-border-subtle bg-pulse-surface-1 p-4">
-          <dt className="pulse-label">First-Try Accuracy</dt>
-          <dd className={cn('pulse-metric mt-1 text-3xl font-bold', accuracyTone)}>{outcome.accuracyPct}%</dd>
-          <dd className="pulse-metric text-xs text-pulse-muted">
-            {outcome.firstTryCorrect}/{outcome.total} first try
-          </dd>
+          <dt className="pulse-label">{score.label}</dt>
+          <dd className={cn('pulse-metric mt-1 text-3xl font-bold', accuracyTone)}>{score.pct}%</dd>
+          <dd className="pulse-metric text-xs text-pulse-muted">{score.detail}</dd>
         </div>
         <div className="rounded-pulse-md border border-pulse-border-subtle bg-pulse-surface-1 p-4">
           <dt className="pulse-label">{isPreview ? 'XP (estimate)' : 'XP Awarded'}</dt>
@@ -348,7 +353,10 @@ function CompletionPanel({
           </Link>
         ) : simHref ? (
           <Link href={simHref} className="pulse-btn pulse-btn-primary" autoFocus>
-            <Headset aria-hidden className="size-4" /> Go to Live Call Sim
+            <Headset aria-hidden className="size-4" />{' '}
+            {TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
+              ? 'Go to Verbal Practice'
+              : 'Go to Live Call Sim'}
           </Link>
         ) : null}
       </div>

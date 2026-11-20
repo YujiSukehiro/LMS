@@ -56,7 +56,7 @@ describe('domain schemas', () => {
   });
 
   it('applies preference defaults', () => {
-    expect(UserPreferencesSchema.parse({})).toEqual({ soundEffects: true, compactMode: false, theme: 'dark' });
+    expect(UserPreferencesSchema.parse({})).toEqual({ soundEffects: true, compactMode: false, theme: 'light' });
   });
 
   it('validates a Cohort document', () => {

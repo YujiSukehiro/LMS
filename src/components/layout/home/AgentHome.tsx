@@ -1,8 +1,11 @@
 import Link from 'next/link';
-import { ArrowRight, Award, BookOpen, Clock, Flame, Gauge, Layers, Radar, Zap } from 'lucide-react';
+import { ArrowRight, Award, BookOpen, Brain, Clock, Flame, Gauge, Layers, Radar, Sparkles, Zap } from 'lucide-react';
 import type { SessionUser } from '@/lib/schemas/domain';
 import type { EnrollmentDoc } from '@/lib/schemas/analytics';
 import type { TrackDoc } from '@/lib/schemas/curriculum';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { loadRetentionQueueForUser } from '@/lib/services/retention-queue';
+import { isTrackVisibleToLearner } from '@/lib/services/track-loader';
 import { cn } from '@/lib/utils';
 import {
   loadEnrollmentsForUser,
@@ -14,11 +17,13 @@ import { formatPct } from '@/components/analytics/strength';
 import { DivisionPill } from '../DivisionPill';
 
 export async function AgentHome({ user }: { user: SessionUser }) {
-  const [profile, tracks, enrollments] = await Promise.all([
+  const [profile, rawTracks, enrollments, retention] = await Promise.all([
     loadUser(user.uid),
     loadPublishedTracksForCohort(user.partnerCohortId),
     loadEnrollmentsForUser(user.uid),
+    loadRetentionQueueForUser(user),
   ]);
+  const tracks = rawTracks.filter((track) => isTrackVisibleToLearner(track, user));
   const enrollmentByTrack = new Map(enrollments.map((e) => [e.trackId, e]));
   const stats = profile?.stats;
   const firstName = user.displayName.split(/\s+/)[0] ?? user.displayName;
@@ -38,7 +43,9 @@ export async function AgentHome({ user }: { user: SessionUser }) {
           <p className="pulse-label">My Tracks</p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight">Welcome back, {firstName}</h1>
           <p className="mt-1 text-sm text-pulse-muted">
-            Complete each Checkpoint, then pass a Live Call Sim to become Campaign Certified.
+            {TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
+              ? 'Complete each Checkpoint, pass Verbal Practice, and keep Playbook rules sharp through spaced retention.'
+              : 'Complete each Checkpoint, then pass a Live Call Sim to become Campaign Certified.'}
           </p>
         </div>
         <Link href={`/analytics/agents/${encodeURIComponent(user.uid)}`} className="pulse-btn">
@@ -74,6 +81,52 @@ export async function AgentHome({ user }: { user: SessionUser }) {
           },
         ]}
       />
+
+      <section
+        aria-label="Knowledge Retention"
+        className={cn(
+          'pulse-card-elevated flex flex-wrap items-center justify-between gap-4 p-5',
+          retention.summary.dueCount > 0 && 'border-pulse-amber/40',
+        )}
+      >
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="pulse-label flex items-center gap-1.5">
+            <Brain aria-hidden className="size-3.5 text-pulse-indigo" />
+            Knowledge Retention
+          </p>
+          <h2 className="text-lg font-bold text-pulse-primary">
+            {retention.summary.dueCount > 0 ? (
+              <>
+                <span className="pulse-metric">{retention.summary.dueCount}</span> spaced review drill
+                {retention.summary.dueCount === 1 ? '' : 's'} due now
+              </>
+            ) : retention.summary.scheduledCount > 0 ? (
+              'All scheduled rules are up to date'
+            ) : (
+              'Keep Playbook rules sharp'
+            )}
+          </h2>
+          <p className="text-sm text-pulse-muted">
+            {retention.summary.scheduledCount > 0 ? (
+              <>
+                <span className="pulse-metric">{retention.summary.scheduledCount}</span> active schedule
+                {retention.summary.scheduledCount === 1 ? '' : 's'} ·{' '}
+                <span className="pulse-metric">{retention.summary.masteredCount}</span> mastered on the 1 → 3 → 7 day ladder.
+              </>
+            ) : (
+              'Complete any Track Checkpoint to unlock 1, 3, and 7 day spaced retention reviews.'
+            )}
+          </p>
+        </div>
+        <Link
+          href="/learn/review"
+          className={cn('pulse-btn shrink-0', retention.summary.dueCount > 0 ? 'pulse-btn-primary' : '')}
+        >
+          <Sparkles aria-hidden className="size-4" />
+          {retention.summary.dueCount > 0 ? `Start Keep-Sharp Review (${retention.summary.dueCount})` : 'Open Retention Hub'}
+          <ArrowRight aria-hidden className="size-4" />
+        </Link>
+      </section>
 
       <section className="flex flex-col gap-3">
         <SectionHeader title="Assigned Tracks" description="Tracks assigned to your Cohort." />
@@ -135,7 +188,7 @@ function AgentTrackCard({ track, enrollment }: { track: TrackDoc; enrollment: En
           <Clock aria-hidden className="size-3.5" />~{track.estimatedTotalMinutes} min
         </span>
         {enrollment && enrollment.xpEarned > 0 ? (
-          <span className="pulse-metric flex items-center gap-1 text-[#a5b4fc]">
+          <span className="pulse-metric flex items-center gap-1 text-pulse-indigo-text">
             <Zap aria-hidden className="size-3.5" />
             {enrollment.xpEarned} XP
           </span>
@@ -143,7 +196,7 @@ function AgentTrackCard({ track, enrollment }: { track: TrackDoc; enrollment: En
       </div>
       <div className="mt-auto flex flex-col gap-2">
         <ProgressBar value={progress} tone={status === 'CERTIFIED' ? 'emerald' : 'indigo'} label={`${track.title} progress`} />
-        <span className="flex items-center justify-end gap-1 text-sm font-semibold text-[#a5b4fc] group-hover:text-pulse-primary">
+        <span className="flex items-center justify-end gap-1 text-sm font-semibold text-pulse-indigo-text group-hover:text-pulse-primary">
           {cta}
           <ArrowRight aria-hidden className="size-4 transition-transform group-hover:translate-x-0.5" />
         </span>

@@ -14,6 +14,8 @@ import {
   type TrackVersionDoc,
 } from '@/lib/schemas/curriculum';
 import { cn } from '@/lib/utils';
+import type { ClaimEvidence } from '@/lib/schemas/source-truth';
+import { replaceRubricEvidence } from '@/lib/services/evidence-approvals';
 import { DivisionPill } from '@/components/layout/DivisionPill';
 import { TrackStatusPill } from './TrackStatusPill';
 import { OutlineTree, type StudioSelection } from './OutlineTree';
@@ -27,7 +29,12 @@ import { RevisedPlaybookDialog } from './RevisedPlaybookDialog';
 import { SourceReview } from './SourceReview';
 import { ManualJudgeExchange } from './ManualJudgeExchange';
 import { TrainerQaPanel } from './TrainerQaPanel';
-import { fetchDraftSecrets, patchTrackDraft, regenerateItem } from './api-client';
+import { addDrill, fetchDraftSecrets, patchTrackDraft, regenerateItem } from './api-client';
+import { AddDrillButton, TrackAttentionBanner, UnitAttentionPanel } from './UnitAttentionPanel';
+import { appendDrill, refreshUnitReviewNotes } from './unit-review';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { ensureVerbalScenarioDefaults, ensureVerbalSecretDefaults } from '@/lib/services/verbal-defaults';
+import { DEPTH_LIMITS } from '@/lib/ai/pipeline/content-depth';
 import { issueTargetsKey, validateStudioDraft, type StudioIssue } from './validation';
 
 type SaveState = { kind: 'idle' } | { kind: 'saving' } | { kind: 'saved'; at: number } | { kind: 'error'; message: string };
@@ -63,6 +70,8 @@ export function TrackStudio({
   const [saveState, setSaveState] = useState<SaveState>({ kind: 'idle' });
   const [issues, setIssues] = useState<StudioIssue[]>([]);
   const [playRevision, setPlayRevision] = useState(0);
+  // Follows a server-side "rebind draft to current approved revision" (Source Review).
+  const [sourceRevision, setSourceRevision] = useState(draft.sourceRevision);
 
   const pillars = draft.competencyPillars.length > 0 ? draft.competencyPillars : track.competencyPillars;
   const issueKeys = useMemo(() => new Set(issues.map((i) => issueTargetsKey(i.target))), [issues]);
@@ -83,7 +92,32 @@ export function TrackStudio({
   }, [dirty]);
 
   const save = useCallback(async (): Promise<boolean> => {
-    const found = validateStudioDraft({ title, units, simScenarios: scenarios, secretScenarios: secrets, pillars });
+    const verbalOnly = TRAINING_POLICY.simulationInteractionMode === 'verbal_only';
+    const nextScenarios = verbalOnly
+      ? scenarios.map((sc) =>
+          ensureVerbalScenarioDefaults(sc, {
+            divisionId: track.divisionId,
+            product: title.trim() || track.title,
+            sourceRevision,
+            curriculumVersion: draft.versionId,
+          }),
+        )
+      : scenarios;
+    const keptSecrets = secrets.filter((s) => nextScenarios.some((sc) => sc.id === s.scenarioId));
+    const nextSecrets = verbalOnly
+      ? keptSecrets.map((sec) => {
+          const matching = nextScenarios.find((sc) => sc.id === sec.scenarioId);
+          return matching ? ensureVerbalSecretDefaults(matching, sec) : sec;
+        })
+      : keptSecrets;
+
+    const found = validateStudioDraft({
+      title,
+      units,
+      simScenarios: nextScenarios,
+      secretScenarios: nextSecrets,
+      pillars,
+    });
     setIssues(found);
     if (found.length > 0) {
       setSaveState({ kind: 'error', message: `${found.length} problem${found.length === 1 ? '' : 's'} to fix before saving.` });
@@ -91,13 +125,18 @@ export function TrackStudio({
     }
     setSaveState({ kind: 'saving' });
     try {
-      const ordered = units.map((unit, index) => ({ ...unit, orderIndex: index }));
+      // Shortfall notes the trainer has since fixed (for example by adding Drills) are dropped on save.
+      const ordered = units.map((unit, index) => ({ ...refreshUnitReviewNotes(unit), orderIndex: index }));
       const updatedAt = await patchTrackDraft(track.id, {
         title: title.trim(),
         units: ordered,
-        simScenarios: scenarios,
-        secretScenarios: secrets.filter((s) => scenarios.some((sc) => sc.id === s.scenarioId)),
+        simScenarios: nextScenarios,
+        secretScenarios: nextSecrets,
       });
+      if (verbalOnly) {
+        setScenarios(nextScenarios);
+        setSecrets(nextSecrets);
+      }
       setDirty(false);
       setSaveState({ kind: 'saved', at: updatedAt });
       return true;
@@ -105,7 +144,7 @@ export function TrackStudio({
       setSaveState({ kind: 'error', message: err instanceof Error ? err.message : 'The draft did not save.' });
       return false;
     }
-  }, [title, units, scenarios, secrets, pillars, track.id]);
+  }, [title, units, scenarios, secrets, pillars, track.id, track.divisionId, track.title, sourceRevision, draft.versionId]);
 
   // Ctrl/Cmd + S saves the draft.
   useEffect(() => {
@@ -151,25 +190,82 @@ export function TrackStudio({
       );
     } else {
       const scenario = PublicSimScenarioSchema.safeParse(item);
-      if (!scenario.success) throw new Error('The server sent an item that is not a Live Call Sim.');
-      setScenarios((prev) => prev.map((s) => (s.id === target.itemId ? scenario.data : s)));
-      if (scenario.data.id !== target.itemId) {
-        setSelection({ kind: 'scenario', scenarioId: scenario.data.id });
+      if (!scenario.success) {
+        throw new Error(
+          TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
+            ? 'The server sent an item that is not a Verbal Practice scenario.'
+            : 'The server sent an item that is not a Live Call Sim.',
+        );
+      }
+      const normalizedScenario =
+        TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
+          ? ensureVerbalScenarioDefaults(scenario.data, {
+              divisionId: track.divisionId,
+              product: title.trim() || track.title,
+              sourceRevision,
+              curriculumVersion: draft.versionId,
+            })
+          : scenario.data;
+      setScenarios((prev) => prev.map((s) => (s.id === target.itemId ? normalizedScenario : s)));
+      if (normalizedScenario.id !== target.itemId) {
+        setSelection({ kind: 'scenario', scenarioId: normalizedScenario.id });
       }
       // The server also rewrites the hidden persona and rubric; read them back.
       const fresh = await fetchDraftSecrets(track.id);
       if (fresh) {
-        const updated = fresh.find((s) => s.scenarioId === scenario.data.id);
+        const updated = fresh.find((s) => s.scenarioId === normalizedScenario.id);
         if (updated) {
+          const normalizedSecret =
+            TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
+              ? ensureVerbalSecretDefaults(normalizedScenario, updated)
+              : updated;
           setSecrets((prev) => [
-            ...prev.filter((s) => s.scenarioId !== target.itemId && s.scenarioId !== scenario.data.id),
-            updated,
+            ...prev.filter((s) => s.scenarioId !== target.itemId && s.scenarioId !== normalizedScenario.id),
+            normalizedSecret,
           ]);
         }
       }
     }
     setPlayRevision((r) => r + 1);
   }
+
+  async function addDrillTo(unitId: string) {
+    // The server appends to the saved draft, so unsaved edits are saved first.
+    if (dirty && !(await save())) throw new Error('Save the draft (fix the problems above) before adding a Drill.');
+    const { drill } = await addDrill(track.id, unitId);
+    // Splice in only the new Drill: replacing the whole Unit with the server copy would wipe edits the
+    // trainer made while the AI call ran.
+    setUnits((prev) => prev.map((u) => (u.id === unitId ? appendDrill(u, drill) : u)));
+    setPlayRevision((r) => r + 1);
+  }
+
+  // Source Review records approvals on the server; mirror the verified evidence locally without marking the draft dirty.
+  function onEvidenceApproved(evidence: ClaimEvidence) {
+    const swap = <T extends { evidence?: ClaimEvidence[] }>(items: T[]): T[] =>
+      items.map((item) => (item.evidence?.some((e) => e.id === evidence.id)
+        ? { ...item, evidence: item.evidence.map((e) => (e.id === evidence.id ? evidence : e)) }
+        : item));
+    setUnits((prev) => prev.map((unit) => ({ ...unit, briefingCards: swap(unit.briefingCards), drills: swap(unit.drills) })));
+    setSecrets((prev) => replaceRubricEvidence(prev, evidence.id, evidence));
+  }
+
+  function onDraftRebound(next: string) {
+    setSourceRevision(next);
+    setScenarios((prev) =>
+      prev.map((scenario) => (scenario.context ? { ...scenario, context: { ...scenario.context, sourceRevision: next } } : scenario)),
+    );
+  }
+
+  const renderAttention = (unit: TrackUnit, unitNumber: number, withAddDrill: boolean) => (
+    <UnitAttentionPanel
+      unit={unit}
+      unitNumber={unitNumber}
+      onOpenSourceReview={() => setMode('source')}
+      action={withAddDrill && unit.drills.length < DEPTH_LIMITS.minDrills ? (
+        <AddDrillButton unit={unit} disabled={saveState.kind === 'saving'} onAdd={() => addDrillTo(unit.id)} />
+      ) : undefined}
+    />
+  );
 
   const selectedUnitIndex = selection?.kind === 'unit' ? units.findIndex((u) => u.id === selection.unitId) : -1;
   const selectedUnit = selectedUnitIndex >= 0 ? units[selectedUnitIndex] : null;
@@ -270,6 +366,14 @@ export function TrackStudio({
         </section>
       ) : null}
 
+      <TrackAttentionBanner
+        units={units}
+        onSelectUnit={(unitId) => {
+          setSelection({ kind: 'unit', unitId });
+          if (mode === 'source') setMode('edit');
+        }}
+      />
+
       <div className="grid gap-5 lg:grid-cols-[17rem_minmax(0,1fr)]">
         <aside className="pulse-card h-fit p-3 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
           <OutlineTree units={units} scenarios={scenarios} selection={selection} onSelect={setSelection} issueKeys={issueKeys} />
@@ -278,7 +382,14 @@ export function TrackStudio({
         <div className="min-w-0">
           {mode === 'source' ? (
             <div className="flex flex-col gap-5">
-              <SourceReview trackId={track.id} draft={{ ...draft, units, simScenarios: scenarios }} />
+              <SourceReview
+                trackId={track.id}
+                draft={{ ...draft, sourceRevision, units, simScenarios: scenarios }}
+                secrets={secrets}
+                hasUnsavedChanges={dirty}
+                onDraftRebound={onDraftRebound}
+                onEvidenceApproved={onEvidenceApproved}
+              />
               <ManualJudgeExchange />
               <TrainerQaPanel trackId={track.id} />
             </div>
@@ -301,6 +412,10 @@ export function TrackStudio({
                   unit={selectedUnit}
                   unitNumber={selectedUnitIndex + 1}
                   pillars={pillars}
+                  attention={renderAttention(selectedUnit, selectedUnitIndex + 1, false)}
+                  addDrill={
+                    <AddDrillButton unit={selectedUnit} disabled={saveState.kind === 'saving'} onAdd={() => addDrillTo(selectedUnit.id)} />
+                  }
                   onChange={(next) => {
                     setUnits((prev) => prev.map((u) => (u.id === next.id ? next : u)));
                     markDirty();
@@ -333,7 +448,7 @@ export function TrackStudio({
                   }}
                   regenerate={
                     <RegenerateItemButton
-                      itemLabel={`Live Call Sim ${selectedScenarioIndex + 1}`}
+                      itemLabel={`${TRAINING_POLICY.simulationInteractionMode === 'verbal_only' ? 'Verbal Practice' : 'Live Call Sim'} ${selectedScenarioIndex + 1}`}
                       onRegenerate={(hint) => regenerate({ targetType: 'SCENARIO', itemId: selectedScenario.id }, hint)}
                     />
                   }
@@ -349,6 +464,7 @@ export function TrackStudio({
               unitNumber={selectedUnitIndex + 1}
               pillars={pillars}
               trackId={track.id}
+              attention={renderAttention(selectedUnit, selectedUnitIndex + 1, true)}
             />
           ) : selectedScenario ? (
             <ScenarioPlayPreview
@@ -386,7 +502,7 @@ function ModeButton({
       onClick={onClick}
       className={cn(
         'flex items-center gap-1.5 rounded-pulse-sm px-3 py-1.5 text-sm font-semibold transition-colors',
-        active ? 'bg-pulse-indigo text-white' : 'text-pulse-muted hover:text-pulse-primary',
+        active ? 'bg-pulse-indigo text-pulse-on-accent' : 'text-pulse-muted hover:text-pulse-primary',
       )}
     >
       {icon}
@@ -425,7 +541,9 @@ function SaveIndicator({ dirty, state }: { dirty: boolean; state: SaveState }) {
 function NothingSelected() {
   return (
     <div className="pulse-card p-8 text-center text-sm text-pulse-muted">
-      Select a Checkpoint or a Live Call Sim in the outline.
+      Select a Checkpoint or a{' '}
+      {TRAINING_POLICY.simulationInteractionMode === 'verbal_only' ? 'Verbal Practice scenario' : 'Live Call Sim'} in the
+      outline.
     </div>
   );
 }

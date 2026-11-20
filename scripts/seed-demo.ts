@@ -30,6 +30,8 @@ import {
   EVAL_RUBRICS_DOC_ID,
   EvalRubricsDocSchema,
   FILL_BLANK_TOKEN,
+  PublicSimScenarioSchema,
+  SecretSimScenarioConfigSchema,
   SOURCE_PAGES_PER_BATCH,
   SourcePageBatchDocSchema,
   TrackDocSchema,
@@ -67,6 +69,7 @@ import {
   XP_RULES,
 } from '../src/lib/schemas/constants';
 import {
+  CanonicalDispositionSchema,
   ClaimEvidenceSchema,
   OperationalAssetSchema,
   SharedRulePackSchema,
@@ -81,6 +84,20 @@ import {
   type SourceExcerptRef,
   type SourcePageEvidence,
 } from '../src/lib/schemas/source-truth';
+import type { ScenarioQAFixture } from '../src/lib/schemas/simulation-state';
+import { runScenarioQAFixture } from '../src/lib/services/scenario-state';
+import { buildAssessmentBlueprint } from '../src/lib/services/certification';
+import { ensureVerbalScenarioDefaults, ensureVerbalSecretDefaults } from '../src/lib/services/verbal-defaults';
+import { buildRuleIdsByDrillId } from '../src/lib/services/learning-evidence';
+import { buildLearningAnalytics } from '../src/lib/services/learning-analytics';
+import type { AssessmentBlueprintDoc, CertificationDoc, DrillAttemptDoc, ReviewScheduleDoc, ScenarioCoverageDoc } from '../src/lib/schemas/learning';
+import {
+  SEED_DRILL_SPACING_MINUTES,
+  seedCheckpointAttempts,
+  seedCoverageAndCertification,
+  seedSimSessionEvidence,
+  type SeedSimScript,
+} from './seed-learning-evidence';
 import { evaluatePublicationGates, extractionQualityFlags, normalizeSourceText } from '../src/lib/services/source-evidence';
 import {
   computeSourceBundleRevisionHash,
@@ -98,6 +115,7 @@ const DRY_RUN = args.has('--dry-run');
 const ALLOW_PRODUCTION = args.has('--allow-production');
 const DEMO_PASSWORD = 'PulseDemo!2026';
 const TRACK_ID = 'demo-mvp-retention';
+const VERBAL_TRACK_ID = 'demo-verbal-neurocalm';
 const BLOCKED_TRACK_ID = 'demo-unresolved-price';
 const SOURCE_BUNDLE_ID = 'bundle-demo-mvp-retention';
 const BLOCKED_SOURCE_BUNDLE_ID = 'bundle-demo-unresolved-price';
@@ -214,7 +232,7 @@ const PLAYBOOK_PAGES: string[] = [
   'Page 9. Required information for every escalation ticket. Record: member ID, best callback number, a one-line summary, and what you already offered. Clinical tickets also need the symptom start date and the product name. Billing tickets also need the charge date and the charge amount. Tell the member which team will help next and the expected callback time: Clinical Tier 2 within 4 hours, Billing Disputes within 2 business days.',
   'Page 10. Compliance boundaries. Never give medical advice, a diagnosis, or an instruction to stop or change a product. Never promise an outcome that another team decides. Never ask for or repeat a full card number; the last 4 digits are enough. Honor every do-not-call request and log it in Atlas. Read the recorded-line statement at the start of every call.',
   'Page 11. Empathy and de-escalation. Acknowledge the feeling first, then the facts. Apologize for the experience, not for the Playbook rule. Use the member name. If the member uses abusive language, give 1 calm warning. If the abusive language continues after the warning, transfer to the on-duty supervisor. Keep promises small and exact: say what you will do now and what happens next.',
-  'Page 12. Disposition codes. Log exactly one disposition before the call ends: Saved - 50% Discount; Saved - 60-Day Pause; Saved - Downgrade to Basic; Cancelled - Processed; Escalated - Clinical Tier 2; Escalated - Billing Disputes; Escalated - Supervisor. When an escalation and a save offer happen on the same call, the escalation disposition has priority.',
+  'Page 12. Disposition codes. Log exactly one disposition before the call ends: Recovered (the member accepted a save offer such as the 50% discount, the 60-Day Pause, or the Basic downgrade, and you confirmed it in Atlas); Callback scheduled (a Clinical Tier 2 or Billing Disputes callback is booked for a specific time); Not interested (the member declined every offer or the cancellation was processed); Didn\'t reply; Organic; Lost. When an escalation and a save offer happen on the same call, the escalation has priority: log Callback scheduled.',
 ];
 
 // ---------------------------------------------------------------------------
@@ -513,7 +531,7 @@ const UNITS: TrackUnit[] = [
           { id: 's1', text: 'Acknowledge the symptom and say help is next' },
           { id: 's2', text: 'Record member ID, callback number, and symptom start date' },
           { id: 's3', text: 'Warm transfer to Clinical Support Tier 2' },
-          { id: 's4', text: 'Log the disposition Escalated - Clinical Tier 2' },
+          { id: 's4', text: 'Log the disposition Callback scheduled' },
         ],
       },
       {
@@ -555,13 +573,8 @@ const SCENARIOS: PublicSimScenario[] = [
       'Queue: MVP Retention · Campaign: MVP · Channel: Inbound voice · Plan: Plus (39 USD per month) · Member since 2025 · Reason on IVR: Cancel membership',
     openingMessage:
       "Hi, I need to cancel my MVP membership today. Honestly it's just too expensive right now and I'm not really using it.",
-    dispositionOptions: [
-      'Saved - 50% Discount',
-      'Saved - 60-Day Pause',
-      'Saved - Downgrade to Basic',
-      'Cancelled - Processed',
-      'Escalated - Billing Disputes',
-    ],
+    // Only canonical dispositions (CanonicalDispositionSchema); the wrap-up rejects anything else.
+    dispositionOptions: ['Recovered', 'Callback scheduled', 'Not interested', 'Lost'],
     maxTurns: 8,
     passScoreThreshold: 80,
   },
@@ -574,13 +587,8 @@ const SCENARIOS: PublicSimScenario[] = [
       'Queue: MVP Retention · Campaign: MVP · Channel: Inbound voice · Plan: Plus with supplement pack · Last charge on file: 39 USD · Reason on IVR: Billing inquiry',
     openingMessage:
       "I've had headaches every single day since I started your supplement pack. I want all of my money back right now, or I'm calling my bank to reverse the charge.",
-    dispositionOptions: [
-      'Escalated - Clinical Tier 2',
-      'Escalated - Billing Disputes',
-      'Escalated - Supervisor',
-      'Cancelled - Processed',
-      'Saved - 50% Discount',
-    ],
+    // Only canonical dispositions (CanonicalDispositionSchema); the wrap-up rejects anything else.
+    dispositionOptions: ['Recovered', 'Callback scheduled', 'Not interested', 'Lost'],
     maxTurns: 10,
     passScoreThreshold: 80,
   },
@@ -602,7 +610,7 @@ const SECRET_SCENARIOS: SecretSimScenarioConfig[] = [
       'If the agent offers a pause of up to 60 days, accept it and ask when billing starts again.',
       'If the agent makes an offer before asking why you want to cancel, become short and repeat that you want to cancel.',
     ],
-    expectedDisposition: 'Saved - 60-Day Pause',
+    expectedDisposition: 'Recovered',
     autoFailTriggers: [
       'The agent discusses plan or billing details before verifying full name, date of birth, and ZIP code.',
       'The agent offers a discount, free month, or gift that is not on the Playbook save-offer ladder.',
@@ -629,7 +637,7 @@ const SECRET_SCENARIOS: SecretSimScenarioConfig[] = [
       'If the agent explains the warm transfer to Clinical Tier 2 and that a charge 9 days old qualifies for review under the 14-day rule, calm down and agree.',
       'If the agent asks about emergency symptoms, confirm there are none.',
     ],
-    expectedDisposition: 'Escalated - Clinical Tier 2',
+    expectedDisposition: 'Callback scheduled',
     autoFailTriggers: [
       'The agent gives medical advice or tells the member to stop, reduce, or change a product.',
       'The agent promises a refund amount before checking the charge date.',
@@ -642,6 +650,162 @@ const SECRET_SCENARIOS: SecretSimScenarioConfig[] = [
     ],
   },
 ];
+
+/** Fixed synthetic clock for seeded scenarios (11:00 in America/Chicago). */
+const SEED_SCENARIO_SYNTHETIC_NOW = '2026-01-15T17:00:00.000Z';
+const SEED_CALLBACK_AT = '2026-01-15T21:00:00.000Z';
+
+interface SeedScenarioRuntime {
+  caseBranch: string;
+  product: string;
+  requiredInspections: string[];
+  requiredWorkflowActions: string[];
+  requiredWrapUpEvidence: string[];
+  /** Deterministic gates and the Playbook page that grounds each one. */
+  gatePages: Record<string, number>;
+  qaFixtures: ScenarioQAFixture[];
+}
+
+/**
+ * Runtime context, evidence checklist and scripted QA fixtures per seeded scenario. Without these a new
+ * Sim run cannot start (409 SCENARIO_CONTEXT_REQUIRED) and the publication gates block the Track.
+ */
+const SCENARIO_RUNTIME: Record<string, SeedScenarioRuntime> = {
+  sim_price_cancel: {
+    caseBranch: 'existing_patient_cancellation_save',
+    product: 'MVP Plus',
+    requiredInspections: ['member_account'],
+    requiredWorkflowActions: ['recovery_confirmed'],
+    requiredWrapUpEvidence: ['note'],
+    gatePages: { identity_privacy: 2 },
+    qaFixtures: [
+      {
+        id: 'qa-price-golden-pass',
+        title: 'Verify, discover the travel, offer the pause, confirm',
+        kind: 'golden_pass',
+        steps: [
+          { action: { type: 'inspect', inspectionId: 'member_account' } },
+          { action: { type: 'dial' } },
+          { action: { type: 'verify_identity' } },
+          { learnerUtterance: 'Thank you, you are verified. Before anything else, what is making you want to cancel today?' },
+          { learnerUtterance: 'Since you will be away for 7 weeks, I can pause the membership for up to 60 days at no charge. Would that help?' },
+          { action: { type: 'workflow', actionId: 'recovery_confirmed' } },
+          { action: { type: 'note', text: 'Synthetic note: member accepted the 60-day pause and the restart date was confirmed.' } },
+          { action: { type: 'wrap_up', disposition: 'Recovered' } },
+        ],
+        expectedDisposition: 'Recovered',
+        expectedGateResults: [{ ruleId: 'identity_privacy', status: 'pass' }],
+      },
+      {
+        id: 'qa-price-critical-fail',
+        title: 'Discusses billing before verifying identity',
+        kind: 'golden_critical_fail',
+        steps: [
+          { action: { type: 'inspect', inspectionId: 'member_account' } },
+          { action: { type: 'dial' } },
+          { learnerUtterance: 'I can see your billing is 39 USD per month on the Plus plan.' },
+          { action: { type: 'verify_identity' } },
+          { action: { type: 'workflow', actionId: 'recovery_confirmed' } },
+          { action: { type: 'note', text: 'Synthetic note: member accepted the pause.' } },
+          { action: { type: 'wrap_up', disposition: 'Recovered' } },
+        ],
+        expectedDisposition: 'Recovered',
+        expectedGateResults: [{ ruleId: 'identity_privacy', status: 'fail' }],
+      },
+    ],
+  },
+  sim_side_effect_refund: {
+    caseBranch: 'clinical_side_effect_callback',
+    product: 'MVP Plus supplement pack',
+    requiredInspections: ['charge_history'],
+    requiredWorkflowActions: [],
+    requiredWrapUpEvidence: ['callback', 'note'],
+    gatePages: { identity_privacy: 2, clinical_boundary: 10 },
+    qaFixtures: [
+      {
+        id: 'qa-side-effect-golden-pass',
+        title: 'Verify, check emergency signs, book the Tier 2 callback',
+        kind: 'golden_pass',
+        steps: [
+          { action: { type: 'inspect', inspectionId: 'charge_history' } },
+          { action: { type: 'dial' } },
+          { action: { type: 'verify_identity' } },
+          { learnerUtterance: 'I am sorry about the headaches. Is there any chest pain, trouble breathing, or fainting right now?' },
+          { learnerUtterance: 'Thank you. Our medical team at Clinical Support Tier 2 will call you back within 4 hours, and a charge 9 days old qualifies for a refund review.' },
+          { action: { type: 'callback', callbackAt: SEED_CALLBACK_AT } },
+          { action: { type: 'note', text: 'Synthetic note: Clinical Tier 2 callback booked within the 4-hour window.' } },
+          { action: { type: 'wrap_up', disposition: 'Callback scheduled' } },
+        ],
+        expectedDisposition: 'Callback scheduled',
+        expectedGateResults: [{ ruleId: 'identity_privacy', status: 'pass' }, { ruleId: 'clinical_boundary', status: 'pass' }],
+      },
+      {
+        id: 'qa-side-effect-critical-fail',
+        title: 'Gives safety reassurance instead of routing to Clinical',
+        kind: 'golden_critical_fail',
+        steps: [
+          { action: { type: 'inspect', inspectionId: 'charge_history' } },
+          { action: { type: 'dial' } },
+          { action: { type: 'verify_identity' } },
+          { learnerUtterance: 'It is safe to take a half portion for now, so there is no need to escalate.' },
+          { action: { type: 'callback', callbackAt: SEED_CALLBACK_AT } },
+          { action: { type: 'note', text: 'Synthetic note: callback booked.' } },
+          { action: { type: 'wrap_up', disposition: 'Callback scheduled' } },
+        ],
+        expectedDisposition: 'Callback scheduled',
+        expectedGateResults: [{ ruleId: 'clinical_boundary', status: 'fail' }],
+      },
+    ],
+  },
+};
+
+/** Public scenarios bound to the approved source revision, with an explicit context and evidence checklist. */
+function runnableScenarios(sourceRevision: string): PublicSimScenario[] {
+  return SCENARIOS.map((scenario) => {
+    const runtime = SCENARIO_RUNTIME[scenario.id];
+    if (!runtime) throw new Error(`Scenario ${scenario.id} has no seeded runtime.`);
+    return PublicSimScenarioSchema.parse({
+      ...scenario,
+      context: {
+        direction: 'inbound',
+        queue: 'customer_support',
+        product: runtime.product,
+        stage: 'support_case',
+        contactState: 'existing_patient',
+        pricingPosture: 'not_applicable',
+        caseBranch: runtime.caseBranch,
+        syntheticTimezone: 'America/Chicago',
+        syntheticNow: SEED_SCENARIO_SYNTHETIC_NOW,
+        sourceRevision,
+        curriculumVersion: PUBLISHED_VERSION_ID,
+      },
+      evidenceRequirements: {
+        minimumLearnerTurns: 2,
+        requiredInspections: runtime.requiredInspections,
+        requiredWorkflowActions: runtime.requiredWorkflowActions,
+        requiredWrapUpEvidence: runtime.requiredWrapUpEvidence,
+        requiredGateIds: Object.keys(runtime.gatePages),
+        requiredCustomerConcerns: [],
+        expectedDurationMinutes: null,
+        gateSourceRefs: Object.fromEntries(Object.entries(runtime.gatePages).map(([gateId, page]) => [gateId, [mainExcerpt(page)]])),
+        maximumCriticalFailures: 0,
+        maximumMajorFailures: 0,
+      },
+    });
+  });
+}
+
+/** Secret configs with trainer-approved rubric evidence and the scripted QA fixtures the publish gate needs. */
+function groundedSecrets(trainerUid: string, approvedAt: number): SecretSimScenarioConfig[] {
+  return SECRET_SCENARIOS.map((secret) => SecretSimScenarioConfigSchema.parse({
+    ...secret,
+    rubricCriteria: secret.rubricCriteria.map((criterion) => ({
+      ...criterion,
+      evidence: [approvedClaim(`evidence-${criterion.id}`, criterion.evaluationRule, criterion.sourcePages, trainerUid, approvedAt)],
+    })),
+    qaFixtures: SCENARIO_RUNTIME[secret.scenarioId]?.qaFixtures ?? [],
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // 6. Sample progress
@@ -694,11 +858,11 @@ const PRICE_FAIL_TRANSCRIPT: SimAttemptPlan['transcript'] = [
 
 const SIDE_EFFECT_PASS_TRANSCRIPT: SimAttemptPlan['transcript'] = [
   ['counterparty', SCENARIOS[1].openingMessage],
-  ['agent', 'I am sorry you have been feeling unwell, that is important. This is Riley on a recorded line. Before anything else, are you having chest pain, trouble breathing, or fainting?'],
+  ['agent', 'I am sorry you are feeling unwell, that is important. This is Riley on a recorded line. Before anything else, are you having chest pain, trouble breathing, or fainting?'],
   ['counterparty', "No, nothing like that. Just headaches for about five days."],
   ['agent', 'Thank you. Can I verify your full name, date of birth, and ZIP code on file?'],
   ['counterparty', 'Marcus Reyes, November 2 1979, 30318.'],
-  ['agent', 'Thank you, Marcus. I cannot give medical advice, so I will warm transfer you to our Clinical Support Tier 2 team. I see your last charge was 9 days ago, which is inside our 14-day window, so the refund review is part of this ticket.'],
+  ['agent', 'Thank you, Marcus. I cannot give medical advice, so I will warm transfer you to our medical team at Clinical Support Tier 2. I see your last charge was 9 days ago, which is inside our 14-day window, so the refund review is part of this ticket.'],
   ['counterparty', "Okay. That's fair. What happens next?"],
   ['agent', 'I have your member ID, callback number, the start date of the headaches, and the product name on the ticket. Clinical Tier 2 will call you back within 4 hours if the transfer drops.'],
 ];
@@ -711,6 +875,40 @@ const SIDE_EFFECT_FAIL_TRANSCRIPT: SimAttemptPlan['transcript'] = [
   ['counterparty', 'Fine. Just send me the refund.'],
   ['agent', 'I will send you to Billing Disputes for the refund.'],
 ];
+
+/** The Sofia variant of the passing side-effect call (same Playbook moves, her name). */
+const SIDE_EFFECT_PASS_TRANSCRIPT_SOFIA: SimAttemptPlan['transcript'] = SIDE_EFFECT_PASS_TRANSCRIPT.map(
+  ([role, content]) => [role, content.replace('This is Riley', 'This is Sofia')],
+);
+
+/** How each seeded call is replayed through the Simulation engine (verify point and panel actions). */
+const SIM_SCRIPTS = new Map<SimAttemptPlan['transcript'], SeedSimScript>([
+  [PRICE_PASS_TRANSCRIPT, {
+    verifyBeforeMessageIndex: 3,
+    postCallActions: [
+      { type: 'workflow', actionId: 'recovery_confirmed' },
+      { type: 'note', text: 'Synthetic note: member accepted the 60-day pause; billing restart date confirmed.' },
+    ],
+  }],
+  [PRICE_FAIL_TRANSCRIPT, {
+    verifyBeforeMessageIndex: 5,
+    postCallActions: [
+      { type: 'workflow', actionId: 'cancellation_completed' },
+      { type: 'note', text: 'Synthetic note: membership cancelled.' },
+    ],
+  }],
+  ...[SIDE_EFFECT_PASS_TRANSCRIPT, SIDE_EFFECT_PASS_TRANSCRIPT_SOFIA].map((transcript): [SimAttemptPlan['transcript'], SeedSimScript] => [transcript, {
+    verifyBeforeMessageIndex: 5,
+    postCallActions: [
+      { type: 'callback', callbackAt: SEED_CALLBACK_AT },
+      { type: 'note', text: 'Synthetic note: Clinical Tier 2 callback booked within the 4-hour window.' },
+    ],
+  }]),
+  [SIDE_EFFECT_FAIL_TRANSCRIPT, {
+    verifyBeforeMessageIndex: Number.POSITIVE_INFINITY,
+    postCallActions: [{ type: 'note', text: 'Synthetic note: sent to Billing Disputes.' }],
+  }],
+]);
 
 const PROGRESS: ProgressPlan[] = [
   {
@@ -725,7 +923,7 @@ const PROGRESS: ProgressPlan[] = [
       {
         scenarioId: 'sim_price_cancel',
         daysAgo: 1,
-        selectedDisposition: 'Saved - 60-Day Pause',
+        selectedDisposition: 'Recovered',
         autoFailedReason: null,
         criterionScores: [100, 100, 100, 50],
         transcript: PRICE_PASS_TRANSCRIPT,
@@ -745,6 +943,30 @@ const PROGRESS: ProgressPlan[] = [
           'Give the calendar date when billing restarts.',
         ],
         betterExamples: [null, null, null, 'Your pause ends on the 15th of next month and billing restarts that day. I noted it in Atlas.'],
+      },
+      {
+        scenarioId: 'sim_side_effect_refund',
+        daysAgo: 0,
+        selectedDisposition: 'Callback scheduled',
+        autoFailedReason: null,
+        criterionScores: [100, 100, 100, 50],
+        transcript: SIDE_EFFECT_PASS_TRANSCRIPT_SOFIA,
+        summaryFeedback: 'Calm, safe triage. You checked for emergency symptoms first, gave no medical advice, and booked the Clinical Tier 2 callback.',
+        strengths: ['Checked for emergency symptoms before anything else', 'Explained the 14-day refund review after checking the charge date'],
+        improvements: ['Read the callback number back before you end the call'],
+        evidence: [
+          'I will warm transfer you to our medical team at Clinical Support Tier 2.',
+          'Are you having chest pain, trouble breathing, or fainting?',
+          'Your last charge was 9 days ago, which is inside our 14-day window.',
+          'I have your member ID, callback number, the start date of the headaches, and the product name on the ticket.',
+        ],
+        coaching: [
+          'Correct route and warm transfer.',
+          'Good emergency check with no medical advice.',
+          'Correct refund rule after checking the date.',
+          'Confirm the callback number out loud.',
+        ],
+        betterExamples: [null, null, null, 'Can I read back your callback number so Clinical Tier 2 can reach you?'],
       },
     ],
   },
@@ -775,7 +997,7 @@ const PROGRESS: ProgressPlan[] = [
       {
         scenarioId: 'sim_side_effect_refund',
         daysAgo: 1,
-        selectedDisposition: 'Escalated - Billing Disputes',
+        selectedDisposition: 'Not interested',
         autoFailedReason: 'The agent told the member to stop taking the supplement (medical advice).',
         criterionScores: [50, 0, 0, 50],
         transcript: SIDE_EFFECT_FAIL_TRANSCRIPT,
@@ -825,7 +1047,7 @@ const PROGRESS: ProgressPlan[] = [
       {
         scenarioId: 'sim_price_cancel',
         daysAgo: 4,
-        selectedDisposition: 'Cancelled - Processed',
+        selectedDisposition: 'Not interested',
         autoFailedReason: 'The agent discussed plan and price details before verification and offered a free month that is not on the ladder.',
         criterionScores: [0, 50, 0, 50],
         transcript: PRICE_FAIL_TRANSCRIPT,
@@ -854,7 +1076,7 @@ const PROGRESS: ProgressPlan[] = [
       {
         scenarioId: 'sim_side_effect_refund',
         daysAgo: 2,
-        selectedDisposition: 'Escalated - Clinical Tier 2',
+        selectedDisposition: 'Callback scheduled',
         autoFailedReason: null,
         criterionScores: [100, 100, 100, 50],
         transcript: SIDE_EFFECT_PASS_TRANSCRIPT,
@@ -862,7 +1084,7 @@ const PROGRESS: ProgressPlan[] = [
         strengths: ['Checked for emergency symptoms first', 'Applied the 14-day refund rule after checking the charge date'],
         improvements: ['Confirm the callback number out loud before the transfer'],
         evidence: [
-          'I will warm transfer you to our Clinical Support Tier 2 team.',
+          'I will warm transfer you to our medical team at Clinical Support Tier 2.',
           'Are you having chest pain, trouble breathing, or fainting?',
           'Your last charge was 9 days ago, which is inside our 14-day window.',
           'I have your member ID, callback number, the start date of the headaches, and the product name on the ticket.',
@@ -894,6 +1116,10 @@ interface BuiltProgress {
   enrollments: EnrollmentDoc[];
   simSessions: SimSessionDoc[];
   rollups: AnalyticsRollupDoc[];
+  drillAttempts: DrillAttemptDoc[];
+  reviewSchedules: ReviewScheduleDoc[];
+  scenarioCoverage: ScenarioCoverageDoc[];
+  certifications: CertificationDoc[];
 }
 
 const pillarById = new Map(PILLARS.map((pillar) => [pillar.id, pillar]));
@@ -1202,7 +1428,7 @@ function buildTrackDocs(trainerUid: string): {
     trackId: TRACK_ID,
     competencyPillars: PILLARS,
     units: sourceFixture.units,
-    simScenarios: SCENARIOS,
+    simScenarios: runnableScenarios(sourceFixture.review.bundle.revisionHash),
     sourceBundleId: SOURCE_BUNDLE_ID,
     sourceRevision: sourceFixture.review.bundle.revisionHash,
     requiredRuleIds: [RULE_ID],
@@ -1224,13 +1450,13 @@ function buildTrackDocs(trainerUid: string): {
   const publishedSecrets = EvalRubricsDocSchema.parse({
     trackId: TRACK_ID,
     versionId: PUBLISHED_VERSION_ID,
-    scenarios: SECRET_SCENARIOS,
+    scenarios: groundedSecrets(trainerUid, publishedAt),
     updatedAt: publishedAt,
   });
   const draftSecrets = EvalRubricsDocSchema.parse({
     trackId: TRACK_ID,
     versionId: DRAFT_VERSION_ID,
-    scenarios: SECRET_SCENARIOS,
+    scenarios: groundedSecrets(trainerUid, publishedAt),
     updatedAt: publishedAt,
   });
 
@@ -1251,6 +1477,508 @@ function buildTrackDocs(trainerUid: string): {
   }
 
   return { track, draft, published, draftSecrets, publishedSecrets, sourceBatches, sourceReview: sourceFixture.review };
+}
+
+function buildVerbalDemoTrackDocs(trainerUid: string): {
+  track: TrackDoc;
+  draft: TrackVersionDoc;
+  published: TrackVersionDoc;
+  draftSecrets: EvalRubricsDoc;
+  publishedSecrets: EvalRubricsDoc;
+  sourceBatches: SourcePageBatchDoc[];
+  sourceReview: SourceFixture;
+} {
+  const bundleId = 'bundle-demo-verbal-neurocalm';
+  const documentId = 'doc-demo-verbal-neurocalm';
+  const revisionId = 'demo-verbal-neurocalm-rev-1';
+  const packId = 'pack-demo-verbal-neurocalm';
+  const createdAt = daysAgo(5);
+  const publishedAt = daysAgo(4);
+
+  const pagesText = [
+    'NeuroCalmRx Verbal Agent Guide Page 1. Always verify full name, date of birth, and ZIP code on file before discussing any order, refill, or billing record. Agents must remain strictly within non-clinical scope: never adjust dosages, interpret symptoms as a diagnosis, or recommend medical changes. Direct all clinical dosing questions to Clinical Support Tier 2.',
+    'NeuroCalmRx Verbal Agent Guide Page 2. Screen immediately for urgent red-flag symptoms including chest pain, shortness of breath, fainting, or severe dizziness, and initiate a warm transfer to Clinical Support Tier 2 with a read-back of the caller phone number. Honor every spoken opt-out or stop-calling request immediately with zero additional save offers or persuasion attempts.',
+  ];
+
+  let pages = pagesText.map((rawText, index) =>
+    SourcePageEvidenceSchema.parse({
+      id: sourcePageEvidenceId(documentId, index + 1),
+      documentId,
+      revisionId,
+      pageNumber: index + 1,
+      rawText,
+      normalizedText: normalizeSourceText(rawText),
+      contentHash: hashSourcePageContent(rawText),
+      characterCount: rawText.length,
+      extractionFlags: extractionQualityFlags(rawText),
+      transcription: null,
+      approvedExcerpts: [],
+    }),
+  );
+
+  const excerpt = (pageNumber: number): SourceExcerptRef => ({
+    documentId,
+    revisionId,
+    pageNumber,
+    exactText: pagesText[pageNumber - 1]!,
+    fromApprovedTranscription: false,
+  });
+
+  const approvedEvidence = (id: string, claim: string, ruleIds: string[], pageNumbers: number[]): ClaimEvidence =>
+    ClaimEvidenceSchema.parse({
+      id,
+      claim,
+      ruleIds,
+      excerpts: pageNumbers.map((pageNumber) => excerpt(pageNumber)),
+      support: 'supported',
+      approvalStatus: 'approved',
+      critical: false,
+      requiresInterfaceDetails: false,
+      reviewerUid: trainerUid,
+      reviewedAt: publishedAt,
+    });
+
+  const document = {
+    id: documentId,
+    revisionId,
+    bundleId,
+    trackId: VERBAL_TRACK_ID,
+    role: 'product' as const,
+    fileName: 'NeuroCalmRx_Verbal_Playbook.pdf',
+    storagePath: `playbooks/${VERBAL_TRACK_ID}/${createdAt}-NeuroCalmRx_Verbal_Playbook.pdf`,
+    sourceVersion: 'neurocalm-verbal-v1',
+    effectiveDate: null,
+    uploadedAt: createdAt,
+    uploadedByUid: trainerUid,
+    contentHash: hashSourceBytes(Buffer.from(pagesText.join('\n\n'), 'utf8')),
+    pageCount: pagesText.length,
+    inheritanceOrder: 0,
+    excluded: false,
+    exclusionReason: null,
+  };
+
+  const bundleIdentity = {
+    documents: [document],
+    sharedRulePackIds: [packId],
+    precedencePolicyId: 'standard-meds-precedence-v1',
+  };
+  const revisionHash = computeSourceBundleRevisionHash(bundleIdentity, pages);
+  const bundle = SourceBundleSchema.parse({
+    schemaVersion: 1,
+    id: bundleId,
+    trackId: VERBAL_TRACK_ID,
+    ...bundleIdentity,
+    conflictIds: [],
+    status: 'approved',
+    revisionHash,
+    approvedSourceRevision: revisionHash,
+    approvedByUid: trainerUid,
+    approvedAt: publishedAt,
+    createdAt,
+    updatedAt: publishedAt,
+  });
+
+  const ruleDefs = [
+    {
+      id: 'rule-nc-identity',
+      title: 'Verify full name, date of birth, and ZIP code',
+      statement: 'Verify full name, date of birth, and ZIP code before discussing any order or billing detail.',
+      page: 1,
+      stage: 'verification',
+    },
+    {
+      id: 'rule-nc-scope',
+      title: 'Maintain non-clinical scope boundaries',
+      statement: 'Never adjust dosages or give medical advice; refer clinical dosing questions to Clinical Support Tier 2.',
+      page: 1,
+      stage: 'compliance',
+    },
+    {
+      id: 'rule-nc-escalation',
+      title: 'Screen red-flag symptoms and warm-transfer',
+      statement: 'Screen for chest pain, shortness of breath, fainting, or severe dizziness and warm-transfer to Clinical Support Tier 2.',
+      page: 2,
+      stage: 'escalation',
+    },
+    {
+      id: 'rule-nc-optout',
+      title: 'Honor spoken opt-out immediately',
+      statement: 'Stop all save offers immediately when a caller asks to opt out or stop calling.',
+      page: 2,
+      stage: 'compliance',
+    },
+  ] as const;
+
+  const rulePacks = [
+    SharedRulePackSchema.parse({
+      id: packId,
+      revision: 'neurocalm-verbal-rules-v1',
+      title: 'NeuroCalmRx Verbal Core Rules',
+      sourceDocumentIds: [documentId],
+      rules: ruleDefs.map((rule) => ({
+        id: rule.id,
+        packId,
+        title: rule.title,
+        statement: rule.statement,
+        severity: 'critical',
+        applicableTrackIds: [VERBAL_TRACK_ID],
+        channels: ['voice'],
+        stages: [rule.stage],
+        evidence: approvedEvidence(`ev-${rule.id}`, rule.statement, [rule.id], [rule.page]),
+        requiredKnowledge: true,
+        requiredScenarioCoverage: false,
+        sourceRevision: revisionHash,
+        approvalStatus: 'approved',
+        approvedByUid: trainerUid,
+        approvedAt: publishedAt,
+      })),
+      approvalStatus: 'approved',
+      createdAt,
+      updatedAt: publishedAt,
+    }),
+  ];
+
+  const units: TrackUnit[] = [
+    {
+      id: 'unit-nc-1',
+      orderIndex: 0,
+      title: 'Verbal Identity & Scope Boundaries',
+      summary: 'Verify callers cleanly and stay inside non-clinical verbal boundaries.',
+      estimatedMinutes: 6,
+      briefingCards: [
+        {
+          id: 'card-nc-1-verify',
+          headline: 'Three-Point Verbal Verification',
+          bodyMarkdown: 'Before mentioning any order date, refill, or billing balance, confirm **full name, date of birth, and ZIP code** verbally.',
+          keyTakeaway: 'Confirm full name, DOB, and ZIP before discussing any account details.',
+          doList: ['Ask for full name, date of birth, and ZIP code at call opening'],
+          dontList: ['Never cite refill dates or card charges before full verification'],
+          sourcePages: [1],
+          evidence: [approvedEvidence('ev-card-nc-1a', 'Verify full name, DOB, and ZIP before discussing order details.', ['rule-nc-identity'], [1])],
+        },
+        {
+          id: 'card-nc-1-scope',
+          headline: 'Strict Non-Clinical Verbal Scope',
+          bodyMarkdown: 'Never adjust doses or interpret symptoms as medical guidance. Refer all clinical questions to **Clinical Support Tier 2**.',
+          keyTakeaway: 'Never offer medical advice or dosage changes; refer to Clinical Tier 2.',
+          doList: ['State clearly that clinical dosing questions go to Clinical Support Tier 2'],
+          dontList: ['Never advise changing a prescribed schedule or splitting tablets'],
+          sourcePages: [1],
+          evidence: [approvedEvidence('ev-card-nc-1b', 'Never adjust dosages or offer medical advice.', ['rule-nc-scope'], [1])],
+        },
+      ],
+      drills: [
+        {
+          id: 'drill-nc-1-identity',
+          kind: 'MULTIPLE_CHOICE',
+          competencyPillarId: 'pillar_verification',
+          ruleIds: ['rule-nc-identity'],
+          prompt: 'Before checking a caller’s NeuroCalmRx refill status, which three items must you verify verbally?',
+          options: [
+            { id: 'a', text: 'Full name, date of birth, and ZIP code' },
+            { id: 'b', text: 'First name, phone number, and pharmacy name' },
+            { id: 'c', text: 'Email address and last 4 digits of card only' },
+            { id: 'd', text: 'ZIP code and prescribing doctor name only' },
+          ],
+          correctOptionId: 'a',
+          explanation: 'Always confirm full name, date of birth, and ZIP code before discussing account or refill records.',
+          sourcePages: [1],
+          evidence: [approvedEvidence('ev-drill-nc-1a', 'Verify full name, date of birth, and ZIP code.', ['rule-nc-identity'], [1])],
+        },
+        {
+          id: 'drill-nc-1-scope',
+          kind: 'TRUE_FALSE_SPOT',
+          competencyPillarId: 'pillar_compliance',
+          ruleIds: ['rule-nc-scope'],
+          statement: 'Agent says: "You can take half a dose tonight if the bottle feels too strong until you reach your doctor."',
+          isCompliant: false,
+          prompt: 'Evaluate whether this spoken agent statement follows NeuroCalmRx scope rules:',
+          explanation: 'Adjusting dosages violates non-clinical scope. Route dosing questions to Clinical Support Tier 2.',
+          sourcePages: [1],
+          evidence: [approvedEvidence('ev-drill-nc-1b', 'Never adjust dosages or give medical advice.', ['rule-nc-scope'], [1])],
+        },
+        {
+          id: 'drill-nc-1-escalation',
+          kind: 'MULTIPLE_CHOICE',
+          competencyPillarId: 'pillar_escalation',
+          ruleIds: ['rule-nc-escalation'],
+          prompt: 'When a patient mentions dizziness after starting NeuroCalmRx, what must your verbal screening cover first?',
+          options: [
+            { id: 'a', text: 'Screen for red-flag symptoms like chest pain or fainting and prepare a Clinical Tier 2 warm transfer' },
+            { id: 'b', text: 'Immediately offer a 50% retention discount to keep the subscription active' },
+            { id: 'c', text: 'Tell the caller mild dizziness always goes away within 48 hours' },
+            { id: 'd', text: 'End the call and mark the ticket resolved' },
+          ],
+          correctOptionId: 'a',
+          explanation: 'Screen immediately for red-flag symptoms and warm-transfer urgent cases to Clinical Support Tier 2.',
+          sourcePages: [2],
+          evidence: [approvedEvidence('ev-drill-nc-1c', 'Screen immediately for red-flag symptoms and warm-transfer to Clinical Tier 2.', ['rule-nc-escalation'], [2])],
+        },
+        {
+          id: 'drill-nc-1-optout',
+          kind: 'TRUE_FALSE_SPOT',
+          competencyPillarId: 'pillar_compliance',
+          ruleIds: ['rule-nc-optout'],
+          statement: 'Caller says "Please stop calling me." Agent replies: "I understand completely—I will make sure no further outreach calls are placed."',
+          isCompliant: true,
+          prompt: 'Does this spoken agent response satisfy the opt-out compliance rule?',
+          explanation: 'Honoring a spoken opt-out immediately without pitching additional save offers is compliant.',
+          sourcePages: [2],
+          evidence: [approvedEvidence('ev-drill-nc-1d', 'Honor spoken opt-out requests immediately with zero additional pitches.', ['rule-nc-optout'], [2])],
+        },
+      ],
+    },
+    {
+      id: 'unit-nc-2',
+      orderIndex: 1,
+      title: 'Verbal Escalation & Opt-Out Mastery',
+      summary: 'Apply escalation read-backs and zero-pitch opt-outs in high-pressure conversations.',
+      estimatedMinutes: 6,
+      briefingCards: [
+        {
+          id: 'card-nc-2-escalation',
+          headline: 'Warm-Transfer Read-Back Habit',
+          bodyMarkdown: 'Before transferring a symptomatic patient to **Clinical Support Tier 2**, confirm their **callback number out loud** so the clinical specialist can reconnect if dropped.',
+          keyTakeaway: 'Screen red flags and read back the callback number before warm transfer.',
+          doList: ['Ask for chest pain, breathing trouble, fainting, or severe dizziness', 'Read back callback number verbally'],
+          dontList: ['Never cold-drop a symptomatic caller into voicemail'],
+          sourcePages: [2],
+          evidence: [approvedEvidence('ev-card-nc-2a', 'Warm transfer with read-back of the caller phone number.', ['rule-nc-escalation'], [2])],
+        },
+        {
+          id: 'card-nc-2-optout',
+          headline: 'Zero-Pitch After Spoken Opt-Out',
+          bodyMarkdown: 'The instant a caller says "take me off your list" or "stop calling," stop every save offer and close courteously.',
+          keyTakeaway: 'Zero save offers after any spoken opt-out request.',
+          doList: ['Confirm outreach stops right away and close politely'],
+          dontList: ['Never pitch a discount or pause after an opt-out request'],
+          sourcePages: [2],
+          evidence: [approvedEvidence('ev-card-nc-2b', 'Honor every spoken opt-out immediately with zero additional save offers.', ['rule-nc-optout'], [2])],
+        },
+      ],
+      drills: [
+        {
+          id: 'drill-nc-2-identity',
+          kind: 'TRUE_FALSE_SPOT',
+          competencyPillarId: 'pillar_verification',
+          ruleIds: ['rule-nc-identity'],
+          variationOfDrillId: 'drill-nc-1-identity',
+          statement: 'Caller refuses to share date of birth, so the agent reads out their last order total to prove who is calling.',
+          isCompliant: false,
+          prompt: 'Evaluate this verbal shortcut during verification:',
+          explanation: 'Never reveal order or payment data when full 3-point verbal verification (name, DOB, ZIP) is incomplete.',
+          sourcePages: [1],
+          evidence: [approvedEvidence('ev-drill-nc-2a', 'Verify full name, date of birth, and ZIP code before account details.', ['rule-nc-identity'], [1])],
+        },
+        {
+          id: 'drill-nc-2-scope',
+          kind: 'MULTIPLE_CHOICE',
+          competencyPillarId: 'pillar_compliance',
+          ruleIds: ['rule-nc-scope'],
+          variationOfDrillId: 'drill-nc-1-scope',
+          prompt: 'Which spoken reply stays strictly inside NeuroCalmRx non-clinical scope when asked about side effects?',
+          options: [
+            { id: 'a', text: 'Let me check for urgent symptoms and connect you with our medical specialists at Clinical Support Tier 2.' },
+            { id: 'b', text: 'That reaction is harmless if you drink extra water with dinner.' },
+            { id: 'c', text: 'Switch to taking it every other day until Friday.' },
+            { id: 'd', text: 'Most patients tolerate it fine after week two, so keep taking the full amount.' },
+          ],
+          correctOptionId: 'a',
+          explanation: 'Connecting the patient to Clinical Support Tier 2 avoids medical advice while routing safely.',
+          sourcePages: [1],
+          evidence: [approvedEvidence('ev-drill-nc-2b', 'Direct all clinical dosing questions to Clinical Support Tier 2.', ['rule-nc-scope'], [1])],
+        },
+        {
+          id: 'drill-nc-2-escalation',
+          kind: 'TRUE_FALSE_SPOT',
+          competencyPillarId: 'pillar_escalation',
+          ruleIds: ['rule-nc-escalation'],
+          variationOfDrillId: 'drill-nc-1-escalation',
+          statement: 'Agent screens for chest pain and fainting, reads back the callback number, and introduces the caller to Clinical Support Tier 2.',
+          isCompliant: true,
+          prompt: 'Evaluate this Clinical Tier 2 escalation sequence:',
+          explanation: 'Screening for red-flag symptoms plus reading back the callback number completes a safe warm transfer.',
+          sourcePages: [2],
+          evidence: [approvedEvidence('ev-drill-nc-2c', 'Screen red-flag symptoms and warm-transfer with callback number read-back.', ['rule-nc-escalation'], [2])],
+        },
+        {
+          id: 'drill-nc-2-optout',
+          kind: 'MULTIPLE_CHOICE',
+          competencyPillarId: 'pillar_compliance',
+          ruleIds: ['rule-nc-optout'],
+          variationOfDrillId: 'drill-nc-1-optout',
+          prompt: 'A caller interrupts your greeting to say "Remove my number and stop calling me." What is the compliant spoken response?',
+          options: [
+            { id: 'a', text: 'Acknowledge immediately, confirm no further calls, and end courteously without mentioning any offer.' },
+            { id: 'b', text: 'Offer a quick 50% discount before confirming the opt-out.' },
+            { id: 'c', text: 'Ask why they want to opt out so you can rebut their objection.' },
+            { id: 'd', text: 'Suggest pausing refills for 30 days first.' },
+          ],
+          correctOptionId: 'a',
+          explanation: 'Any save pitch after an opt-out violates compliance; honor the opt-out immediately.',
+          sourcePages: [2],
+          evidence: [approvedEvidence('ev-drill-nc-2d', 'Honor spoken opt-out immediately with zero additional save offers.', ['rule-nc-optout'], [2])],
+        },
+      ],
+    },
+  ];
+
+  const baseScenario = ensureVerbalScenarioDefaults(
+    PublicSimScenarioSchema.parse({
+      id: 'scenario-nc-verbal-1',
+      title: 'Refill & Mild Dizziness Verbal Triage',
+      difficulty: 'STANDARD',
+      counterpartyRoleLabel: 'Existing Patient',
+      contextTicketSummary: 'Verbal role-play · Patient calling about a NeuroCalmRx refill and mild dizziness.',
+      openingMessage: 'Hi, I got my NeuroCalmRx refill yesterday and felt a little dizzy this morning—should I take half a dose tonight or get a refund?',
+      dispositionOptions: ['Callback scheduled', 'Escalated', 'Recovered'],
+      maxTurns: 6,
+      passScoreThreshold: 75,
+    }),
+    { divisionId: 'TELEHEALTH', product: 'NeuroCalmRx', sourceRevision: revisionHash, curriculumVersion: PUBLISHED_VERSION_ID },
+  );
+
+  const baseSecret = ensureVerbalSecretDefaults(
+    baseScenario,
+    SecretSimScenarioConfigSchema.parse({
+      scenarioId: baseScenario.id,
+      personaName: 'Taylor Bennett',
+      personaBackstoryAndMood: 'Worried existing patient seeking clear guidance on side effects and next steps without jargon.',
+      hiddenFactsToRevealOnlyWhenAsked: [
+        'Full name: Taylor Bennett, DOB: 1984-07-12, ZIP: 60611.',
+        'Callback number is 555-0194; no chest pain or fainting.',
+      ],
+      conditionalBehaviors: [
+        'Cooperate warmly if the agent verifies identity first and avoids giving dosing advice.',
+      ],
+      expectedDisposition: 'Callback scheduled',
+      autoFailTriggers: ['Giving dosing or medical advice instead of escalating to Clinical Support Tier 2.'],
+      rubricCriteria: [
+        {
+          id: 'c-nc-1',
+          competencyPillarId: 'pillar_verification',
+          criterionLabel: 'Verify three identity points before account details',
+          evaluationRule: 'Ask for full name, date of birth, and ZIP code before discussing account or refill status.',
+          weight: 34,
+          sourcePages: [1],
+          evidence: [approvedEvidence('ev-rubric-nc-1', 'Verify full name, date of birth, and ZIP code.', ['rule-nc-identity'], [1])],
+        },
+        {
+          id: 'c-nc-2',
+          competencyPillarId: 'pillar_compliance',
+          criterionLabel: 'Maintain strict non-clinical scope',
+          evaluationRule: 'Do not adjust dosages or give medical advice; route clinical questions to Clinical Support Tier 2.',
+          weight: 33,
+          sourcePages: [1],
+          evidence: [approvedEvidence('ev-rubric-nc-2', 'Never adjust dosages; refer to Clinical Tier 2.', ['rule-nc-scope'], [1])],
+        },
+        {
+          id: 'c-nc-3',
+          competencyPillarId: 'pillar_escalation',
+          criterionLabel: 'Screen red flags and confirm warm transfer callback',
+          evaluationRule: 'Screen for chest pain, breathing trouble, fainting, or severe dizziness and read back callback number.',
+          weight: 33,
+          sourcePages: [2],
+          evidence: [approvedEvidence('ev-rubric-nc-3', 'Screen red flags and read back callback number before transfer.', ['rule-nc-escalation'], [2])],
+        },
+      ],
+    }),
+    true,
+  );
+
+  const allExcerpts = [
+    ...units.flatMap((unit) => [
+      ...unit.briefingCards.flatMap((card) => card.evidence?.flatMap((e) => e.excerpts) ?? []),
+      ...unit.drills.flatMap((drill) => drill.evidence?.flatMap((e) => e.excerpts) ?? []),
+    ]),
+    ...rulePacks.flatMap((pack) => pack.rules.flatMap((rule) => rule.evidence.excerpts)),
+    ...baseSecret.rubricCriteria.flatMap((c) => c.evidence?.flatMap((e) => e.excerpts) ?? []),
+  ];
+  pages = pages.map((page) =>
+    SourcePageEvidenceSchema.parse({
+      ...page,
+      approvedExcerpts: allExcerpts.filter((ex) => ex.pageNumber === page.pageNumber),
+    }),
+  );
+
+  const track = TrackDocSchema.parse({
+    id: VERBAL_TRACK_ID,
+    title: 'NeuroCalmRx Verbal Mastery',
+    campaignCode: 'NEUROCALM-VERBAL',
+    divisionId: 'TELEHEALTH',
+    status: 'PUBLISHED',
+    generationProgress: { step: 'READY', percent: 100, message: 'Verbal Track ready.' },
+    sourcePdfStoragePath: `playbooks/${VERBAL_TRACK_ID}/${createdAt}-NeuroCalmRx_Verbal_Playbook.pdf`,
+    sourcePdfFileName: 'NeuroCalmRx_Verbal_Playbook.pdf',
+    sourcePageCount: pagesText.length,
+    activeSourceBundleId: bundleId,
+    currentDraftVersionId: DRAFT_VERSION_ID,
+    publishedVersionId: PUBLISHED_VERSION_ID,
+    assignedCohortIds: ['ALL'],
+    competencyPillars: PILLARS,
+    unitCount: units.length,
+    simScenarioCount: 1,
+    estimatedTotalMinutes: 18,
+    createdByUid: trainerUid,
+    createdAt,
+    updatedAt: publishedAt,
+  });
+
+  const versionBase = {
+    trackId: VERBAL_TRACK_ID,
+    competencyPillars: PILLARS,
+    units,
+    simScenarios: [baseScenario],
+    sourceBundleId: bundleId,
+    sourceRevision: revisionHash,
+    requiredRuleIds: ruleDefs.map((r) => r.id),
+  };
+  const published = TrackVersionDocSchema.parse({
+    ...versionBase,
+    versionId: PUBLISHED_VERSION_ID,
+    versionNumber: 1,
+    publishedAt,
+    createdAt: publishedAt,
+  });
+  const draft = TrackVersionDocSchema.parse({
+    ...versionBase,
+    versionId: DRAFT_VERSION_ID,
+    versionNumber: 2,
+    publishedAt: null,
+    createdAt,
+  });
+  const publishedSecrets = EvalRubricsDocSchema.parse({
+    trackId: VERBAL_TRACK_ID,
+    versionId: PUBLISHED_VERSION_ID,
+    scenarios: [baseSecret],
+    updatedAt: publishedAt,
+  });
+  const draftSecrets = EvalRubricsDocSchema.parse({
+    trackId: VERBAL_TRACK_ID,
+    versionId: DRAFT_VERSION_ID,
+    scenarios: [baseSecret],
+    updatedAt: createdAt,
+  });
+  const sourceBatches: SourcePageBatchDoc[] = [
+    SourcePageBatchDocSchema.parse({
+      id: 'batch-001',
+      trackId: VERBAL_TRACK_ID,
+      startPage: 1,
+      endPage: pagesText.length,
+      pages: pagesText.map((text, index) => ({ pageNumber: index + 1, text })),
+      createdAt,
+    }),
+  ];
+
+  return {
+    track,
+    draft,
+    published,
+    draftSecrets,
+    publishedSecrets,
+    sourceBatches,
+    sourceReview: { bundle, pages, rulePacks, assets: [], conflicts: [] },
+  };
 }
 
 function buildBlockedSourceFixture(trainerUid: string): {
@@ -1476,7 +2204,7 @@ function buildBlockedSourceFixture(trainerUid: string): {
     versionNumber: 1,
     competencyPillars: PILLARS,
     units,
-    simScenarios: [SCENARIOS[0]],
+    simScenarios: [runnableScenarios(revisionHash)[0]],
     sourceBundleId: BLOCKED_SOURCE_BUNDLE_ID,
     sourceRevision: revisionHash,
     requiredRuleIds: [ruleId],
@@ -1544,7 +2272,13 @@ function evaluateAttempt(plan: SimAttemptPlan): { overallScorePct: number; passe
   return { overallScorePct, passed, dispositionCorrect, criterionResults };
 }
 
-function buildProgress(users: SeedUserRecord[]): BuiltProgress {
+function buildProgress(users: SeedUserRecord[], version: TrackVersionDoc, blueprint: AssessmentBlueprintDoc): BuiltProgress {
+  const ruleIdsByDrillId = buildRuleIdsByDrillId(version);
+  const versionScenarioById = new Map(version.simScenarios.map((scenario) => [scenario.id, scenario]));
+  const drillAttempts: DrillAttemptDoc[] = [];
+  const reviewSchedules: ReviewScheduleDoc[] = [];
+  const scenarioCoverage: ScenarioCoverageDoc[] = [];
+  const certifications: CertificationDoc[] = [];
   const byKey = new Map(users.map((record) => [record.demo.key, record]));
   const scopes = new Map<string, { meta: Pick<AnalyticsRollupDoc, 'scopeType' | 'divisionId' | 'partnerCohortId' | 'trackId'>; acc: ScopeAccumulator }>();
   const scope = (id: string, meta: Pick<AnalyticsRollupDoc, 'scopeType' | 'divisionId' | 'partnerCohortId' | 'trackId'>) => {
@@ -1597,12 +2331,28 @@ function buildProgress(users: SeedUserRecord[]): BuiltProgress {
       const completedUnitIds: string[] = [];
       const unitScores: EnrollmentDoc['unitScores'] = {};
       let xpEarned = 0;
+      const learnerAttempts: DrillAttemptDoc[] = [];
+      const learnerSchedules = new Map<string, ReviewScheduleDoc>();
+      const learnerSessions: SimSessionDoc[] = [];
 
       for (const unitPlan of plan.units) {
         const unit = unitById.get(unitPlan.unitId);
         if (!unit) throw new Error(`Unknown Unit ${unitPlan.unitId}`);
         if (unitPlan.firstTry.length !== unit.drills.length) throw new Error(`Progress for ${unitPlan.unitId} needs ${unit.drills.length} results.`);
         const completedAt = daysAgo(unitPlan.daysAgo, -2);
+        // Each Drill once, then each miss again; the last submission lands at completedAt.
+        const submissions = unit.drills.length + unitPlan.firstTry.filter((ok) => !ok).length;
+        learnerAttempts.push(...seedCheckpointAttempts({
+          learnerId: uid,
+          partnerCohortId: demo.partnerCohortId,
+          version,
+          unitId: unit.id,
+          firstTry: unitPlan.firstTry,
+          startedAt: completedAt - submissions * SEED_DRILL_SPACING_MINUTES * 60_000,
+          ruleIdsByDrillId,
+          previousAttempts: learnerAttempts,
+          schedules: learnerSchedules,
+        }));
         let correct = 0;
         unit.drills.forEach((drill, index) => {
           const passedFirstTry = unitPlan.firstTry[index];
@@ -1636,7 +2386,7 @@ function buildProgress(users: SeedUserRecord[]): BuiltProgress {
         const scenario = scenarioById.get(attempt.scenarioId);
         if (!scenario) throw new Error(`Unknown scenario ${attempt.scenarioId}`);
         const startedAt = daysAgo(attempt.daysAgo, -1);
-        const result = evaluateAttempt(attempt);
+        const judged = evaluateAttempt(attempt);
         const evaluatedAt = startedAt + 9 * 60 * 1000;
         const messages: SimMessage[] = attempt.transcript.map(([role, content], index) => ({
           id: `m${String(index + 1).padStart(2, '0')}`,
@@ -1644,36 +2394,51 @@ function buildProgress(users: SeedUserRecord[]): BuiltProgress {
           content,
           createdAt: startedAt + index * 45 * 1000,
         }));
-        simSessions.push(
-          SimSessionDocSchema.parse({
-            id: `seed-${uid}-${attempt.scenarioId}-${attemptIndex + 1}`,
-            userId: uid,
-            userDisplayName: demo.displayName,
-            partnerCohortId: demo.partnerCohortId,
-            divisionId: TRACK_DIVISION,
-            trackId: TRACK_ID,
-            versionId: PUBLISHED_VERSION_ID,
-            scenarioId: attempt.scenarioId,
-            scenarioTitle: scenario.title,
-            status: 'EVALUATED',
-            turnCount: messages.filter((message) => message.role === 'agent').length,
-            messages,
-            selectedDisposition: attempt.selectedDisposition,
-            evaluation: {
-              overallScorePct: result.overallScorePct,
-              passed: result.passed,
-              autoFailedReason: attempt.autoFailedReason,
-              dispositionCorrect: result.dispositionCorrect,
-              summaryFeedback: attempt.summaryFeedback,
-              strengthsHighlighted: attempt.strengths,
-              coachingImprovements: attempt.improvements,
-              criterionResults: result.criterionResults,
-              evaluatedAt,
-            },
-            startedAt,
-            updatedAt: evaluatedAt,
-          }),
-        );
+        const sessionId = `seed-${uid}-${attempt.scenarioId}-${attemptIndex + 1}`;
+        const script = SIM_SCRIPTS.get(attempt.transcript);
+        const runnable = versionScenarioById.get(attempt.scenarioId);
+        if (!script || !runnable) throw new Error(`Seeded call ${sessionId} has no engine script.`);
+        const disposition = CanonicalDispositionSchema.parse(attempt.selectedDisposition);
+        // Same engine as a live call: deterministic gates, eligibility and the score cap come from the server rules.
+        const engine = seedSimSessionEvidence({
+          sessionId,
+          scenario: runnable,
+          transcript: attempt.transcript,
+          script,
+          disposition,
+          startedAt,
+          judged: {
+            overallScorePct: judged.overallScorePct,
+            passed: judged.passed,
+            autoFailedReason: attempt.autoFailedReason,
+            dispositionCorrect: judged.dispositionCorrect,
+            summaryFeedback: attempt.summaryFeedback,
+            strengthsHighlighted: attempt.strengths,
+            coachingImprovements: attempt.improvements,
+            criterionResults: judged.criterionResults,
+            evaluatedAt,
+          },
+        });
+        const session = SimSessionDocSchema.parse({
+          id: sessionId,
+          userId: uid,
+          userDisplayName: demo.displayName,
+          partnerCohortId: demo.partnerCohortId,
+          divisionId: TRACK_DIVISION,
+          trackId: TRACK_ID,
+          versionId: PUBLISHED_VERSION_ID,
+          scenarioId: attempt.scenarioId,
+          scenarioTitle: scenario.title,
+          status: 'EVALUATED',
+          turnCount: messages.filter((message) => message.role === 'agent').length,
+          messages,
+          ...engine,
+          startedAt,
+          updatedAt: evaluatedAt,
+        });
+        simSessions.push(session);
+        learnerSessions.push(session);
+        const result = session.evaluation!;
         for (const criterion of result.criterionResults) {
           const key = pillarKeyFor(criterion.competencyPillarId);
           const score = Number(criterion.score);
@@ -1688,13 +2453,48 @@ function buildProgress(users: SeedUserRecord[]): BuiltProgress {
         if (result.passed) {
           simulationsPassed += 1;
           xpEarned += XP_RULES.simulationPass;
-          if (!passedScenarioIds.includes(attempt.scenarioId)) passedScenarioIds.push(attempt.scenarioId);
-          if (certifiedAt === null && completedUnitIds.length === UNITS.length) certifiedAt = evaluatedAt;
         }
         lastActivityAt = Math.max(lastActivityAt, evaluatedAt);
       });
 
-      certified = completedUnitIds.length === UNITS.length && passedScenarioIds.length > 0;
+      // Coverage and certification exactly as the evaluate route computes them from this evidence.
+      const provisional = EnrollmentDocSchema.parse({
+        id: enrollmentIdFor(uid, TRACK_ID),
+        userId: uid,
+        userDisplayName: demo.displayName,
+        partnerCohortId: demo.partnerCohortId,
+        divisionId: TRACK_DIVISION,
+        trackId: TRACK_ID,
+        trackTitle: 'MVP Retention & Escalations',
+        versionId: PUBLISHED_VERSION_ID,
+        status: 'IN_PROGRESS',
+        completedUnitIds,
+        passedScenarioIds: [],
+        unitScores,
+        bestSimScorePct,
+        xpEarned,
+        progressPct: 0,
+        certifiedAt: null,
+        lastActivityAt,
+      });
+      const evidence = seedCoverageAndCertification({
+        learnerId: uid,
+        partnerCohortId: demo.partnerCohortId,
+        blueprint,
+        version,
+        enrollment: provisional,
+        drillAttempts: learnerAttempts,
+        sessions: learnerSessions,
+        ruleIdsByDrillId,
+      });
+      drillAttempts.push(...learnerAttempts);
+      reviewSchedules.push(...learnerSchedules.values());
+      scenarioCoverage.push(...evidence.coverage);
+      if (evidence.certification) certifications.push(evidence.certification);
+      passedScenarioIds.push(...evidence.eligibility.scenarios.passedScenarioIds);
+      certifiedAt = evidence.certification?.certifiedAt ? Date.parse(evidence.certification.certifiedAt) : null;
+
+      certified = certifiedAt !== null;
       if (certified) userScopes.forEach((acc) => (acc.totalCertifications += 1));
       totalXp = xpEarned;
       const progressSteps = UNITS.length + 1;
@@ -1718,6 +2518,7 @@ function buildProgress(users: SeedUserRecord[]): BuiltProgress {
           xpEarned,
           progressPct: Math.round((progressDone / progressSteps) * 100),
           certifiedAt: certified ? certifiedAt : null,
+          ...(certified ? { certificationEvidenceLabel: 'current_verified', certificationProvenance: 'certification_register' } : {}),
           lastActivityAt,
         }),
       );
@@ -1747,7 +2548,7 @@ function buildProgress(users: SeedUserRecord[]): BuiltProgress {
           overallReadinessScore: readiness,
         },
         skillScoresByPillar: skill,
-        preferences: { soundEffects: true, compactMode: false, theme: 'dark' },
+        preferences: { soundEffects: true, compactMode: false, theme: 'light' },
         createdAt: daysAgo(20),
         updatedAt: NOW,
       }),
@@ -1769,7 +2570,7 @@ function buildProgress(users: SeedUserRecord[]): BuiltProgress {
   );
 
   if (!byKey.has('trainer')) throw new Error('The trainer demo user is required.');
-  return { userDocs, enrollments, simSessions, rollups };
+  return { userDocs, enrollments, simSessions, rollups, drillAttempts, reviewSchedules, scenarioCoverage, certifications };
 }
 
 // ---------------------------------------------------------------------------
@@ -1884,11 +2685,22 @@ function sourceReviewWrites(review: SourceFixture): Array<{ path: string; data: 
   ];
 }
 
+/** Drop `undefined` fields (optional engine fields such as runtimeProvenance); Firestore rejects them. */
+function withoutUndefined<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(withoutUndefined) as T;
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).map(([key, item]) => [key, withoutUndefined(item)]),
+    ) as T;
+  }
+  return value;
+}
+
 async function writeAll(db: Firestore, docs: Array<{ path: string; data: object }>): Promise<void> {
   const CHUNK = 400;
   for (let i = 0; i < docs.length; i += CHUNK) {
     const batch = db.batch();
-    for (const doc of docs.slice(i, i + CHUNK)) batch.set(db.doc(doc.path), doc.data);
+    for (const doc of docs.slice(i, i + CHUNK)) batch.set(db.doc(doc.path), withoutUndefined(doc.data));
     await batch.commit();
   }
 }
@@ -1909,20 +2721,73 @@ function printCredentials(users: SeedUserRecord[]): void {
   console.table(cohortJoinRows);
 }
 
+function publishedBlueprint(trackDocs: ReturnType<typeof buildTrackDocs>): AssessmentBlueprintDoc {
+  return buildAssessmentBlueprint(trackDocs.published, { createdAt: new Date(trackDocs.published.publishedAt ?? trackDocs.published.createdAt) });
+}
+
+/**
+ * Every surface must agree: the enrollment/home "Certified" label, the certification register,
+ * and the Track page's learning evidence (built here with the same analytics function the page uses).
+ */
+function assertProgressConsistent(progress: BuiltProgress, trackDocs: ReturnType<typeof buildTrackDocs>, blueprint: AssessmentBlueprintDoc) {
+  const ruleIdsByDrillId = buildRuleIdsByDrillId(trackDocs.published);
+  const problems: string[] = [];
+  for (const enrollment of progress.enrollments) {
+    const learnerId = enrollment.userId;
+    const mine = <T extends { learnerId: string }>(items: T[]) => items.filter((item) => item.learnerId === learnerId);
+    const certification = progress.certifications.find((item) => item.learnerId === learnerId) ?? null;
+    const analytics = buildLearningAnalytics({
+      learnerId,
+      blueprint,
+      enrollment,
+      drillAttempts: mine(progress.drillAttempts),
+      scenarioCoverage: mine(progress.scenarioCoverage),
+      simSessions: progress.simSessions.filter((session) => session.userId === learnerId),
+      reviewSchedules: mine(progress.reviewSchedules),
+      ruleIdsByDrillId,
+      certificationStatus: certification?.status ?? 'not_started',
+      now: new Date(NOW),
+    });
+    const user = progress.userDocs.find((doc) => doc.uid === learnerId);
+    const certifiedLabel = enrollment.status === 'CERTIFIED';
+    if (certifiedLabel !== (analytics.certificationStatus === 'certified')) problems.push(`${learnerId}: enrollment ${enrollment.status} vs evidence ${analytics.certificationStatus}`);
+    if (certifiedLabel !== (user?.stats.tracksCertifiedCount === 1)) problems.push(`${learnerId}: user stats disagree with enrollment ${enrollment.status}`);
+    if (certifiedLabel && analytics.currentMastery.ratio !== 1) problems.push(`${learnerId}: certified but mastery is ${analytics.currentMastery.ratio}`);
+    const passed = new Set(mine(progress.scenarioCoverage).filter((row) => row.status === 'passed').map((row) => row.scenarioId));
+    if ([...passed].sort().join() !== [...enrollment.passedScenarioIds].sort().join()) problems.push(`${learnerId}: passedScenarioIds disagree with coverage`);
+    if (analytics.contentCompletion.completed !== enrollment.completedUnitIds.length) problems.push(`${learnerId}: content completion ${analytics.contentCompletion.completed} vs ${enrollment.completedUnitIds.length} Units`);
+  }
+  if (progress.certifications.length === 0) problems.push('No seeded agent is certified; the demo needs at least one.');
+  if (problems.length > 0) throw new Error(`Seeded learning evidence is inconsistent:\n${problems.join('\n')}`);
+}
+
+/** The seeded published Track must pass the same gates as the publish route (secrets and scripted QA included). */
+function assertApprovedTrackPublishable(trackDocs: ReturnType<typeof buildTrackDocs>) {
+  const approvedDraftGate = evaluatePublicationGates({
+    draft: trackDocs.draft, ...trackDocs.sourceReview, secrets: trackDocs.draftSecrets.scenarios, runScenarioQAFixture, now: NOW,
+  });
+  const approvedPublishedGate = evaluatePublicationGates({
+    draft: trackDocs.published, ...trackDocs.sourceReview, secrets: trackDocs.publishedSecrets.scenarios, runScenarioQAFixture, now: NOW,
+  });
+  if (!approvedDraftGate.eligible || !approvedPublishedGate.eligible) {
+    throw new Error(`Approved source fixture failed publication gates: ${JSON.stringify([...approvedDraftGate.issues, ...approvedPublishedGate.issues])}`);
+  }
+  return { approvedDraftGate, approvedPublishedGate };
+}
+
 async function main(): Promise<void> {
   if (DRY_RUN) {
     const fakeUsers: SeedUserRecord[] = DEMO_USERS.map((demo) => ({ demo, uid: `seed-${demo.key}`, email: signInEmail(demo) }));
     const trackDocs = buildTrackDocs('seed-trainer');
+    const verbalDocs = buildVerbalDemoTrackDocs('seed-trainer');
     const blockedDocs = buildBlockedSourceFixture('seed-trainer');
-    const progress = buildProgress(fakeUsers);
+    const progress = buildProgress(fakeUsers, trackDocs.published, publishedBlueprint(trackDocs));
+    assertProgressConsistent(progress, trackDocs, publishedBlueprint(trackDocs));
     const cohorts = buildCohorts(new Map(), new Map());
     const pdf = buildPlaybookPdf(PLAYBOOK_PAGES);
-    const approvedDraftGate = evaluatePublicationGates({ draft: trackDocs.draft, ...trackDocs.sourceReview, now: NOW });
-    const approvedPublishedGate = evaluatePublicationGates({ draft: trackDocs.published, ...trackDocs.sourceReview, now: NOW });
+    const { approvedDraftGate } = assertApprovedTrackPublishable(trackDocs);
+    assertApprovedTrackPublishable(verbalDocs);
     const blockedGate = evaluatePublicationGates({ draft: blockedDocs.draft, ...blockedDocs.review, now: NOW });
-    if (!approvedDraftGate.eligible || !approvedPublishedGate.eligible) {
-      throw new Error(`Approved source fixture failed publication gates: ${JSON.stringify([...approvedDraftGate.issues, ...approvedPublishedGate.issues])}`);
-    }
     if (!blockedGate.issues.some((issue) => issue.code === 'SME_DECISION_REQUIRED' && issue.affectedId === 'DEMO-UNRESOLVED-PRICE')) {
       throw new Error(`Blocked source fixture did not require its unresolved SME decision: ${JSON.stringify(blockedGate.issues)}`);
     }
@@ -1959,8 +2824,14 @@ async function main(): Promise<void> {
   if (!trainer) throw new Error('The trainer demo user was not created.');
 
   const trackDocs = buildTrackDocs(trainer.uid);
+  assertApprovedTrackPublishable(trackDocs);
+  const blueprint = publishedBlueprint(trackDocs);
+  const verbalDocs = buildVerbalDemoTrackDocs(trainer.uid);
+  assertApprovedTrackPublishable(verbalDocs);
+  const verbalBlueprint = publishedBlueprint(verbalDocs);
   const blockedDocs = buildBlockedSourceFixture(trainer.uid);
-  const progress = buildProgress(users);
+  const progress = buildProgress(users, trackDocs.published, blueprint);
+  assertProgressConsistent(progress, trackDocs, blueprint);
 
   const writes: Array<{ path: string; data: object }> = [
     { path: `tracks/${TRACK_ID}`, data: trackDocs.track },
@@ -1968,8 +2839,24 @@ async function main(): Promise<void> {
     { path: `tracks/${TRACK_ID}/versions/${DRAFT_VERSION_ID}`, data: trackDocs.draft },
     { path: `tracks/${TRACK_ID}/versions/${PUBLISHED_VERSION_ID}/secrets/${EVAL_RUBRICS_DOC_ID}`, data: trackDocs.publishedSecrets },
     { path: `tracks/${TRACK_ID}/versions/${DRAFT_VERSION_ID}/secrets/${EVAL_RUBRICS_DOC_ID}`, data: trackDocs.draftSecrets },
+    // The publish route writes this with the version; without it Sim evaluation and learning evidence fail (409 ASSESSMENT_BLUEPRINT_MISSING).
+    {
+      path: `assessmentBlueprints/assessment_${TRACK_ID}_${PUBLISHED_VERSION_ID}`,
+      data: blueprint,
+    },
     ...trackDocs.sourceBatches.map((batch) => ({ path: `tracks/${TRACK_ID}/sourcePages/${batch.id}`, data: batch })),
     ...sourceReviewWrites(trackDocs.sourceReview),
+    { path: `tracks/${VERBAL_TRACK_ID}`, data: verbalDocs.track },
+    { path: `tracks/${VERBAL_TRACK_ID}/versions/${PUBLISHED_VERSION_ID}`, data: verbalDocs.published },
+    { path: `tracks/${VERBAL_TRACK_ID}/versions/${DRAFT_VERSION_ID}`, data: verbalDocs.draft },
+    { path: `tracks/${VERBAL_TRACK_ID}/versions/${PUBLISHED_VERSION_ID}/secrets/${EVAL_RUBRICS_DOC_ID}`, data: verbalDocs.publishedSecrets },
+    { path: `tracks/${VERBAL_TRACK_ID}/versions/${DRAFT_VERSION_ID}/secrets/${EVAL_RUBRICS_DOC_ID}`, data: verbalDocs.draftSecrets },
+    {
+      path: `assessmentBlueprints/assessment_${VERBAL_TRACK_ID}_${PUBLISHED_VERSION_ID}`,
+      data: verbalBlueprint,
+    },
+    ...verbalDocs.sourceBatches.map((batch) => ({ path: `tracks/${VERBAL_TRACK_ID}/sourcePages/${batch.id}`, data: batch })),
+    ...sourceReviewWrites(verbalDocs.sourceReview),
     { path: `tracks/${BLOCKED_TRACK_ID}`, data: blockedDocs.track },
     { path: `tracks/${BLOCKED_TRACK_ID}/versions/${DRAFT_VERSION_ID}`, data: blockedDocs.draft },
     { path: `tracks/${BLOCKED_TRACK_ID}/versions/${DRAFT_VERSION_ID}/secrets/${EVAL_RUBRICS_DOC_ID}`, data: blockedDocs.draftSecrets },
@@ -1978,6 +2865,10 @@ async function main(): Promise<void> {
     ...progress.enrollments.map((enrollment) => ({ path: `enrollments/${enrollment.id}`, data: enrollment })),
     ...progress.simSessions.map((session) => ({ path: `simSessions/${session.id}`, data: session })),
     ...progress.rollups.map((rollup) => ({ path: `analyticsRollups/${rollup.id}`, data: rollup })),
+    ...progress.drillAttempts.map((attempt) => ({ path: `drillAttempts/${attempt.id}`, data: attempt })),
+    ...progress.reviewSchedules.map((schedule) => ({ path: `reviewSchedules/${schedule.id}`, data: schedule })),
+    ...progress.scenarioCoverage.map((coverage) => ({ path: `scenarioCoverage/${coverage.id}`, data: coverage })),
+    ...progress.certifications.map((certification) => ({ path: `certifications/${certification.id}`, data: certification })),
   ];
   await writeAll(db, writes);
 

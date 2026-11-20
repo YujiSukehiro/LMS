@@ -18,6 +18,9 @@ import {
   type TrackVersionDoc,
 } from '@/lib/schemas/curriculum';
 import { rubricWeightProblems } from '@/lib/ai/prompts/sim-builder';
+import { carryScenarioSourceRevision, reconcileRubricEvidenceApprovals, reconcileUnitEvidenceApprovals } from '@/lib/services/evidence-approvals';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { ensureVerbalScenarioDefaults, ensureVerbalSecretDefaults } from '@/lib/services/verbal-defaults';
 import {
   draftRef,
   estimateTrackMinutes,
@@ -123,10 +126,38 @@ export async function PATCH(req: Request, { params }: RouteContext): Promise<Nex
   if (!draft) return jsonError(409, 'NO_DRAFT', 'This Track has no draft yet. Build the Track first.');
 
   const now = Date.now();
-  const nextUnits = edits.units ? edits.units.map((unit, index) => ({ ...unit, orderIndex: index })) : draft.units;
-  const nextScenarios = edits.simScenarios ?? draft.simScenarios;
+  // Evidence approvals are recorded only by Source Review (after exact re-verification). The browser's copy may be
+  // stale or edited, so unchanged evidence keeps its persisted approval and client-side approvals are dropped.
+  const nextUnits = edits.units
+    ? reconcileUnitEvidenceApprovals(draft.units, edits.units).map((unit, index) => ({ ...unit, orderIndex: index }))
+    : draft.units;
+  // A Sim's bound source revision changes only through Source Review's rebind (with exact re-verification).
+  const carriedScenarios = edits.simScenarios
+    ? carryScenarioSourceRevision(draft.simScenarios, edits.simScenarios, draft.sourceRevision)
+    : draft.simScenarios;
+  const verbalOnly = TRAINING_POLICY.simulationInteractionMode === 'verbal_only';
+  const nextScenarios = verbalOnly
+    ? carriedScenarios.map((scenario) =>
+        ensureVerbalScenarioDefaults(scenario, {
+          divisionId: track.divisionId,
+          product: edits.title ?? track.title,
+          sourceRevision: draft.sourceRevision,
+          curriculumVersion: draft.versionId,
+        }),
+      )
+    : carriedScenarios;
   const keptScenarioIds = new Set(nextScenarios.map((scenario) => scenario.id));
-  const nextSecretList = (edits.secretScenarios ?? secrets?.scenarios ?? []).filter((config) => keptScenarioIds.has(config.scenarioId));
+  const rawSecretList = (
+    edits.secretScenarios
+      ? reconcileRubricEvidenceApprovals(secrets?.scenarios ?? [], edits.secretScenarios)
+      : secrets?.scenarios ?? []
+  ).filter((config) => keptScenarioIds.has(config.scenarioId));
+  const nextSecretList = verbalOnly
+    ? rawSecretList.map((config) => {
+        const matchingScenario = nextScenarios.find((scenario) => scenario.id === config.scenarioId);
+        return matchingScenario ? ensureVerbalSecretDefaults(matchingScenario, config) : config;
+      })
+    : rawSecretList;
 
   const draftCheck = TrackVersionDocSchema.safeParse({ ...draft, units: nextUnits, simScenarios: nextScenarios });
   if (!draftCheck.success) {

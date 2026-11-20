@@ -1,11 +1,12 @@
 'use client';
 
-import { Headset, PhoneOff, UserRound } from 'lucide-react';
+import { ClipboardCheck, Headset, UserRound } from 'lucide-react';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import type { PublicSimScenario } from '@/lib/schemas/curriculum';
 import type { DivisionId } from '@/lib/schemas/domain';
 import { cn } from '@/lib/utils';
 import { DifficultyBadge } from './DifficultyBadge';
-import { DIVISION_PILL_CLASS, SIM_CHANNEL_LABELS } from './labels';
+import { DIVISION_PILL_CLASS, SIM_CHANNEL_LABELS, VERBAL_CHANNEL_LABELS } from './labels';
 
 export interface CallTicketHeaderProps {
   scenario: PublicSimScenario;
@@ -13,16 +14,18 @@ export interface CallTicketHeaderProps {
   divisionId: DivisionId;
   /** Agent turns already sent. The header shows the current turn: `Turn min(turnCount + 1, maxTurns) of maxTurns`. */
   turnCount: number;
-  /** Shows the `End & Disposition Call` button when given. */
+  /** Shows the Finish & Grade Practice button when given. */
   onEndCall?: () => void;
   disabled?: boolean;
 }
 
-/** Context ticket bar on top of a Live Call Sim. */
+/** Scenario brief bar on top of Verbal Practice (or legacy Call Sim). */
 export function CallTicketHeader({ scenario, campaignCode, divisionId, turnCount, onEndCall, disabled }: CallTicketHeaderProps) {
+  const verbalOnly = TRAINING_POLICY.simulationInteractionMode === 'verbal_only';
   const maxTurns = scenario.maxTurns;
   const currentTurn = Math.max(1, Math.min(turnCount + 1, maxTurns));
-  const turnPct = Math.round((Math.min(turnCount, maxTurns) / maxTurns) * 100);
+  const channelLabel = verbalOnly ? VERBAL_CHANNEL_LABELS[divisionId] : SIM_CHANNEL_LABELS[divisionId];
+  const needsReply = verbalOnly && turnCount < 1;
 
   return (
     <header className="pulse-card-elevated pulse-cq overflow-hidden">
@@ -38,7 +41,7 @@ export function CallTicketHeader({ scenario, campaignCode, divisionId, turnCount
                   {campaignCode}
                 </span>
               ) : null}
-              <span className={cn('pulse-pill', DIVISION_PILL_CLASS[divisionId])}>{SIM_CHANNEL_LABELS[divisionId]}</span>
+              <span className={cn('pulse-pill', DIVISION_PILL_CLASS[divisionId])}>{channelLabel}</span>
               <DifficultyBadge difficulty={scenario.difficulty} />
             </div>
             <h2 className="mt-1.5 truncate text-base font-bold text-pulse-primary @lg:text-lg">{scenario.title}</h2>
@@ -57,20 +60,31 @@ export function CallTicketHeader({ scenario, campaignCode, divisionId, turnCount
             </p>
           </div>
           {onEndCall ? (
-            <button type="button" className="pulse-btn pulse-btn-danger" onClick={onEndCall} disabled={disabled}>
-              <PhoneOff aria-hidden className="size-4" />
-              End &amp; Disposition Call
+            <button
+              type="button"
+              className="pulse-btn pulse-btn-primary"
+              onClick={onEndCall}
+              disabled={disabled || needsReply}
+              title={needsReply ? 'Send at least one verbal reply before grading' : undefined}
+            >
+              <ClipboardCheck aria-hidden className="size-4" />
+              {verbalOnly && !TRAINING_POLICY.requireDispositionInVerbalPractice
+                ? 'Finish & Grade Practice'
+                : 'End & Disposition Call'}
             </button>
           ) : null}
         </div>
       </div>
       <p className="border-t border-pulse-border-subtle bg-pulse-surface-1 px-4 py-2.5 text-xs leading-relaxed text-pulse-secondary">
-        <span className="pulse-label mr-2">Ticket</span>
+        <span className="pulse-label mr-2">{verbalOnly ? 'Scenario Brief' : 'Ticket'}</span>
         {scenario.contextTicketSummary}
       </p>
-      <div className="h-1 bg-pulse-surface-1" aria-hidden>
-        <div className="h-full bg-pulse-indigo transition-[width] duration-500" style={{ width: `${turnPct}%` }} />
-      </div>
+      <progress
+        className="pulse-progress block h-1 rounded-none"
+        aria-label="Conversation turn progress"
+        value={Math.min(turnCount, maxTurns)}
+        max={maxTurns}
+      />
     </header>
   );
 }

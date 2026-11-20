@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Award, Download, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { csvEscape } from '@/components/progress/csv-escape';
 
 export type CertificationCellStatus =
   | 'CERTIFIED'
@@ -56,10 +57,6 @@ function cellText(cell: CertificationCell): string {
     case 'NOT_ASSIGNED':
       return 'Not Assigned';
   }
-}
-
-function csvEscape(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
 /** Agent × published Track certification grid with 1-click CSV export. */

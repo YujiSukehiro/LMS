@@ -25,7 +25,7 @@ export function emptyUserStats(): UserDoc['stats'] {
 }
 
 export function defaultPreferences(): UserDoc['preferences'] {
-  return { soundEffects: true, compactMode: false, theme: 'dark' };
+  return { soundEffects: true, compactMode: false, theme: 'light' };
 }
 
 export function buildNewUserDoc(input: {

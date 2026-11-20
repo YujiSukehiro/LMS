@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 860" width="1280" height="860" font-family="Plus Jakarta Sans, system-ui, sans-serif">
+  <defs>
+    <style>
+      .h1{font-size:26px;font-weight:700;fill:#0f172a}
+      .h2{font-size:15px;font-weight:700;fill:#0f172a}
+      .t{font-size:13px;fill:#334155}
+      .n{font-size:13px;font-weight:600;fill:#0f172a}
+      .s{font-size:12px;fill:#5b6b82}
+      .xs{font-size:11px;fill:#5b6b82}
+      .lab{font-size:10.5px;font-weight:700;letter-spacing:1px;fill:#5b6b82}
+    </style>
+    <filter id="sh" x="-5%" y="-5%" width="110%" height="130%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#1e293b" flood-opacity="0.10"/></filter>
+    <g id="avatar"><circle r="14" fill="#eef0fd"/></g>
+  </defs>
+  <rect width="1280" height="860" fill="#f6f7fb"/>
+
+  <!-- Sidebar -->
+  <rect width="220" height="860" fill="#fff"/><rect x="219" width="1" height="860" fill="#e3e8f0"/>
+  <rect x="16" y="14" width="32" height="32" rx="8" fill="#eef0fd"/><path d="M22 31h5l3-8 4 14 3-6h5" stroke="#4f46e5" stroke-width="2" fill="none"/>
+  <text x="58" y="34" class="h2" font-size="14">LogiCall Pulse</text>
+  <text x="48" y="104" class="t">Home</text>
+  <rect x="12" y="122" width="196" height="36" rx="8" fill="#f1f4f9"/><rect x="12" y="128" width="3" height="24" rx="1.5" fill="#4f46e5"/>
+  <text x="48" y="145" class="n">Team Progress</text>
+  <text x="48" y="186" class="t">Analytics</text>
+
+  <!-- Header -->
+  <text x="248" y="62" class="lab">CONCEPT A · READINESS PIPELINE</text>
+  <text x="248" y="96" class="h1">MVP Retention &amp; Escalations</text>
+  <text x="248" y="120" class="t">THS (Nicaragua) · 12 agents · each card is one agent; cards move right as they progress</text>
+  <!-- track switcher tabs -->
+  <rect x="248" y="136" width="224" height="32" rx="16" fill="#4f46e5"/><text x="268" y="157" class="t" style="fill:#fff;font-weight:600">MVP Retention · 3 of 12 ready</text>
+  <rect x="480" y="136" width="196" height="32" rx="16" fill="#fff" stroke="#cfd7e3"/><text x="500" y="157" class="t">NeuroCalmRx · 1 of 12 ready</text>
+  <rect x="684" y="136" width="168" height="32" rx="16" fill="#fff" stroke="#cfd7e3"/><text x="704" y="157" class="t">LiftRx · 0 of 12 ready</text>
+  <!-- readiness meter -->
+  <text x="1000" y="146" class="lab">READY FOR CALLS</text>
+  <rect x="1000" y="154" width="250" height="10" rx="5" fill="#e3e8f0"/><rect x="1000" y="154" width="62" height="10" rx="5" fill="#047857"/>
+  <text x="1000" y="182" class="s"><tspan style="fill:#047857;font-weight:700">25%</tspan> certified · target 80% by Nov 14</text>
+
+  <!-- Columns -->
+  <!-- col geometry: x, width 236, gap 12 -->
+  <g>
+    <!-- Col 1 Not started -->
+    <rect x="248" y="200" width="236" height="560" rx="14" fill="#eef1f5"/>
+    <circle cx="268" cy="224" r="6" fill="none" stroke="#94a3b8" stroke-width="2"/>
+    <text x="282" y="229" class="h2">Not started</text><text x="456" y="229" class="s" text-anchor="end">2</text>
+
+    <g filter="url(#sh)"><rect x="258" y="244" width="216" height="74" rx="10" fill="#fff"/></g>
+    <circle cx="280" cy="268" r="13" fill="#eef0fd"/><text x="280" y="272" class="xs" text-anchor="middle" style="font-weight:700;fill:#4338ca">AR</text>
+    <text x="300" y="266" class="n">Ana Ruiz</text><text x="300" y="282" class="xs">Assigned 9 days ago</text>
+    <rect x="270" y="292" width="92" height="18" rx="9" fill="#fef2f2"/><text x="279" y="305" class="xs" style="fill:#c81e1e;font-weight:600">never opened</text>
+
+    <g filter="url(#sh)"><rect x="258" y="328" width="216" height="62" rx="10" fill="#fff"/></g>
+    <circle cx="280" cy="352" r="13" fill="#eef0fd"/><text x="280" y="356" class="xs" text-anchor="middle" style="font-weight:700;fill:#4338ca">LP</text>
+    <text x="300" y="350" class="n">Luis Paz</text><text x="300" y="366" class="xs">Assigned today</text>
+  </g>
+
+  <g>
+    <!-- Col 2 Learning -->
+    <rect x="496" y="200" width="236" height="560" rx="14" fill="#fdf3e7"/>
+    <circle cx="516" cy="224" r="6" fill="none" stroke="#b45309" stroke-width="2"/><path d="M516 218a6 6 0 0 1 0 12z" fill="#b45309"/>
+    <text x="530" y="229" class="h2">Learning</text><text x="704" y="229" class="s" text-anchor="end">5</text>
+
+    <g filter="url(#sh)"><rect x="506" y="244" width="216" height="92" rx="10" fill="#fff"/></g>
+    <circle cx="528" cy="268" r="13" fill="#eef0fd"/><text x="528" y="272" class="xs" text-anchor="middle" style="font-weight:700;fill:#4338ca">DC</text>
+    <text x="548" y="266" class="n">Diego Castillo</text><text x="548" y="282" class="xs">Checkpoint 3 of 3 next</text>
+    <rect x="518" y="296" width="60" height="6" rx="3" fill="#b45309"/><rect x="582" y="296" width="60" height="6" rx="3" fill="#b45309"/><rect x="646" y="296" width="60" height="6" rx="3" fill="#e3e8f0"/>
+    <text x="518" y="324" class="xs">Active yesterday · 80% first try</text>
+
+    <g filter="url(#sh)"><rect x="506" y="346" width="216" height="92" rx="10" fill="#fff" stroke="#f5c2c2"/></g>
+    <circle cx="528" cy="370" r="13" fill="#eef0fd"/><text x="528" y="374" class="xs" text-anchor="middle" style="font-weight:700;fill:#4338ca">GM</text>
+    <text x="548" y="368" class="n">Grace Mensah</text><text x="548" y="384" class="xs">Checkpoint 2 of 3 next</text>
+    <rect x="518" y="398" width="60" height="6" rx="3" fill="#b45309"/><rect x="582" y="398" width="60" height="6" rx="3" fill="#e3e8f0"/><rect x="646" y="398" width="60" height="6" rx="3" fill="#e3e8f0"/>
+    <text x="518" y="426" class="xs" style="fill:#c81e1e;font-weight:600">Stuck 8 days on Checkpoint 2</text>
+
+    <g filter="url(#sh)"><rect x="506" y="448" width="216" height="54" rx="10" fill="#fff"/></g>
+    <text x="520" y="480" class="s">+ 3 more learning on track</text>
+  </g>
+
+  <g>
+    <!-- Col 3 Sim -->
+    <rect x="744" y="200" width="236" height="560" rx="14" fill="#eef0fd"/>
+    <circle cx="764" cy="224" r="7" fill="#4f46e5"/><path d="M760 224l3 3 5-6" stroke="#fff" stroke-width="1.8" fill="none"/>
+    <text x="778" y="229" class="h2">Ready for sim</text><text x="952" y="229" class="s" text-anchor="end">2</text>
+
+    <g filter="url(#sh)"><rect x="754" y="244" width="216" height="104" rx="10" fill="#fff"/></g>
+    <circle cx="776" cy="268" r="13" fill="#eef0fd"/><text x="776" y="272" class="xs" text-anchor="middle" style="font-weight:700;fill:#4338ca">CO</text>
+    <text x="796" y="266" class="n">Chidi Okafor</text><text x="796" y="282" class="xs">All 3 checkpoints done</text>
+    <text x="766" y="306" class="xs">Best sim</text>
+    <rect x="766" y="312" width="190" height="8" rx="4" fill="#e3e8f0"/><rect x="766" y="312" width="137" height="8" rx="4" fill="#b45309"/><rect x="917" y="308" width="2" height="16" fill="#0f172a"/>
+    <text x="766" y="338" class="xs"><tspan style="font-weight:700;fill:#b45309">72%</tspan> · pass line 80% · 2 tries</text>
+
+    <g filter="url(#sh)"><rect x="754" y="358" width="216" height="80" rx="10" fill="#fff"/></g>
+    <circle cx="776" cy="382" r="13" fill="#eef0fd"/><text x="776" y="386" class="xs" text-anchor="middle" style="font-weight:700;fill:#4338ca">RC</text>
+    <text x="796" y="380" class="n">Riley Chen</text><text x="796" y="396" class="xs">Sim passed 91%</text>
+    <rect x="766" y="410" width="128" height="20" rx="10" fill="#eef0fd"/><text x="777" y="424" class="xs" style="fill:#4338ca;font-weight:700">Trainer sign-off →</text>
+  </g>
+
+  <g>
+    <!-- Col 4 Certified -->
+    <rect x="992" y="200" width="258" height="560" rx="14" fill="#e9f7f1"/>
+    <path d="M1012 216l7 3.5v5c0 4.5-3.5 7-7 8-3.5-1-7-3.5-7-8v-5z" fill="#047857"/>
+    <text x="1026" y="229" class="h2">Certified</text><text x="1222" y="229" class="s" text-anchor="end">3</text>
+
+    <g filter="url(#sh)"><rect x="1002" y="244" width="238" height="62" rx="10" fill="#fff"/></g>
+    <circle cx="1024" cy="268" r="13" fill="#e9f7f1"/><text x="1024" y="272" class="xs" text-anchor="middle" style="font-weight:700;fill:#047857">SH</text>
+    <text x="1044" y="266" class="n">Sofia Herrera</text><text x="1044" y="282" class="xs">92% · valid to Feb 3</text>
+    <g filter="url(#sh)"><rect x="1002" y="316" width="238" height="62" rx="10" fill="#fff"/></g>
+    <circle cx="1024" cy="340" r="13" fill="#e9f7f1"/><text x="1024" y="344" class="xs" text-anchor="middle" style="font-weight:700;fill:#047857">MV</text>
+    <text x="1044" y="338" class="n">Mia Vargas</text><text x="1044" y="354" class="xs">88% · valid to Jan 20</text>
+    <g filter="url(#sh)"><rect x="1002" y="388" width="238" height="62" rx="10" fill="#fff"/></g>
+    <circle cx="1024" cy="412" r="13" fill="#e9f7f1"/><text x="1024" y="416" class="xs" text-anchor="middle" style="font-weight:700;fill:#047857">JT</text>
+    <text x="1044" y="410" class="n">Jon Torres</text><text x="1044" y="426" class="xs">85% · <tspan style="fill:#b45309;font-weight:600">expires in 6 days</tspan></text>
+
+    <!-- recert lane -->
+    <rect x="1002" y="520" width="238" height="120" rx="10" fill="#fff" stroke="#f5c2c2" stroke-dasharray="4 3"/>
+    <path d="M1018 538l7 12h-14z" fill="none" stroke="#c81e1e" stroke-width="1.6"/>
+    <text x="1032" y="548" class="n" style="fill:#c81e1e">Needs recert · 1</text>
+    <text x="1016" y="572" class="s">Marta Solis</text>
+    <text x="1016" y="590" class="xs">Playbook p. 4 changed in v2.</text>
+    <text x="1016" y="606" class="xs">Redo Checkpoint 2 only (6 min).</text>
+  </g>
+
+  <text x="248" y="790" class="lab" style="fill:#4338ca">WHY THIS ONE</text>
+  <text x="248" y="812" class="t">One Track at a time, read left to right like a sales pipeline. The busiest column shows where the team is stuck. Problem cards</text>
+  <text x="248" y="832" class="t">(stuck, failed sim, expiring) get a red edge and a plain reason. Best for supervisors who manage one campaign launch at a time.</text>
+</svg>

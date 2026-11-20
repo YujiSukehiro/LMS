@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev-server.mjs",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
@@ -14,9 +14,13 @@
     "test:e2e": "playwright test",
     "emulators": "firebase emulators:start --project logicall-pulse-dev --only auth,firestore,storage",
     "seed:local": "tsx --env-file=.env.local scripts/seed-demo.ts",
+    "seed:prod": "tsx scripts/seed-prod.ts",
+    "seed:prod:dry": "tsx scripts/seed-prod.ts --dry-run",
     "verify:ollama": "tsx --env-file=.env.local scripts/verify-ollama.ts",
     "verify:local-ai": "tsx --env-file=.env.local scripts/verify-local-ai.ts",
     "verify:local-ai:mlx": "sh scripts/with-mlx-env.sh npm run verify:local-ai",
+    "verify:usable": "node scripts/verify-usable-product.mjs",
+    "verify:usable:offline": "node scripts/verify-usable-product.mjs --offline",
     "dev:local": "npm run verify:ollama && npm run dev",
     "dev:mlx": "sh scripts/with-mlx-env.sh sh -c 'npm run verify:local-ai && npm run dev'"
   },

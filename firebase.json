@@ -12,8 +12,19 @@
     "ignore": [
       "node_modules",
       ".git",
+      ".next",
+      ".env.local",
+      ".env*.local",
+      "mlx-runtime",
+      "playwright-report",
+      "test-results",
+      "coverage",
+      "demo-recordings",
+      "demo-replay",
       "firebase-debug.log",
       "firebase-debug.*.log",
+      "firestore-debug.log",
+      "ui-debug.log",
       "tests",
       "docs"
     ]

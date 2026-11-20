@@ -28,4 +28,4 @@ npm run dev:mlx
 ./mlx-runtime/stop.sh
 ```
 
-`MLX_PORT` and `MLX_MAX_TOKENS` are optional overrides. Keep concurrency at 1 until memory and latency measurements support a change. No hosted AI API or API key is required.
+`MLX_PORT` and `MLX_MAX_TOKENS` are optional overrides. `MLX_MAX_TOKENS` (default `8192`) is the server's output limit for requests that omit `max_tokens`; the app always sends an explicit `max_tokens` for structured generation (`maxOutputTokens` for the task, default 8192; one automatic retry at double, capped at 16384, when the server reports `finish_reason: "length"`). If a Track stage fails with `LLMOutputTruncatedError`, raise the task's `maxOutputTokens` and restart this server with a higher `MLX_MAX_TOKENS` if needed. Keep concurrency at 1 until memory and latency measurements support a change. No hosted AI API or API key is required.

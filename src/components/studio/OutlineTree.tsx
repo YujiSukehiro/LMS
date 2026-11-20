@@ -1,6 +1,7 @@
 'use client';
 
 import { BookOpen, CircleAlert, Headset } from 'lucide-react';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import type { PublicSimScenario, TrackUnit } from '@/lib/schemas/curriculum';
 import { cn } from '@/lib/utils';
 import { DIFFICULTY_LABELS } from './editor/ScenarioEditor';
@@ -66,8 +67,16 @@ export function OutlineTree({
         </ul>
       </div>
       <div className="flex flex-col gap-1">
-        <p className="pulse-label px-2">Live Call Sims</p>
-        {scenarios.length === 0 ? <p className="px-2 text-xs text-pulse-muted">No Live Call Sims.</p> : null}
+        <p className="pulse-label px-2">
+          {TRAINING_POLICY.simulationInteractionMode === 'verbal_only' ? 'Verbal Practice' : 'Live Call Sims'}
+        </p>
+        {scenarios.length === 0 ? (
+          <p className="px-2 text-xs text-pulse-muted">
+            {TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
+              ? 'No Verbal Practice scenarios.'
+              : 'No Live Call Sims.'}
+          </p>
+        ) : null}
         <ul className="flex flex-col gap-0.5">
           {scenarios.map((scenario, i) => {
             const active = selection?.kind === 'scenario' && selection.scenarioId === scenario.id;
@@ -86,7 +95,11 @@ export function OutlineTree({
                   <Headset aria-hidden className={cn('mt-1 size-4 shrink-0', active ? 'text-pulse-indigo' : 'text-pulse-muted')} />
                   <span className="min-w-0 flex-1">
                     <span className="line-clamp-2 text-sm font-medium leading-snug">
-                      {i + 1}. {scenario.title || 'Untitled Live Call Sim'}
+                      {i + 1}.{' '}
+                      {scenario.title ||
+                        (TRAINING_POLICY.simulationInteractionMode === 'verbal_only'
+                          ? 'Untitled Verbal Practice'
+                          : 'Untitled Live Call Sim')}
                     </span>
                     <span className="mt-0.5 block text-[0.7rem] text-pulse-muted">{DIFFICULTY_LABELS[scenario.difficulty]}</span>
                   </span>

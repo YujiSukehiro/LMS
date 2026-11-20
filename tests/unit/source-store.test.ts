@@ -37,7 +37,9 @@ vi.mock('@/lib/firebase/admin', () => ({
 }));
 
 import {
+  computeLegacySourceBundleRevisionHash,
   computeSourceBundleRevisionHash,
+  sourceBundleRevisionMatches,
   hashSourceBytes,
   hashSourcePageContent,
   loadSourceReview,
@@ -127,6 +129,43 @@ describe('source revision identity', () => {
     expect(revised.approvedByUid).toBeNull();
     expect(revised.approvedAt).toBeNull();
     expect(revised.createdAt).toBe(bundle.createdAt);
+  });
+});
+
+describe('normalized transcription revision', () => {
+  const withTranscription = (text: string) => pages.map((candidate, index) => index === 0
+    ? { ...candidate, transcription: { text, approvedByUid: 'trainer-1', approvedAt: 2 } }
+    : candidate);
+
+  it('hashes normalized transcription text, so whitespace-only edits keep the revision', () => {
+    const tidy = computeSourceBundleRevisionHash(bundle, withTranscription('Step 1: Open the CRM.\nStep 2: Search the order.'));
+    expect(computeSourceBundleRevisionHash(bundle, withTranscription('  Step 1:   Open the CRM.\n\n\tStep 2: Search the order.  '))).toBe(tidy);
+    expect(computeSourceBundleRevisionHash(bundle, withTranscription('Step 1: Open the CRM. Step 2: Search the refund.'))).not.toBe(tidy);
+  });
+
+  it('keeps the approved revision on a whitespace-only re-approval and advances it on a wording change', () => {
+    const before = withTranscription('Click Save.\nThen click Close.');
+    const approved = { ...bundle, revisionHash: computeSourceBundleRevisionHash(bundle, before), status: 'approved' as const, approvedByUid: 'trainer-1', approvedAt: 2 };
+    const approvedBundle = { ...approved, approvedSourceRevision: approved.revisionHash };
+
+    const kept = withSourceRevision(approvedBundle, withTranscription('Click Save.   Then click Close.'), 3, before);
+    expect(kept.revisionHash).toBe(approvedBundle.revisionHash);
+    expect(kept.status).toBe('approved');
+    expect(kept.approvedSourceRevision).toBe(approvedBundle.revisionHash);
+
+    const changed = withSourceRevision(approvedBundle, withTranscription('Click Submit. Then click Close.'), 3, before);
+    expect(changed.revisionHash).not.toBe(approvedBundle.revisionHash);
+    expect(changed.status).toBe('draft');
+  });
+
+  it('accepts bundles persisted under the legacy raw-text hash and keeps their revision on whitespace edits', () => {
+    const before = withTranscription('Line one.\nLine two.');
+    const legacy = { ...bundle, revisionHash: computeLegacySourceBundleRevisionHash(bundle, before), status: 'approved' as const, approvedByUid: 'trainer-1', approvedAt: 2 };
+    const legacyBundle = { ...legacy, approvedSourceRevision: legacy.revisionHash };
+    expect(legacyBundle.revisionHash).not.toBe(computeSourceBundleRevisionHash(bundle, before));
+    expect(sourceBundleRevisionMatches(legacyBundle, before)).toBe(true);
+    expect(sourceBundleRevisionMatches(legacyBundle, withTranscription('Line one. Line three.'))).toBe(false);
+    expect(withSourceRevision(legacyBundle, withTranscription('Line one. Line two.'), 3, before).revisionHash).toBe(legacyBundle.revisionHash);
   });
 });
 

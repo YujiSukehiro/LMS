@@ -33,7 +33,8 @@ export type CohortDoc = z.infer<typeof CohortDocSchema>;
 export const UserPreferencesSchema = z.object({
   soundEffects: z.boolean().default(true),
   compactMode: z.boolean().default(false),
-  theme: z.enum(['dark', 'light', 'system']).default('dark'),
+  // Keep in sync with THEME_IDS in src/lib/theme/themes.ts. Light is the default.
+  theme: z.enum(['light', 'dark', 'contrast', 'system']).default('light'),
 });
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
 

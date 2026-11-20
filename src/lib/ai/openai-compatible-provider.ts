@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import {
-  LLMStructuredOutputError,
+  AIUnavailableError,
   type ChatTurn,
   type GenerateStructuredOptions,
   type LLMGateway,
@@ -8,15 +8,15 @@ import {
   type ModelTier,
   type StreamChatOptions,
 } from '@/lib/ai/types';
+import { runStructuredRepairLoop, toJsonSchema } from '@/lib/ai/pipeline/structured-output';
 import {
-  MAX_STRUCTURED_REPAIR_RETRIES,
-  buildRepairMessage,
-  parseStructuredOutput,
-  toJsonSchema,
-} from '@/lib/ai/pipeline/structured-output';
-import { LocalRuntimeLimiter, normalizeLoopbackBaseUrl } from '@/lib/ai/local-runtime';
+  DEFAULT_LOCAL_OPENAI_COMPATIBLE_BASE_URL,
+  LocalRuntimeLimiter,
+  normalizeLoopbackBaseUrl,
+} from '@/lib/ai/local-runtime';
 
-export const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'http://127.0.0.1:8080';
+/** MLX dev runtime port (mlx-runtime/start.sh). Port 8080 is the Firestore emulator. */
+export const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = DEFAULT_LOCAL_OPENAI_COMPATIBLE_BASE_URL;
 export const DEFAULT_OPENAI_COMPATIBLE_TIMEOUT_MS = 180_000;
 
 export interface OpenAICompatibleProviderConfig {
@@ -31,6 +31,7 @@ interface OpenAIChatResponse {
   choices?: Array<{
     message?: { content?: unknown };
     delta?: { content?: unknown };
+    finish_reason?: string | null;
   }>;
   error?: string | { message?: string };
 }
@@ -87,7 +88,7 @@ export class OpenAICompatibleProvider implements LLMGateway {
     const model = tier === 'heavy' ? this.heavyModel : this.fastModel;
     if (!model) {
       const variable = tier === 'heavy' ? 'OPENAI_COMPATIBLE_HEAVY_MODEL' : 'OPENAI_COMPATIBLE_FAST_MODEL';
-      throw new Error(`No ${tier} model is configured for the OpenAI-compatible local provider. Set ${variable} and retry.`);
+      throw new AIUnavailableError(`No ${tier} model is configured for the OpenAI-compatible local provider. Set ${variable} and retry.`, 'not_configured');
     }
     return model;
   }
@@ -107,61 +108,50 @@ export class OpenAICompatibleProvider implements LLMGateway {
         },
         opts.signal,
       );
-      return await this.readNonStreamingContent(context);
+      return (await this.readNonStreamingContent(context)).content;
     } finally {
       release();
     }
   }
 
+  /** Requests currently holding / waiting for this provider's single local slot (used by preflight). */
+  runtimeQueueState(): { active: number; pending: number } {
+    return { active: this.limiter.activeCount, pending: this.limiter.pendingCount };
+  }
+
   async generateStructured<T extends z.ZodTypeAny>(opts: GenerateStructuredOptions<T>): Promise<z.infer<T>> {
     const model = this.modelFor(opts.tier);
     const release = await this.limiter.acquire(opts.signal);
-    const messages: ChatTurn[] = [
-      {
-        role: 'system',
-        content: [
-          opts.systemPrompt,
-          `Return one complete JSON object for "${opts.schemaName}" only. Do not use markdown fences or prose.`,
-          `The required JSON Schema is: ${JSON.stringify(toJsonSchema(opts.schema))}`,
-        ].join('\n\n'),
-      },
-      { role: 'user', content: opts.userPrompt },
-    ];
-    const maxAttempts = MAX_STRUCTURED_REPAIR_RETRIES + 1;
-    let lastRaw = '';
-    let lastProblem = '';
-
     try {
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        const context = await this.postChat(
+      return await runStructuredRepairLoop({
+        model,
+        schema: opts.schema,
+        schemaName: opts.schemaName,
+        maxOutputTokens: opts.maxOutputTokens,
+        signal: opts.signal,
+        baseMessages: [
           {
-            model,
-            messages,
-            stream: false,
-            temperature: opts.temperature ?? 0.2,
-            ...(opts.maxOutputTokens !== undefined ? { max_tokens: opts.maxOutputTokens } : {}),
+            role: 'system',
+            content: [
+              opts.systemPrompt,
+              `Return one complete JSON object for "${opts.schemaName}" only. Do not use markdown fences or prose.`,
+              `The required JSON Schema is: ${JSON.stringify(toJsonSchema(opts.schema))}`,
+            ].join('\n\n'),
           },
-          opts.signal,
-        );
-        lastRaw = await this.readNonStreamingContent(context);
-        const parsed = parseStructuredOutput(lastRaw, opts.schema);
-        if (parsed.ok) return parsed.data;
-        lastProblem = parsed.problem;
-        if (attempt < maxAttempts) {
-          messages.push({ role: 'assistant', content: lastRaw });
-          messages.push({ role: 'user', content: buildRepairMessage(opts.schemaName, parsed.problem) });
-        }
-      }
+          { role: 'user', content: opts.userPrompt },
+        ],
+        call: async (messages, maxTokens) => {
+          const context = await this.postChat(
+            { model, messages, stream: false, temperature: opts.temperature ?? 0.2, max_tokens: maxTokens },
+            opts.signal,
+          );
+          const { content, finishReason } = await this.readNonStreamingContent(context, { allowEmpty: true });
+          return { raw: content, truncated: finishReason === 'length' };
+        },
+      });
     } finally {
       release();
     }
-
-    throw new LLMStructuredOutputError(
-      `Model "${model}" did not return valid "${opts.schemaName}" JSON after ${maxAttempts} attempts. ${lastProblem}`,
-      opts.schemaName,
-      maxAttempts,
-      lastRaw,
-    );
   }
 
   async *streamChat(opts: StreamChatOptions): AsyncGenerator<string, void, unknown> {
@@ -311,7 +301,10 @@ export class OpenAICompatibleProvider implements LLMGateway {
     return { ok: true, provider: this.providerName, models };
   }
 
-  private async readNonStreamingContent(context: RequestContext): Promise<string> {
+  private async readNonStreamingContent(
+    context: RequestContext,
+    options: { allowEmpty?: boolean } = {},
+  ): Promise<{ content: string; finishReason?: string }> {
     try {
       let text: string;
       try {
@@ -332,11 +325,17 @@ export class OpenAICompatibleProvider implements LLMGateway {
         const detail = typeof body.error === 'string' ? body.error : body.error.message ?? 'unknown completion error';
         throw new Error(`OpenAI-compatible local completion failed for model "${context.model}": ${safeDetail(detail)}. Check the selected model and local server.`);
       }
-      const content = body.choices?.[0]?.message?.content;
+      const choice = body.choices?.[0];
+      const content = choice?.message?.content;
+      const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined;
+      // A truncated structured answer may legitimately be empty-ish; the caller decides what "length" means.
+      if (options.allowEmpty && finishReason === 'length' && (content == null || typeof content === 'string')) {
+        return { content: typeof content === 'string' ? content : '', finishReason };
+      }
       if (typeof content !== 'string' || !content.trim()) {
         throw new Error(`OpenAI-compatible local server returned no assistant text for model "${context.model}". Select a text chat model and retry.`);
       }
-      return content;
+      return { content, finishReason };
     } finally {
       context.cleanup();
     }
@@ -386,9 +385,18 @@ export class OpenAICompatibleProvider implements LLMGateway {
 
   private requestError(error: unknown, model: string, signal: AbortSignal | undefined, timedOut: boolean): Error {
     if (timedOut) {
-      return new Error(`OpenAI-compatible local request for model "${model}" timed out after ${this.timeoutMs} ms. Retry or increase the local timeout after checking server load.`);
+      return new AIUnavailableError(
+        `OpenAI-compatible local request for model "${model}" timed out after ${this.timeoutMs} ms. Retry or increase the local timeout after checking server load.`,
+        'timeout',
+        { cause: error },
+      );
     }
     if (signal?.aborted) return new Error(`OpenAI-compatible local request for model "${model}" was cancelled.`);
-    return new Error(`Cannot reach the OpenAI-compatible local chat endpoint for model "${model}" (${errorMessage(error)}). Check that the loopback server is running and retry.`);
+    return new AIUnavailableError(
+      `Cannot reach the OpenAI-compatible local chat endpoint ${this.chatCompletionsUrl} for model "${model}" (${errorMessage(error)}). ` +
+        'Check that the loopback server is running (for MLX: ./mlx-runtime/start.sh) and that OPENAI_COMPATIBLE_BASE_URL points at it, then retry.',
+      'unreachable',
+      { cause: error },
+    );
   }
 }

@@ -7,7 +7,11 @@
  *
  * Needs: `npm run emulators`, `npm run seed:local`, the app on :3000 (for the demo stand-in:
  * `AI_PROVIDER=replay npm run start`), Google Chrome, and ffmpeg.
+ * The replay file (demo-replay/demo.json) cites the 16-page Playbook
+ * "demo-recordings/Standard Meds training PDFs/Standard Meds - 01 Neuropathy - NeuroCalmRx.pdf"; upload that one.
  * Run:   npx tsx --env-file=.env.local scripts/record-demo.ts [trainer agent supervisor admin] --pdf=path/to/Playbook.pdf
+ * Check: npx tsx --env-file=.env.local scripts/record-demo.ts --dry-run [DEMO_TRACK_ID=<built draft>]
+ *        signs in and checks every Studio selector the clips use, without recording, uploading or publishing.
  * Output: demo-recordings/<clip>.mp4 and demo-recordings/LogiCall-Pulse-demo.mp4 (all clips joined).
  */
 import { execFileSync } from 'node:child_process';
@@ -16,6 +20,8 @@ import { join, resolve } from 'node:path';
 import { chromium, type Browser, type Locator, type Page } from '@playwright/test';
 import { adminDb } from '../src/lib/firebase/admin';
 import type { DrillItem, EvalRubricsDoc, TrackDoc, TrackVersionDoc } from '../src/lib/schemas/curriculum';
+import { CanonicalDispositionSchema } from '../src/lib/schemas/source-truth';
+import { demoQAFixtures } from './demo-qa-fixtures';
 
 const BASE_URL = process.env.DEMO_BASE_URL ?? 'http://localhost:3000';
 const PASSWORD = 'PulseDemo!2026';
@@ -326,11 +332,37 @@ async function findVisibleDrill(page: Page, drills: DrillItem[]): Promise<DrillI
 // Clips
 // ---------------------------------------------------------------------------
 
+/**
+ * Demo-only setup: the generated Sims already carry canonical dispositions, a context and an evidence
+ * checklist (sim-builder), and every claim, rubric evidence included, is approved on camera in Source Review.
+ * What a Trainer would author by hand in "Scripted scenario QA" is added here: one golden pass and one
+ * critical-fail fixture per Sim, each executed with the real engine before it is written.
+ */
+async function prepareGeneratedDraft(trackId: string) {
+  const draftRef = adminDb.doc(`tracks/${trackId}/versions/draft`);
+  const secretsRef = adminDb.doc(`tracks/${trackId}/versions/draft/secrets/evalRubrics`);
+  const [draftSnapshot, secretsSnapshot] = await Promise.all([draftRef.get(), secretsRef.get()]);
+  const draft = draftSnapshot.data() as TrackVersionDoc | undefined;
+  const secrets = secretsSnapshot.data() as EvalRubricsDoc | undefined;
+  if (!draft || !secrets) throw new Error('Generated draft or simulation rubrics are missing.');
+  const scenarios = secrets.scenarios.map((secret) => {
+    const scenario = draft.simScenarios.find((candidate) => candidate.id === secret.scenarioId);
+    const expected = CanonicalDispositionSchema.safeParse(secret.expectedDisposition);
+    if (!scenario || !expected.success) throw new Error(`Scenario ${secret.scenarioId} needs a canonical expected disposition.`);
+    const qaFixtures = demoQAFixtures(scenario, expected.data);
+    if (!qaFixtures.some((fixture) => fixture.kind === 'golden_pass') || !qaFixtures.some((fixture) => fixture.kind === 'golden_critical_fail')) {
+      throw new Error(`Could not script QA fixtures for scenario ${scenario.id}; add them in Scripted scenario QA.`);
+    }
+    return { ...secret, qaFixtures };
+  });
+  await secretsRef.update({ scenarios, updatedAt: Date.now() });
+}
+
 async function trainerClip(browser: Browser, pdfPath: string): Promise<string> {
   const clip = await newClip(browser, 'trainer');
   const { page } = clip;
   await signIn(clip, 'trainer@logicall.io', 'a Trainer');
-  await clip.say('Demo note: AI output here is a prepared stand-in for Gemini (no API key connected yet)', 3000);
+  await clip.say('A prepared demo response turns the synthetic Playbook into grounded training', 3000);
   await clip.say('Trainer home. Open Track Studio to build a new Track', 1200);
   await clip.click(nav(page, 'Track Studio'));
   await clip.say('Track Studio lists every Track. Click "New Campaign Track"', 1000);
@@ -340,17 +372,46 @@ async function trainerClip(browser: Browser, pdfPath: string): Promise<string> {
   await clip.click(page.getByRole('radiogroup', { name: 'Division' }).getByText('Outbound Sales'));
   await clip.type(page.getByPlaceholder('MVP Retention & Save-Offer Playbook'), 'NeuroCalmRx Recovery Calling', 40);
   await clip.type(page.getByPlaceholder('Code (optional)'), 'NEURO', 60);
-  await clip.say('The Standard Meds NeuroCalmRx Playbook PDF is dropped in (13 pages)', 600);
+  await clip.say('The full synthetic Standard Meds NeuroCalmRx Playbook PDF is dropped in', 600);
   await page.locator('input[type="file"]').setInputFiles(pdfPath);
   await clip.pause(2000);
-  await clip.click(page.getByRole('button', { name: /Generate Interactive Track/i }));
-  await clip.say('The AI reads the PDF and builds Checkpoints, Drills and Live Call Sims (sped up)', 1500);
+  await clip.click(page.getByRole('button', { name: /Upload and map content/i }));
+  await clip.say('Content map: Pulse measures the Playbook and suggests how many Checkpoints it supports', 2200);
+  const buildButton = page.getByRole('button', { name: /^Build \d+ checkpoints$/i });
+  await buildButton.waitFor({ timeout: 120_000 });
+  await clip.click(buildButton);
+  const buildAnyway = page.getByRole('button', { name: /Build anyway/i });
+  if (await buildAnyway.isVisible().catch(() => false)) await clip.click(buildAnyway);
+  await clip.say('Source approval locks generation to this exact Playbook revision', 1800);
+  const approveBundle = page.getByRole('button', { name: /Approve source bundle revision/i });
+  await approveBundle.waitFor({ timeout: 120_000 });
+  await clip.click(approveBundle);
+  await clip.say('Demo AI builds Checkpoints, Drills and Live Call Sims from the approved PDF (sped up)', 1500);
   clip.speed(4);
   await page.waitForURL(/\/studio\/(?!new)[^/?]+$/, { timeout: 600_000, waitUntil: 'commit' });
   await page.waitForLoadState('networkidle').catch(() => undefined);
   const trackId = new URL(page.url()).pathname.split('/').pop()!;
+  await prepareGeneratedDraft(trackId);
   clip.speed(1);
   await clip.say('Track Studio, Play mode: the trainer sees every Briefing Card and Drill exactly as an agent will', 3000);
+  await clip.click(page.getByRole('button', { name: /^Source Review$/ }));
+  await clip.say('Source Review pairs every generated claim with an exact Playbook excerpt. The trainer approves each one', 3200);
+  const approveEvidence = page.getByRole('button', { name: /Approve exact evidence/i });
+  await approveEvidence.waitFor();
+  await clip.click(approveEvidence);
+  await clip.say('Remaining claim approvals (sped up)', 600);
+  clip.speed(4);
+  const claimButtons = page.locator('[data-testid="source-review"] button:has(span.line-clamp-2)');
+  const claimCount = await claimButtons.count();
+  for (let index = 1; index < claimCount; index++) {
+    await clip.click(claimButtons.nth(index), { hold: 150, after: 150 });
+    await clip.click(approveEvidence, { hold: 150, after: 150 });
+  }
+  clip.speed(1);
+  await page.reload();
+  await page.waitForLoadState('networkidle').catch(() => undefined);
+  await clip.click(page.getByRole('button', { name: /^Source Review$/ }));
+  await clip.say('All exact evidence is approved and the publication gates pass', 2600);
   await clip.click(page.getByRole('button', { name: /^Edit$/ }));
   await clip.say('Edit mode: plain-English fields, and "Regenerate This Item" for any single card or Drill', 2600);
   await clip.scroll(420, 1600);
@@ -361,6 +422,7 @@ async function trainerClip(browser: Browser, pdfPath: string): Promise<string> {
   await clip.say('Publish & Assign: choose which Cohorts must take this Track', 1500);
   await clip.click(dialog.getByText(/All Active Cohorts/i));
   await clip.click(dialog.locator('button.pulse-btn-success'));
+  await dialog.getByText(/Published as TrackVersion/i).waitFor();
   await clip.say('Published. Every agent in those Cohorts now sees it on their home page', 2600);
   await finishClip(clip);
   return trackId;
@@ -459,10 +521,15 @@ async function agentClip(browser: Browser, trackId: string) {
     await waitPath(page, /\/sim\//);
   });
   await clip.say('The call ticket gives the context. The caller is played by the AI from the Playbook', 2600);
-  await clip.click(page.getByRole('button', { name: /Start Live Call Sim/i }));
-  const composer = page.locator('textarea');
+  // A saved run of this scenario (for example after a reload) shows "Resume call (N replies saved)".
+  await clip.click(page.getByRole('button', { name: /Start Live Call Sim|Resume call/i }));
+  const composer = page.locator('textarea').first();
   await composer.waitFor();
-  await clip.pause(1800);
+  await clip.say('Before dialing, the agent checks the synthetic local-time record', 1800);
+  await clip.click(page.getByRole('button', { name: 'Local Time', exact: true }));
+  await clip.click(page.getByRole('button', { name: /Dial synthetic contact/i }));
+  await clip.click(page.getByRole('button', { name: /Record required disclosure/i }));
+  await clip.pause(1200);
 
   const lines = [
     "Hi Linda, this is Sofia calling from Standard Meds. I'm not a doctor. You completed your neuropathy health assessment and got all the way to checkout. Is this a good time for a quick call?",
@@ -486,16 +553,28 @@ async function agentClip(browser: Browser, trackId: string) {
     if (await page.getByRole('dialog').isVisible().catch(() => false)) break;
   }
 
-  if (!(await page.getByRole('dialog').isVisible().catch(() => false))) {
-    await clip.click(page.getByRole('button', { name: /End & Disposition Call/i }));
+  const dispositionDialog = page.getByRole('dialog');
+  if (await dispositionDialog.isVisible().catch(() => false)) {
+    await clip.click(dispositionDialog.getByRole('button', { name: 'Close and return to the call' }));
   }
+  await clip.say('The agent records the observed recovery and a safe synthetic operational note', 2200);
+  await clip.click(page.getByRole('button', { name: 'Recovery Confirmed', exact: true }));
+  await clip.type(page.getByLabel('Synthetic operational note'), 'Synthetic recovery and checkout-link consent confirmed.', 20);
+  await clip.click(page.getByRole('button', { name: /Save fake note/i }));
+  await clip.click(page.getByRole('button', { name: /End & Disposition Call|Log Disposition/i }));
   const dialog = page.getByRole('dialog');
   await clip.say('The call ended. The agent picks the disposition they would log', 1500);
-  await clip.click(dialog.getByText(secret.expectedDisposition, { exact: true }));
-  await clip.click(dialog.getByRole('button', { name: /Submit/i }));
+  // Options are the canonical dispositions only; the expected one comes from the trainer-only rubric.
+  const expectedDisposition = CanonicalDispositionSchema.parse(secret.expectedDisposition);
+  await clip.click(dialog.getByText(expectedDisposition, { exact: true }));
+  await clip.click(dialog.getByRole('button', { name: /Submit for Evaluation/i }));
   await clip.say('The AI Judge grades the transcript against the Playbook rubric (sped up)', 300);
   clip.speed(4);
-  await page.getByRole('region', { name: 'Simulation scorecard' }).waitFor({ timeout: 300_000 });
+  const scored = await Promise.race([
+    page.getByRole('region', { name: 'Simulation scorecard' }).waitFor({ timeout: 300_000 }).then(() => true),
+    page.getByRole('status', { name: 'Scorecard pending' }).waitFor({ timeout: 300_000 }).then(() => false),
+  ]);
+  if (!scored) throw new Error('The judge did not score the call (the "a Trainer will score it" state). Check the replay judge output.');
   clip.speed(1);
   await clip.say('Scorecard: score and pass status, with a summary of strengths and what to fix', 3600);
   await clip.scroll(560);
@@ -552,12 +631,71 @@ async function adminClip(browser: Browser) {
   await finishClip(clip);
 }
 
+/**
+ * Selector check for the Studio steps, without recording, uploading or publishing. With DEMO_TRACK_ID set to a
+ * built draft, it also checks Source Review, Publish & Assign and that the QA fixtures can be scripted.
+ */
+async function dryRun() {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const problems: string[] = [];
+  const expectVisible = async (label: string, locator: Locator) => {
+    const ok = await locator.first().waitFor({ timeout: 15_000 }).then(() => true, () => false);
+    console.log(`${ok ? 'ok  ' : 'MISS'} ${label}`);
+    if (!ok) problems.push(label);
+  };
+  try {
+    const page = await browser.newPage({ viewport: VIEWPORT });
+    await page.goto(`${BASE_URL}/login`);
+    await page.getByPlaceholder('LC-1042 or name@partner.com').fill('trainer@logicall.io');
+    await page.locator('input[type="password"]').fill(PASSWORD);
+    await page.getByRole('button', { name: /^Sign In$/i }).click();
+    await page.waitForURL((url) => url.pathname === '/', { timeout: 30_000, waitUntil: 'commit' });
+    await expectVisible('nav: Track Studio', nav(page, 'Track Studio'));
+    await page.goto(`${BASE_URL}/studio`);
+    await expectVisible('link: New Campaign Track', page.getByRole('link', { name: /New Campaign Track/i }));
+    await page.goto(`${BASE_URL}/studio/new`);
+    await expectVisible('radio: Division / Outbound Sales', page.getByRole('radiogroup', { name: 'Division' }).getByText('Outbound Sales'));
+    await expectVisible('input: Track title', page.getByPlaceholder('MVP Retention & Save-Offer Playbook'));
+    await expectVisible('input: Code (optional)', page.getByPlaceholder('Code (optional)'));
+    await expectVisible('input: PDF file', page.locator('input[type="file"]'));
+    await expectVisible('button: Upload and map content', page.getByRole('button', { name: /Upload and map content/i }));
+    const trackId = process.env.DEMO_TRACK_ID;
+    if (trackId) {
+      const { version, secrets } = await loadPublished(trackId);
+      for (const secret of secrets.scenarios) {
+        const scenario = version.simScenarios.find((candidate) => candidate.id === secret.scenarioId);
+        const expected = CanonicalDispositionSchema.safeParse(secret.expectedDisposition);
+        const fixtures = scenario && expected.success ? demoQAFixtures(scenario, expected.data) : [];
+        const ok = fixtures.length === 2;
+        console.log(`${ok ? 'ok  ' : 'MISS'} QA fixtures for ${secret.scenarioId} (${expected.success ? expected.data : secret.expectedDisposition})`);
+        if (!ok) problems.push(`QA fixtures ${secret.scenarioId}`);
+      }
+      await page.goto(`${BASE_URL}/studio/${encodeURIComponent(trackId)}`);
+      await expectVisible('button: Source Review', page.getByRole('button', { name: /^Source Review$/ }));
+      await page.getByRole('button', { name: /^Source Review$/ }).click().catch(() => undefined);
+      await expectVisible('source-review claim list', page.locator('[data-testid="source-review"] button:has(span.line-clamp-2)'));
+      // A claim approved earlier shows its Approved badge in place of the button.
+      await expectVisible('button: Approve exact evidence (or Approved badge)', page.getByRole('button', { name: /Approve exact evidence/i }).or(page.locator('[data-testid="source-review"]').getByText(/^approved$/i)));
+      await expectVisible('button: Edit', page.getByRole('button', { name: /^Edit$/ }));
+      await expectVisible('button: Publish & Assign', page.getByRole('button', { name: /Publish & Assign/i }));
+    }
+  } finally {
+    await browser.close();
+  }
+  if (problems.length > 0) throw new Error(`Dry run found ${problems.length} missing selector(s): ${problems.join('; ')}`);
+  console.log('Dry run passed.');
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const pdfArg = args.find((a) => a.startsWith('--pdf='))?.slice(6);
   const wanted = args.filter((a) => !a.startsWith('--'));
   const order = ['trainer', 'agent', 'supervisor', 'admin'];
   const clips = wanted.length ? order.filter((c) => wanted.includes(c)) : order;
+  if (args.includes('--dry-run')) {
+    await dryRun();
+    return;
+  }
 
   if (existsSync(RAW_DIR)) rmSync(RAW_DIR, { recursive: true, force: true });
   mkdirSync(RAW_DIR, { recursive: true });

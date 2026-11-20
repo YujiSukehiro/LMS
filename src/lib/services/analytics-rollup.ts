@@ -39,13 +39,7 @@ import type {
   TrackDoc,
   TrackVersionDoc,
 } from '@/lib/schemas/curriculum';
-import {
-  ScenarioAttemptEvidenceSchema,
-  ScenarioCoverageDocSchema,
-  type CertificationDoc,
-  type ScenarioAttemptEvidence,
-  type ScenarioCoverageDoc,
-} from '@/lib/schemas/learning';
+import type { CertificationDoc, ScenarioCoverageDoc } from '@/lib/schemas/learning';
 import {
   PillarStatSchema,
   UserStatsSchema,
@@ -57,7 +51,6 @@ import {
 import {
   evaluateCertificationEligibility,
   evaluateScenarioCoverage,
-  evaluateScenarioSessionEvidence,
   expireCertification,
   grantCertification,
 } from './certification';
@@ -67,6 +60,7 @@ import {
   scenarioCoverageRef,
 } from './learning-evidence';
 import { appendEvaluationEvent } from './scenario-state';
+import { buildScenarioCoverageDoc } from './scenario-coverage';
 import {
   computeFirstTryAccuracyPct,
   computeOverallReadiness,
@@ -98,6 +92,19 @@ function unitCompletionCommandRef(uid: string, idempotencyKey: string) {
   const digest = createHash('sha256').update(`${uid}:${idempotencyKey}`).digest('hex');
   return adminDb.collection('unitCompletionCommands').doc(`completion_${digest}`);
 }
+function reviewCompletionCommandRef(uid: string, idempotencyKey: string) {
+  const digest = createHash('sha256').update(`${uid}:${idempotencyKey}`).digest('hex');
+  return adminDb.collection('reviewCompletionCommands').doc(`review_${digest}`);
+}
+const ReviewCompletionCommandSchema = z.object({
+  learnerId: z.string(),
+  trackIds: z.array(z.string()),
+  reviewedCount: z.number().int().positive(),
+  idempotencyKey: z.string(),
+  xpAwarded: z.number().int().nonnegative(),
+  newlyCertifiedTrackIds: z.array(z.string()),
+  createdAt: z.number(),
+});
 const UnitCompletionCommandSchema = z.object({
   learnerId: z.string(),
   trackId: z.string(),
@@ -714,6 +721,8 @@ export async function saveSimulationEvaluation(args: {
       status: 'EVALUATED',
       evaluation: args.evaluation,
       selectedDisposition: args.selectedDisposition,
+      // Scored now (AI retry or a Trainer's manual import): it leaves the "a Trainer will score it" queue.
+      judgeReview: FieldValue.delete(),
       ...(evidence ? {
         scenarioState: evidence.state,
         simulationEvents: [...args.session!.simulationEvents!, evidence.event],
@@ -746,23 +755,6 @@ function isActiveCertification(certification: CertificationDoc | null, now: numb
   return certification?.status === 'certified' &&
     certification.certifiedAt !== null &&
     (!certification.expiresAt || Date.parse(certification.expiresAt) > now);
-}
-
-function scenarioAttemptEvidence(session: SimSessionDoc): ScenarioAttemptEvidence {
-  const source = session.provenance?.source;
-  const gates = session.evaluation?.gateResults ?? session.gateResults ?? [];
-  return ScenarioAttemptEvidenceSchema.parse({
-    sessionId: session.id,
-    passed: session.evaluation?.passed ?? false,
-    evaluatedAt: new Date(session.evaluation?.evaluatedAt ?? session.updatedAt).toISOString(),
-    criticalFailureRuleIds: [...new Set(gates
-      .filter((gate) => gate.severity === 'critical' && gate.status === 'fail')
-      .map((gate) => gate.ruleId))],
-    workflowComplete: session.scenarioState?.wrapUpComplete === true && !gates.some((gate) => gate.status === 'fail'),
-    dispositionValid: session.evaluation?.dispositionCorrect === true && session.evaluation.dispositionValidation?.valid === true,
-    // The stored compatibility schema has no hosted_ai value; those attempts remain ineligible in the pure cross-check.
-    provenance: source === 'local_ai' || source === 'manual_chat' ? source : 'imported_legacy',
-  });
 }
 
 /**
@@ -827,8 +819,10 @@ export async function recordSimulationEvaluation(args: {
         })
       : null;
     // Certification evaluates this freshly evaluated state, including the appended evaluation event.
+    const { judgeReview: _clearedJudgeReview, ...unreviewedSession } = freshSession;
+    void _clearedJudgeReview;
     const evaluatedSession: SimSessionDoc = {
-      ...freshSession,
+      ...unreviewedSession,
       status: 'EVALUATED',
       evaluation,
       selectedDisposition,
@@ -859,36 +853,16 @@ export async function recordSimulationEvaluation(args: {
 
     let nextCoverage: ScenarioCoverageDoc | null = null;
     if (isCurrentScenario) {
-      const currentEvidence = scenarioAttemptEvidence(evaluatedSession);
-      const attemptHistory = [...(existingCoverage?.attemptHistory ?? [])];
-      if (!attemptHistory.some((item) => item.sessionId === currentEvidence.sessionId)) attemptHistory.push(currentEvidence);
-      const attemptLimit = evidence.blueprint.allowedAttemptsPerScenario ?? Number.POSITIVE_INFINITY;
-      const passingSessionIds = attemptHistory.flatMap((item, index) => {
-        const session = sessionsById.get(item.sessionId);
-        if (!session || index >= attemptLimit) return [];
-        const assessment = evaluateScenarioSessionEvidence({
-          learnerId: user.uid,
-          blueprint: evidence.blueprint,
-          session,
-          evidence: item,
-          expectedScenarioId: freshSession.scenarioId,
-        });
-        return assessment.certificationPass ? [item.sessionId] : [];
-      });
-      nextCoverage = ScenarioCoverageDocSchema.parse({
-        schemaVersion: 1,
-        id: scenarioCoverageRef(user.uid, track.id, version.versionId, freshSession.scenarioId).id,
+      nextCoverage = buildScenarioCoverageDoc({
         learnerId: user.uid,
         partnerCohortId: user.partnerCohortId,
         trackId: track.id,
-        curriculumVersion: version.versionId,
-        scenarioId: freshSession.scenarioId,
-        requiredGateIds: evidence.blueprint.requiredScenarioGates[freshSession.scenarioId] ?? [],
-        status: passingSessionIds.length > 0 ? 'passed' : attemptHistory.length > 0 ? 'remediation_required' : 'in_progress',
-        attemptHistory,
-        passingSessionIds: [...new Set(passingSessionIds)],
-        lastSessionId: freshSession.id,
-        updatedAt: new Date(now).toISOString(),
+        versionId: version.versionId,
+        blueprint: evidence.blueprint,
+        existing: existingCoverage,
+        session: evaluatedSession,
+        sessionsById,
+        now,
       });
     }
 
@@ -992,6 +966,7 @@ export async function recordSimulationEvaluation(args: {
       status: evaluatedSession.status,
       evaluation: evaluatedSession.evaluation,
       selectedDisposition: evaluatedSession.selectedDisposition,
+      judgeReview: FieldValue.delete(),
       ...(evaluationEvent ? {
         scenarioState: evaluatedSession.scenarioState,
         simulationEvents: evaluatedSession.simulationEvents,
@@ -1016,4 +991,173 @@ export async function recordSimulationEvaluation(args: {
 /** True when every Unit of the TrackVersion is in the enrollment's completedUnitIds. */
 export function hasCompletedAllUnits(enrollment: EnrollmentDoc, version: TrackVersionDoc): boolean {
   return allUnitsComplete(enrollment, version);
+}
+
+/**
+ * Record completion of a Keep-Sharp retention batch atomically:
+ * awards review XP, updates the daily streak, and unlocks Certification for any Track whose
+ * spaced-review gate just became satisfied by the prior `drill-answer` commits.
+ */
+export async function recordRetentionReviewCompletion(args: {
+  user: SessionUser;
+  tracks: Array<{ track: TrackDoc; version: TrackVersionDoc }>;
+  reviewedCount: number;
+  idempotencyKey: string;
+}): Promise<{ xpAwarded: number; newlyCertifiedTrackIds: string[] }> {
+  const { user, tracks, reviewedCount, idempotencyKey } = args;
+  const uRef = userRef(user.uid);
+  const commandRef = reviewCompletionCommandRef(user.uid, idempotencyKey);
+
+  return adminDb.runTransaction(async (tx) => {
+    const now = Date.now();
+    const [userSnap, commandSnap] = await tx.getAll(uRef, commandRef);
+    const userState = readUserProgress(userSnap);
+
+    if (commandSnap.exists) {
+      const command = ReviewCompletionCommandSchema.parse(commandSnap.data());
+      if (
+        command.learnerId !== user.uid ||
+        command.idempotencyKey !== idempotencyKey ||
+        command.reviewedCount !== reviewedCount
+      ) {
+        throw new ServiceError(409, 'IDEMPOTENCY_CONFLICT', 'This retention review key was already used.');
+      }
+      return {
+        xpAwarded: command.xpAwarded,
+        newlyCertifiedTrackIds: command.newlyCertifiedTrackIds,
+      };
+    }
+
+    const uniqueScopeMap = new Map<string, RollupScope>();
+    const trackEntries: Array<{
+      track: TrackDoc;
+      version: TrackVersionDoc;
+      eRef: ReturnType<typeof enrollmentRef>;
+      enrollmentSnap: DocumentSnapshot;
+      evidence: Awaited<ReturnType<typeof loadCurrentLearningEvidenceData>>;
+    }> = [];
+
+    for (const { track, version } of tracks) {
+      const eRef = enrollmentRef(user.uid, track.id);
+      const [enrollmentSnap, evidence] = await Promise.all([
+        tx.get(eRef),
+        loadCurrentLearningEvidenceData({ learnerId: user.uid, version, tx }),
+      ]);
+      for (const scope of rollupScopesFor(user, track)) uniqueScopeMap.set(scope.id, scope);
+      trackEntries.push({ track, version, eRef, enrollmentSnap, evidence });
+    }
+
+    const uniqueScopes = [...uniqueScopeMap.values()];
+    const rollupSnaps = uniqueScopes.length > 0 ? await readRollups(tx, uniqueScopes) : [];
+    const rollupSnapById = new Map<string, DocumentSnapshot>();
+    uniqueScopes.forEach((scope, index) => {
+      if (rollupSnaps[index]) rollupSnapById.set(scope.id, rollupSnaps[index]);
+    });
+
+    const newlyCertifiedTrackIds: string[] = [];
+    const certDeltaByScopeId = new Map<string, number>();
+    let totalCertificationDelta = 0;
+
+    for (const entry of trackEntries) {
+      const { track, version, eRef, enrollmentSnap, evidence } = entry;
+      const { enrollment: stored } = readEnrollment(enrollmentSnap, user, track, version, now);
+      const enrollment = reconcileEnrollment(stored, user, track, version);
+      const eligibility = evaluateCertificationEligibility({
+        learnerId: user.uid,
+        blueprint: evidence.blueprint,
+        enrollment: enrollmentSnap.exists ? enrollment : null,
+        drillAttempts: evidence.drillAttempts,
+        scenarioCoverage: evidence.scenarioCoverage,
+        simSessions: evidence.simSessions,
+        ruleIdsByDrillId: evidence.ruleIdsByDrillId,
+      });
+
+      const initialCertification = evidence.certification;
+      let certification = initialCertification;
+      if (certification?.status === 'certified' && certification.expiresAt && Date.parse(certification.expiresAt) <= now) {
+        certification = expireCertification(certification, {
+          now: new Date(now),
+          actorUid: 'system',
+          reason: 'Certification expiry reached during retention review.',
+        }).certification;
+      }
+      if (!isActiveCertification(certification, now) && certification?.status !== 'revoked' && eligibility.eligible) {
+        certification = grantCertification({
+          learnerId: user.uid,
+          partnerCohortId: user.partnerCohortId,
+          blueprint: evidence.blueprint,
+          eligibility,
+          actorUid: user.uid,
+          now: new Date(now),
+          reason: 'All current-version assessment and retention requirements passed.',
+          existing: certification,
+        }).certification;
+      }
+
+      const wasCertified = isActiveCertification(initialCertification, now);
+      const certified = isActiveCertification(certification, now);
+      const certificationDelta = Number(certified) - Number(wasCertified);
+      if (certificationDelta > 0) newlyCertifiedTrackIds.push(track.id);
+      totalCertificationDelta += certificationDelta;
+
+      if (certificationDelta !== 0) {
+        for (const scope of rollupScopesFor(user, track)) {
+          certDeltaByScopeId.set(scope.id, (certDeltaByScopeId.get(scope.id) ?? 0) + certificationDelta);
+        }
+      }
+
+      if (certification !== initialCertification && certification) {
+        tx.set(adminDb.collection('certifications').doc(certification.id), certification);
+      }
+      if (enrollmentSnap.exists || certified) {
+        let next: EnrollmentDoc = { ...enrollment, lastActivityAt: now };
+        if (certified && certification?.certifiedAt) {
+          next.certifiedAt = Date.parse(certification.certifiedAt);
+          next.certificationEvidenceLabel = 'current_verified';
+          next.certificationProvenance = 'certification_register';
+        } else if (certification && enrollment.certificationProvenance === 'certification_register') {
+          next.certifiedAt = null;
+          next.certificationEvidenceLabel = 'historical_verified';
+        }
+        next = reconcileEnrollment(next, user, track, version);
+        tx.set(eRef, EnrollmentDocSchema.parse(next));
+      }
+    }
+
+    const xpAwarded = reviewedCount * XP_RULES.perRecoveredDrill;
+    const streak = nextStreak(userState.stats, now);
+    const stats: UserStats = {
+      ...userState.stats,
+      totalXp: userState.stats.totalXp + xpAwarded,
+      currentStreakDays: streak.currentStreakDays,
+      lastActiveDateUtc: streak.lastActiveDateUtc,
+      tracksCertifiedCount: Math.max(0, userState.stats.tracksCertifiedCount + totalCertificationDelta),
+    };
+
+    writeUserProgress(tx, user.uid, stats, userState.skillScoresByPillar, now);
+    for (const [scopeId, certDelta] of certDeltaByScopeId.entries()) {
+      if (certDelta === 0) continue;
+      const scope = uniqueScopeMap.get(scopeId);
+      const snap = rollupSnapById.get(scopeId);
+      if (!scope || !snap) continue;
+      const delta = emptyDelta();
+      delta.certifications = certDelta;
+      writeRollups(tx, [scope], [snap], delta, now);
+    }
+
+    tx.set(
+      commandRef,
+      ReviewCompletionCommandSchema.parse({
+        learnerId: user.uid,
+        trackIds: tracks.map((t) => t.track.id),
+        reviewedCount,
+        idempotencyKey,
+        xpAwarded,
+        newlyCertifiedTrackIds,
+        createdAt: now,
+      }),
+    );
+
+    return { xpAwarded, newlyCertifiedTrackIds };
+  });
 }

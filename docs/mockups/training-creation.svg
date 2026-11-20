@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 960" width="1280" height="960" font-family="Plus Jakarta Sans, system-ui, sans-serif">
+  <defs>
+    <style>
+      .h1{font-size:26px;font-weight:700;fill:#0f172a}
+      .h2{font-size:16px;font-weight:700;fill:#0f172a}
+      .t{font-size:13px;fill:#334155}
+      .s{font-size:12px;fill:#5b6b82}
+      .xs{font-size:11px;fill:#5b6b82}
+      .lab{font-size:10.5px;font-weight:700;letter-spacing:1px;fill:#5b6b82}
+      .mono{font-family:JetBrains Mono, ui-monospace, monospace}
+    </style>
+    <filter id="sh" x="-5%" y="-5%" width="110%" height="120%"><feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-color="#1e293b" flood-opacity="0.08"/></filter>
+  </defs>
+  <rect width="1280" height="960" fill="#f6f7fb"/>
+
+  <!-- Sidebar -->
+  <rect width="240" height="960" fill="#fff"/><rect x="239" width="1" height="960" fill="#e3e8f0"/>
+  <rect x="16" y="14" width="32" height="32" rx="8" fill="#eef0fd"/><path d="M22 31h5l3-8 4 14 3-6h5" stroke="#4f46e5" stroke-width="2" fill="none"/>
+  <text x="58" y="28" class="h2" font-size="14">LogiCall Pulse</text><text x="58" y="43" class="xs">Campaign Readiness</text>
+  <text x="24" y="88" class="lab">NAVIGATION</text>
+  <text x="52" y="124" class="t">Home</text>
+  <rect x="12" y="142" width="216" height="36" rx="8" fill="#f1f4f9"/><rect x="12" y="148" width="3" height="24" rx="1.5" fill="#4f46e5"/>
+  <text x="52" y="165" class="t" font-weight="600" style="fill:#0f172a">Track Studio</text>
+  <text x="52" y="206" class="t">Analytics</text>
+
+  <rect x="240" width="1040" height="56" fill="#f6f7fb"/><rect x="240" y="55" width="1040" height="1" fill="#e3e8f0"/>
+  <rect x="264" y="15" width="122" height="26" rx="13" fill="#fff" stroke="#cfd7e3"/><text x="278" y="32" class="s" style="fill:#334155">LogiCall Internal</text>
+  <rect x="394" y="15" width="74" height="26" rx="13" fill="#eef0fd" stroke="#c7cbf7"/><text x="408" y="32" class="s" style="fill:#4338ca" font-weight="600">Trainer</text>
+  <circle cx="1130" cy="28" r="15" fill="#f1f4f9" stroke="#cfd7e3"/><text x="1122" y="32" class="xs" font-weight="700" style="fill:#334155">JE</text>
+  <text x="1152" y="32" class="t">Jordan Ellis</text>
+
+  <text x="272" y="92" class="lab">NEW CAMPAIGN TRACK</text>
+  <text x="272" y="124" class="h1">NeuroCalmRx Recovery Calling</text>
+
+  <!-- Stepper -->
+  <g>
+    <circle cx="286" cy="160" r="12" fill="#047857"/><path d="M280 160l4 4 7-8" stroke="#fff" stroke-width="2" fill="none"/>
+    <text x="306" y="164" class="t" font-weight="600" style="fill:#0f172a">Sources</text>
+    <rect x="374" y="159" width="60" height="2" fill="#047857"/>
+    <circle cx="456" cy="160" r="12" fill="#4f46e5"/><text x="452" y="165" font-size="12" font-weight="700" fill="#fff">2</text>
+    <text x="476" y="164" class="t" font-weight="700" style="fill:#4338ca">Content map</text>
+    <rect x="570" y="159" width="60" height="2" fill="#cfd7e3"/>
+    <circle cx="652" cy="160" r="12" fill="none" stroke="#cfd7e3" stroke-width="2"/><text x="648" y="165" font-size="12" font-weight="700" fill="#5b6b82">3</text>
+    <text x="672" y="164" class="t">Build</text>
+    <rect x="716" y="159" width="60" height="2" fill="#cfd7e3"/>
+    <circle cx="798" cy="160" r="12" fill="none" stroke="#cfd7e3" stroke-width="2"/><text x="794" y="165" font-size="12" font-weight="700" fill="#5b6b82">4</text>
+    <text x="818" y="164" class="t">Review &amp; assign</text>
+  </g>
+
+  <!-- Left: depth summary -->
+  <g filter="url(#sh)"><rect x="272" y="192" width="300" height="560" rx="14" fill="#fff" stroke="#e3e8f0"/></g>
+  <text x="292" y="220" class="lab">SOURCE DEPTH</text>
+  <text x="292" y="246" class="t">2 documents · 15 pages</text>
+  <rect x="292" y="260" width="260" height="56" rx="10" fill="#f1f4f9"/>
+  <text x="304" y="282" class="xs">NeuroCalmRx Playbook.pdf · 13 pp</text><text x="304" y="302" class="xs">Shared rules: Compliance pack v3 · 2 pp</text>
+
+  <text x="292" y="348" class="h2 mono" font-size="30">104</text><text x="352" y="348" class="t">rule statements</text>
+  <text x="292" y="370" class="xs">3,579 words · 66 sections · 12 pages hold rules</text>
+
+  <!-- page density bar chart -->
+  <text x="292" y="404" class="lab">RULES PER PAGE</text>
+  <g fill="#c7cbf7">
+    <rect x="292" y="466" width="14" height="14"/><rect x="310" y="430" width="14" height="50"/><rect x="328" y="420" width="14" height="60"/><rect x="346" y="436" width="14" height="44"/><rect x="364" y="426" width="14" height="54"/><rect x="382" y="440" width="14" height="40"/><rect x="400" y="452" width="14" height="28"/><rect x="418" y="446" width="14" height="34"/><rect x="436" y="458" width="14" height="22"/><rect x="454" y="462" width="14" height="18"/><rect x="472" y="456" width="14" height="24"/><rect x="490" y="470" width="14" height="10"/><rect x="508" y="476" width="14" height="4"/>
+  </g>
+  <rect x="292" y="480" width="230" height="1" fill="#cfd7e3"/>
+  <text x="292" y="496" class="xs mono">1</text><text x="508" y="496" class="xs mono">13</text>
+
+  <rect x="292" y="520" width="260" height="104" rx="10" fill="#eef0fd" stroke="#c7cbf7"/>
+  <text x="306" y="544" class="lab" style="fill:#4338ca">RECOMMENDED SIZE</text>
+  <text x="306" y="572" class="h2" font-size="20" style="fill:#4338ca">9 checkpoints</text>
+  <text x="306" y="592" class="s">range 7–11 · about 62 minutes</text>
+  <text x="306" y="610" class="s">2–8 cards and 4–10 drills each</text>
+
+  <text x="292" y="652" class="t" font-weight="600" style="fill:#0f172a">Why not a fixed 4–5?</text>
+  <text x="292" y="672" class="xs">Dense pages (2–5) get their own checkpoint.</text>
+  <text x="292" y="688" class="xs">Light pages (9–13) share one. A 2-page flyer</text>
+  <text x="292" y="704" class="xs">gets 2 checkpoints; a 22-page SOP gets 12.</text>
+  <text x="292" y="732" class="note" font-size="12" style="fill:#4338ca" font-weight="600">Adjust target:  − 9 +</text>
+
+  <!-- Right: content map -->
+  <g filter="url(#sh)"><rect x="588" y="192" width="660" height="560" rx="14" fill="#fff" stroke="#e3e8f0"/></g>
+  <text x="608" y="220" class="h2">Proposed checkpoints</text>
+  <text x="608" y="240" class="s">Drag to reorder. Merge or split before the build. Sizes update from the pages each one covers.</text>
+
+  <text x="608" y="272" class="lab">#</text><text x="636" y="272" class="lab">CHECKPOINT</text><text x="900" y="272" class="lab">PAGES</text><text x="980" y="272" class="lab">DEPTH</text><text x="1110" y="272" class="lab">CARDS · DRILLS</text>
+  <rect x="608" y="282" width="620" height="1" fill="#e3e8f0"/>
+
+  <!-- rows -->
+  <g class="t">
+    <text x="612" y="308" class="s mono">1</text><text x="636" y="308" class="t" style="fill:#0f172a" font-weight="600">Open the call and verify</text><text x="900" y="308" class="s mono">1–2</text>
+    <rect x="980" y="300" width="110" height="8" rx="4" fill="#eef1f5"/><rect x="980" y="300" width="44" height="8" rx="4" fill="#4f46e5"/><text x="1110" y="308" class="s mono">4 · 6</text>
+    <rect x="608" y="320" width="620" height="1" fill="#eef1f5"/>
+
+    <text x="612" y="346" class="s mono">2</text><text x="636" y="346" class="t" style="fill:#0f172a" font-weight="600">Dosage-abandon recovery script</text><text x="900" y="346" class="s mono">3</text>
+    <rect x="980" y="338" width="110" height="8" rx="4" fill="#eef1f5"/><rect x="980" y="338" width="110" height="8" rx="4" fill="#4f46e5"/><text x="1110" y="346" class="s mono">8 · 10</text>
+    <rect x="1186" y="334" width="40" height="18" rx="9" fill="#fff7ed" stroke="#f3d1a8"/><text x="1194" y="347" class="xs" style="fill:#b45309" font-weight="600">split</text>
+    <rect x="608" y="358" width="620" height="1" fill="#eef1f5"/>
+
+    <text x="612" y="384" class="s mono">3</text><text x="636" y="384" class="t" style="fill:#0f172a" font-weight="600">Plans and pricing ($169 / $297)</text><text x="900" y="384" class="s mono">4</text>
+    <rect x="980" y="376" width="110" height="8" rx="4" fill="#eef1f5"/><rect x="980" y="376" width="88" height="8" rx="4" fill="#4f46e5"/><text x="1110" y="384" class="s mono">7 · 10</text>
+    <rect x="608" y="396" width="620" height="1" fill="#eef1f5"/>
+
+    <text x="612" y="422" class="s mono">4</text><text x="636" y="422" class="t" style="fill:#0f172a" font-weight="600">Objections: cost, side effects</text><text x="900" y="422" class="s mono">5</text>
+    <rect x="980" y="414" width="110" height="8" rx="4" fill="#eef1f5"/><rect x="980" y="414" width="96" height="8" rx="4" fill="#4f46e5"/><text x="1110" y="422" class="s mono">8 · 10</text>
+    <rect x="608" y="434" width="620" height="1" fill="#eef1f5"/>
+
+    <text x="612" y="460" class="s mono">5</text><text x="636" y="460" class="t" style="fill:#0f172a" font-weight="600">Medical boundaries &amp; escalation</text><text x="900" y="460" class="s mono">6</text>
+    <rect x="980" y="452" width="110" height="8" rx="4" fill="#eef1f5"/><rect x="980" y="452" width="70" height="8" rx="4" fill="#4f46e5"/><text x="1110" y="460" class="s mono">6 · 8</text>
+    <rect x="608" y="472" width="620" height="1" fill="#eef1f5"/>
+
+    <text x="612" y="498" class="s mono">6</text><text x="636" y="498" class="t" style="fill:#0f172a" font-weight="600">Checkout-abandon stage</text><text x="900" y="498" class="s mono">7–8</text>
+    <rect x="980" y="490" width="110" height="8" rx="4" fill="#eef1f5"/><rect x="980" y="490" width="66" height="8" rx="4" fill="#4f46e5"/><text x="1110" y="498" class="s mono">5 · 7</text>
+    <rect x="608" y="510" width="620" height="1" fill="#eef1f5"/>
+
+    <text x="612" y="536" class="s mono">7</text><text x="636" y="536" class="t" style="fill:#0f172a" font-weight="600">Dispositions &amp; Atlas notes</text><text x="900" y="536" class="s mono">9–10</text>
+    <rect x="980" y="528" width="110" height="8" rx="4" fill="#eef1f5"/><rect x="980" y="528" width="40" height="8" rx="4" fill="#4f46e5"/><text x="1110" y="536" class="s mono">3 · 4</text>
+    <rect x="608" y="548" width="620" height="1" fill="#eef1f5"/>
+
+    <text x="612" y="574" class="s mono">8</text><text x="636" y="574" class="t" style="fill:#0f172a" font-weight="600">Do-not-call and consent</text><text x="900" y="574" class="s mono">11</text>
+    <rect x="980" y="566" width="110" height="8" rx="4" fill="#eef1f5"/><rect x="980" y="566" width="24" height="8" rx="4" fill="#4f46e5"/><text x="1110" y="574" class="s mono">2 · 4</text>
+    <rect x="1180" y="560" width="58" height="18" rx="9" fill="#f1f4f9" stroke="#cfd7e3"/><text x="1188" y="573" class="xs" font-weight="600">merge ↓</text>
+    <rect x="608" y="586" width="620" height="1" fill="#eef1f5"/>
+
+    <text x="612" y="612" class="s mono">9</text><text x="636" y="612" class="t" style="fill:#0f172a" font-weight="600">Callbacks and wrap-up</text><text x="900" y="612" class="s mono">12–13</text>
+    <rect x="980" y="604" width="110" height="8" rx="4" fill="#eef1f5"/><rect x="980" y="604" width="20" height="8" rx="4" fill="#4f46e5"/><text x="1110" y="612" class="s mono">2 · 4</text>
+  </g>
+
+  <rect x="608" y="636" width="620" height="44" rx="10" fill="#fff7ed" stroke="#f3d1a8"/>
+  <text x="624" y="663" class="s" style="fill:#7a3a00">Page 14 has a screenshot with steps but no text. Transcribe it in Source Review or it will not be taught.</text>
+
+  <text x="608" y="712" class="s">Live Call Sims: <tspan fill="#0f172a" font-weight="600">2 scenarios</tspan> (one per call stage found)</text>
+  <rect x="942" y="692" width="96" height="40" rx="10" fill="#f1f4f9" stroke="#cfd7e3"/><text x="970" y="717" class="t" font-weight="600">Back</text>
+  <rect x="1048" y="692" width="180" height="40" rx="10" fill="#4f46e5"/><text x="1066" y="717" class="t" font-weight="600" style="fill:#fff">Build 9 checkpoints →</text>
+
+  <!-- Annotations -->
+  <rect x="272" y="772" width="976" height="170" rx="14" fill="#eef0fd" stroke="#c7cbf7"/>
+  <text x="292" y="798" class="lab" style="fill:#4338ca">WHAT CHANGES FROM TODAY</text>
+  <text x="292" y="822" class="t">1. Today: three inputs, then the model picks units with no preview. Proposed: a four-step flow with a "Content map" checkpoint before any long AI build.</text>
+  <text x="292" y="844" class="t">2. The map shows the measured depth (implemented now in content-depth.ts) so trainers see why a Track gets 2 or 12 checkpoints and can nudge it.</text>
+  <text x="292" y="866" class="t">3. Per-checkpoint cards/drills come from the rules on its pages. Split and merge hints flag outliers before generation, not after.</text>
+  <text x="292" y="888" class="t">4. Source gaps (image-only pages, conflicts) are flagged here and link straight to Source Review, instead of failing late in the build.</text>
+  <text x="292" y="910" class="t">5. Step 1 accepts several PDFs plus shared rule packs (the backend already supports bundles; today's form takes one file).</text>
+</svg>

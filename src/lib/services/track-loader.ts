@@ -16,6 +16,7 @@ import {
   type TrackVersionDoc,
 } from '@/lib/schemas/curriculum';
 import { ALL_COHORTS_ID } from '@/lib/schemas/constants';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import type { SessionUser } from '@/lib/schemas/domain';
 import { ServiceError } from './errors';
 
@@ -100,10 +101,16 @@ export function isTrackAssignedToUser(
 
 /** True when a learner (any role) can see and train on the Track's published version. */
 export function isTrackVisibleToLearner(
-  track: Pick<TrackDoc, 'status' | 'publishedVersionId' | 'assignedCohortIds'>,
-  user: Pick<SessionUser, 'partnerCohortId'>,
+  track: Pick<TrackDoc, 'status' | 'publishedVersionId' | 'assignedCohortIds' | 'divisionId'>,
+  user: Pick<SessionUser, 'partnerCohortId'> & { divisionIds?: readonly string[] },
 ): boolean {
-  return track.status === 'PUBLISHED' && Boolean(track.publishedVersionId) && isTrackAssignedToUser(track, user);
+  if (track.status !== 'PUBLISHED' || !track.publishedVersionId || !isTrackAssignedToUser(track, user)) {
+    return false;
+  }
+  if (TRAINING_POLICY.enforceLearnerDivisionVisibility && Array.isArray(user.divisionIds)) {
+    return user.divisionIds.includes(track.divisionId);
+  }
+  return true;
 }
 
 export type ResolveVersionResult =

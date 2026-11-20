@@ -2,13 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChartColumn, LayoutDashboard, Layers, Users, type LucideIcon } from 'lucide-react';
+import { Brain, ChartColumn, LayoutDashboard, Layers, ListChecks, Users, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { NavIconName } from './nav-config';
 
 const ICONS: Record<NavIconName, LucideIcon> = {
   home: LayoutDashboard,
+  retention: Brain,
   studio: Layers,
+  progress: ListChecks,
   analytics: ChartColumn,
   roster: Users,
 };

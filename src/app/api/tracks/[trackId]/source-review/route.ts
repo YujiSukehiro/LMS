@@ -1,5 +1,6 @@
 /** Trainer source review: exact evidence, transcription, asset/rule-pack/bundle approval, and SME decisions. */
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import type { Transaction } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
@@ -16,15 +17,19 @@ import {
   type SourceBundle,
   type SourcePageEvidence,
 } from '@/lib/schemas/source-truth';
-import { DRAFT_VERSION_ID, TrackVersionDocSchema, type TrackVersionDoc } from '@/lib/schemas/curriculum';
-import { draftRef, loadTrack, loadVersion } from '@/lib/ai/pipeline/track-store';
+import { DRAFT_VERSION_ID, EvalRubricsDocSchema, TrackVersionDocSchema, type EvalRubricsDoc, type TrackVersionDoc } from '@/lib/schemas/curriculum';
+import { approvedExcerptsByPage, findRubricEvidence, replaceRubricEvidence } from '@/lib/services/evidence-approvals';
+import { pickedExcerptEvidence, rematchClaimEvidence } from '@/lib/services/evidence-rematch';
+import { MAX_EXCERPT_CHARS } from '@/lib/ai/prompts/evidence';
+import { draftRef, isGenerationRunning, loadSecrets, loadTrack, loadVersion, secretsRef, trackRef } from '@/lib/ai/pipeline/track-store';
 import {
   normalizeSourceText,
+  planDraftRebind,
+  type RebindExcerptProblem,
   verifyClaimEvidence,
   verifySourceExcerpt,
 } from '@/lib/services/source-evidence';
 import {
-  computeSourceBundleRevisionHash,
   hashSourcePageContent,
   loadSourceReview,
   SourceBundleNotFoundError,
@@ -33,6 +38,7 @@ import {
   sourceConflictRef,
   sourcePageEvidenceRef,
   sourceRulePackRef,
+  sourceBundleRevisionMatches,
   withSourceRevision,
 } from '@/lib/services/source-store';
 
@@ -42,7 +48,7 @@ export const dynamic = 'force-dynamic';
 type RouteContext = { params: Promise<{ trackId: string }> };
 
 class SourceReviewError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
+  constructor(readonly status: number, readonly code: string, message: string, readonly details?: Record<string, unknown>) {
     super(message);
     this.name = 'SourceReviewError';
   }
@@ -65,18 +71,14 @@ function pageFor(pages: SourcePageEvidence[], input: { documentId: string; revis
   return page;
 }
 
-function excerptKey(excerpt: { documentId: string; revisionId: string; pageNumber: number; exactText: string; fromApprovedTranscription: boolean }): string {
-  return JSON.stringify([excerpt.documentId, excerpt.revisionId, excerpt.pageNumber, excerpt.exactText, excerpt.fromApprovedTranscription]);
-}
-
-function draftEvidence(draft: TrackVersionDoc, evidenceId: string): ClaimEvidence {
+function draftEvidence(draft: TrackVersionDoc, evidenceId: string): ClaimEvidence | undefined {
   for (const unit of draft.units) {
     for (const item of [...unit.briefingCards, ...unit.drills]) {
       const evidence = item.evidence?.find((candidate) => candidate.id === evidenceId);
       if (evidence) return evidence;
     }
   }
-  throw new SourceReviewError(404, 'CLAIM_EVIDENCE_NOT_FOUND', 'This claim evidence does not exist in the editable draft.');
+  return undefined;
 }
 
 function approveDraftEvidence(draft: TrackVersionDoc, evidenceId: string, approved: ClaimEvidence): TrackVersionDoc {
@@ -126,13 +128,24 @@ async function applyReviewCommand(
   switch (request.action) {
     case 'approve_excerpt': {
       let draft: TrackVersionDoc | null = null;
+      let secrets: EvalRubricsDoc | null = null;
+      let original: ClaimEvidence | undefined = request.evidence;
+      // Persisted evidence lives on a Briefing Card or Drill, or on a Live Call Sim rubric criterion (draft secrets).
+      let owner: 'unit' | 'rubric' | null = null;
       if (request.evidenceId) {
-        draft = await loadVersion(trackId, DRAFT_VERSION_ID, tx);
+        [draft, secrets] = await Promise.all([
+          loadVersion(trackId, DRAFT_VERSION_ID, tx),
+          loadSecrets(trackId, DRAFT_VERSION_ID, tx),
+        ]);
         if (!draft) throw new SourceReviewError(409, 'NO_DRAFT', 'Build the Track before approving generated claim evidence.');
+        original = draftEvidence(draft, request.evidenceId);
+        owner = original ? 'unit' : null;
+        if (!original && secrets) {
+          original = findRubricEvidence(secrets.scenarios, request.evidenceId);
+          owner = original ? 'rubric' : null;
+        }
+        if (!original) throw new SourceReviewError(404, 'CLAIM_EVIDENCE_NOT_FOUND', 'This claim evidence does not exist in the editable draft.');
       }
-      const original = request.evidenceId
-        ? draftEvidence(draft!, request.evidenceId)
-        : request.evidence;
       if (!original) throw new SourceReviewError(400, 'VALIDATION_FAILED', 'Provide evidence or a persisted draft evidenceId.');
       const verified = verifyClaimEvidence(
         { ...original, approvalStatus: 'draft', reviewerUid: null, reviewedAt: null },
@@ -148,18 +161,25 @@ async function applyReviewCommand(
         reviewerUid,
         reviewedAt: now,
       });
-      for (const excerpt of evidence.excerpts) {
-        const page = pageFor(review.pages, excerpt);
-        const keys = new Set(page.approvedExcerpts.map(excerptKey));
-        if (keys.has(excerptKey(excerpt))) continue;
-        const nextPage = SourcePageEvidenceSchema.parse({
+      // Several excerpts can sit on one page: collect them per page and write each page once.
+      for (const { page, added } of approvedExcerptsByPage(evidence.excerpts, (excerpt) => pageFor(review.pages, excerpt))) {
+        tx.set(sourcePageEvidenceRef(trackId, bundle.id, page.id), SourcePageEvidenceSchema.parse({
           ...page,
-          approvedExcerpts: [...page.approvedExcerpts, excerpt],
-        });
-        tx.set(sourcePageEvidenceRef(trackId, bundle.id, page.id), nextPage);
+          approvedExcerpts: [...page.approvedExcerpts, ...added],
+        }));
       }
-      if (draft && request.evidenceId) {
+      if (draft && request.evidenceId && owner === 'unit') {
         tx.set(draftRef(trackId), approveDraftEvidence(draft, request.evidenceId, evidence));
+      }
+      if (secrets && request.evidenceId && owner === 'rubric') {
+        tx.set(
+          secretsRef(trackId, DRAFT_VERSION_ID),
+          EvalRubricsDocSchema.parse({
+            ...secrets,
+            scenarios: replaceRubricEvidence(secrets.scenarios, request.evidenceId, evidence),
+            updatedAt: now,
+          }),
+        );
       }
       return { ok: true, action: request.action, evidence, sourceRevision: bundle.revisionHash };
     }
@@ -174,7 +194,9 @@ async function applyReviewCommand(
           ? pageFor(review.pages, { documentId: request.documentId, revisionId: request.revisionId, pageNumber: request.pageNumber })
           : undefined;
       if (!page) throw new SourceReviewError(404, 'SOURCE_PAGE_NOT_FOUND', 'Select a persisted source page for transcription.');
-      const transcriptionChanged = page.transcription?.text !== request.text;
+      // Compare normalized wording (the form excerpts are verified and the revision is hashed in), so a
+      // whitespace-only re-approval keeps transcription-backed excerpts and the bound source revision.
+      const transcriptionChanged = !page.transcription || normalizeSourceText(page.transcription.text) !== normalizeSourceText(request.text);
       const nextPage = SourcePageEvidenceSchema.parse({
         ...page,
         transcription: { text: request.text, approvedByUid: reviewerUid, approvedAt: now },
@@ -184,7 +206,7 @@ async function applyReviewCommand(
           : page.approvedExcerpts,
       });
       const nextPages = review.pages.map((candidate) => candidate.id === page.id ? nextPage : candidate);
-      const nextBundle = withSourceRevision(bundle, nextPages, now);
+      const nextBundle = withSourceRevision(bundle, nextPages, now, review.pages);
       tx.set(sourcePageEvidenceRef(trackId, bundle.id, page.id), nextPage);
       tx.set(sourceBundleRef(trackId, bundle.id), nextBundle);
       return { ok: true, action: request.action, page: nextPage, bundle: nextBundle, sourceRevision: nextBundle.revisionHash };
@@ -265,7 +287,7 @@ async function applyReviewCommand(
       if (review.pages.some((page) => page.contentHash !== hashSourcePageContent(page.rawText))) {
         throw new SourceReviewError(409, 'SOURCE_PAGE_HASH_MISMATCH', 'A source page hash does not match its persisted content.');
       }
-      if (computeSourceBundleRevisionHash(bundle, review.pages) !== bundle.revisionHash) {
+      if (!sourceBundleRevisionMatches(bundle, review.pages)) {
         throw new SourceReviewError(409, 'SOURCE_REVISION_STALE', 'The bundle revision does not match its persisted documents and page evidence.');
       }
       const requiredDocuments = bundle.documents.filter((document) => !document.excluded);
@@ -354,6 +376,165 @@ async function applyReviewCommand(
   }
 }
 
+/** Local command (kept out of the shared SourceReviewRequestSchema so the API schema module stays unchanged). */
+const RebindDraftRequestSchema = z.object({
+  action: z.literal('rebind_draft'),
+  bundleId: z.string().min(1),
+  expectedRevisionHash: z.string().min(1).optional(),
+});
+type RebindDraftRequest = z.infer<typeof RebindDraftRequestSchema>;
+
+function describeProblem(problem: RebindExcerptProblem) {
+  return {
+    ownerType: problem.ownerType,
+    ownerId: problem.ownerId,
+    evidenceId: problem.evidenceId,
+    pageNumber: problem.excerpt.pageNumber,
+    documentId: problem.excerpt.documentId,
+    exactText: problem.excerpt.exactText,
+    reason: problem.reason,
+  };
+}
+
+/**
+ * Rebind the draft (and each scenario context) to the bundle's current approved revision, only after
+ * every approved excerpt the draft relies on re-verifies exactly against the current pages. All reads
+ * and the write happen in one transaction, so a concurrent source or draft change cannot slip between.
+ */
+async function rebindDraft(trackId: string, request: RebindDraftRequest, tx: Transaction): Promise<Record<string, unknown>> {
+  const review = await loadSourceReview(trackId, request.bundleId, tx);
+  const bundle = review.bundle;
+  if (bundle.trackId !== trackId) throw new SourceReviewError(404, 'NOT_FOUND', 'This source bundle does not exist.');
+  if (request.expectedRevisionHash && request.expectedRevisionHash !== bundle.revisionHash) {
+    throw new SourceReviewError(409, 'SOURCE_REVISION_CONFLICT', 'The source changed. Reload the review before rebinding the draft.');
+  }
+  const [track, draft, secrets] = await Promise.all([
+    loadTrack(trackId, tx),
+    loadVersion(trackId, DRAFT_VERSION_ID, tx),
+    loadSecrets(trackId, DRAFT_VERSION_ID, tx),
+  ]);
+  if (!track) throw new SourceReviewError(404, 'NOT_FOUND', 'This Track does not exist.');
+  if (isGenerationRunning(track)) throw new SourceReviewError(409, 'GENERATION_RUNNING', 'A build is running for this Track. Wait for it to finish.');
+  if (!draft) throw new SourceReviewError(409, 'NO_DRAFT', 'This Track has no draft to rebind.');
+  if (!sourceBundleRevisionMatches(bundle, review.pages)) {
+    throw new SourceReviewError(409, 'SOURCE_REVISION_STALE', 'The bundle revision does not match its persisted documents and page evidence.');
+  }
+  const plan = planDraftRebind({ draft, bundle, pages: review.pages, assets: review.assets, secrets: secrets?.scenarios ?? [] });
+  if (!plan.ok) {
+    const status = plan.code === 'REBIND_EXCERPT_MISMATCH' ? 422 : 409;
+    throw new SourceReviewError(status, plan.code, plan.message, {
+      mismatches: plan.mismatches.map(describeProblem),
+      warnings: plan.warnings.map(describeProblem),
+    });
+  }
+  const now = Date.now();
+  tx.set(draftRef(trackId), TrackVersionDocSchema.parse(plan.draft));
+  tx.update(trackRef(trackId), { updatedAt: now });
+  return {
+    ok: true,
+    action: request.action,
+    previousSourceRevision: plan.previousSourceRevision,
+    sourceRevision: plan.sourceRevision,
+    warnings: plan.warnings.map(describeProblem),
+  };
+}
+
+/** Local command: re-find the exact source passage for unsupported generated evidence (approval stays with the trainer). */
+const RematchEvidenceRequestSchema = z.object({
+  action: z.literal('rematch_evidence'),
+  bundleId: z.string().min(1),
+  evidenceId: z.string().min(1),
+  expectedRevisionHash: z.string().min(1).optional(),
+});
+type RematchEvidenceRequest = z.infer<typeof RematchEvidenceRequestSchema>;
+
+async function rematchEvidence(trackId: string, request: RematchEvidenceRequest, tx: Transaction): Promise<Record<string, unknown>> {
+  const review = await loadSourceReview(trackId, request.bundleId, tx);
+  const bundle = review.bundle;
+  if (bundle.trackId !== trackId) throw new SourceReviewError(404, 'NOT_FOUND', 'This source bundle does not exist.');
+  if (request.expectedRevisionHash && request.expectedRevisionHash !== bundle.revisionHash) {
+    throw new SourceReviewError(409, 'SOURCE_REVISION_CONFLICT', 'The source changed. Reload the review first.');
+  }
+  const [track, draft, secrets] = await Promise.all([
+    loadTrack(trackId, tx),
+    loadVersion(trackId, DRAFT_VERSION_ID, tx),
+    loadSecrets(trackId, DRAFT_VERSION_ID, tx),
+  ]);
+  if (!track) throw new SourceReviewError(404, 'NOT_FOUND', 'This Track does not exist.');
+  if (isGenerationRunning(track)) throw new SourceReviewError(409, 'GENERATION_RUNNING', 'A build is running for this Track. Wait for it to finish.');
+  if (!draft) throw new SourceReviewError(409, 'NO_DRAFT', 'This Track has no draft.');
+  const unitEvidence = draftEvidence(draft, request.evidenceId);
+  const original = unitEvidence ?? (secrets ? findRubricEvidence(secrets.scenarios, request.evidenceId) : undefined);
+  if (!original) throw new SourceReviewError(404, 'CLAIM_EVIDENCE_NOT_FOUND', 'This claim evidence does not exist in the editable draft.');
+  const result = rematchClaimEvidence(original, review.pages, review.conflicts);
+  if (!result.ok) {
+    throw new SourceReviewError(
+      422,
+      result.reason === 'already_supported' ? 'EVIDENCE_ALREADY_SUPPORTED' : 'EXACT_SOURCE_NOT_FOUND',
+      result.reason === 'already_supported'
+        ? 'This evidence already matches the source exactly. Approve it instead.'
+        : 'Pulse could not find this passage in the source pages. Regenerate the item, or edit it to match the Playbook.',
+    );
+  }
+  const now = Date.now();
+  if (unitEvidence) {
+    tx.set(draftRef(trackId), approveDraftEvidence(draft, request.evidenceId, result.evidence));
+  } else if (secrets) {
+    tx.set(
+      secretsRef(trackId, DRAFT_VERSION_ID),
+      EvalRubricsDocSchema.parse({ ...secrets, scenarios: replaceRubricEvidence(secrets.scenarios, request.evidenceId, result.evidence), updatedAt: now }),
+    );
+  }
+  tx.update(trackRef(trackId), { updatedAt: now });
+  return { ok: true, action: request.action, evidence: result.evidence, replaced: result.replaced };
+}
+
+/** Local command: the trainer picks a verbatim sentence of a source page as a claim's excerpt (still unapproved). */
+const PickExcerptRequestSchema = z.object({
+  action: z.literal('pick_excerpt'),
+  bundleId: z.string().min(1),
+  evidenceId: z.string().min(1),
+  pageId: z.string().min(1),
+  exactText: z.string().min(1).max(MAX_EXCERPT_CHARS),
+  expectedRevisionHash: z.string().min(1).optional(),
+});
+type PickExcerptRequest = z.infer<typeof PickExcerptRequestSchema>;
+
+async function pickExcerpt(trackId: string, request: PickExcerptRequest, tx: Transaction): Promise<Record<string, unknown>> {
+  const review = await loadSourceReview(trackId, request.bundleId, tx);
+  const bundle = review.bundle;
+  if (bundle.trackId !== trackId) throw new SourceReviewError(404, 'NOT_FOUND', 'This source bundle does not exist.');
+  if (request.expectedRevisionHash && request.expectedRevisionHash !== bundle.revisionHash) {
+    throw new SourceReviewError(409, 'SOURCE_REVISION_CONFLICT', 'The source changed. Reload the review first.');
+  }
+  const [track, draft, secrets] = await Promise.all([
+    loadTrack(trackId, tx),
+    loadVersion(trackId, DRAFT_VERSION_ID, tx),
+    loadSecrets(trackId, DRAFT_VERSION_ID, tx),
+  ]);
+  if (!track) throw new SourceReviewError(404, 'NOT_FOUND', 'This Track does not exist.');
+  if (isGenerationRunning(track)) throw new SourceReviewError(409, 'GENERATION_RUNNING', 'A build is running for this Track. Wait for it to finish.');
+  if (!draft) throw new SourceReviewError(409, 'NO_DRAFT', 'This Track has no draft.');
+  const page = review.pages.find((candidate) => candidate.id === request.pageId);
+  if (!page) throw new SourceReviewError(404, 'SOURCE_PAGE_NOT_FOUND', 'Select a page of this source bundle.');
+  const unitEvidence = draftEvidence(draft, request.evidenceId);
+  const original = unitEvidence ?? (secrets ? findRubricEvidence(secrets.scenarios, request.evidenceId) : undefined);
+  if (!original) throw new SourceReviewError(404, 'CLAIM_EVIDENCE_NOT_FOUND', 'This claim evidence does not exist in the editable draft.');
+  const result = pickedExcerptEvidence(original, page, request.exactText, review.pages, review.conflicts);
+  if (!result) throw new SourceReviewError(422, 'EXACT_SOURCE_NOT_FOUND', 'That text is not on the selected page exactly as written.');
+  const now = Date.now();
+  if (unitEvidence) {
+    tx.set(draftRef(trackId), approveDraftEvidence(draft, request.evidenceId, result));
+  } else if (secrets) {
+    tx.set(
+      secretsRef(trackId, DRAFT_VERSION_ID),
+      EvalRubricsDocSchema.parse({ ...secrets, scenarios: replaceRubricEvidence(secrets.scenarios, request.evidenceId, result), updatedAt: now }),
+    );
+  }
+  tx.update(trackRef(trackId), { updatedAt: now });
+  return { ok: true, action: request.action, evidence: result };
+}
+
 export async function POST(req: Request, { params }: RouteContext): Promise<NextResponse> {
   const auth = await requireAuth(req, INTERNAL_OPS_ROLES);
   if (!auth.ok) return auth.response;
@@ -364,6 +545,39 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Next
   } catch {
     return jsonError(400, 'VALIDATION_FAILED', 'The request body must be JSON.');
   }
+  if (json && typeof json === 'object' && (json as { action?: unknown }).action === 'rebind_draft') {
+    const rebind = RebindDraftRequestSchema.safeParse(json);
+    if (!rebind.success) return jsonError(400, 'VALIDATION_FAILED', 'Provide the bundleId to rebind the draft to.');
+    try {
+      const result = await adminDb.runTransaction((tx) => rebindDraft(trackId, rebind.data, tx));
+      return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error) {
+      return sourceReviewErrorResponse(error);
+    }
+  }
+
+  if (json && typeof json === 'object' && (json as { action?: unknown }).action === 'pick_excerpt') {
+    const pick = PickExcerptRequestSchema.safeParse(json);
+    if (!pick.success) return jsonError(400, 'VALIDATION_FAILED', 'Provide the bundleId, evidenceId, pageId and exact sentence.');
+    try {
+      const result = await adminDb.runTransaction((tx) => pickExcerpt(trackId, pick.data, tx));
+      return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error) {
+      return sourceReviewErrorResponse(error);
+    }
+  }
+
+  if (json && typeof json === 'object' && (json as { action?: unknown }).action === 'rematch_evidence') {
+    const rematch = RematchEvidenceRequestSchema.safeParse(json);
+    if (!rematch.success) return jsonError(400, 'VALIDATION_FAILED', 'Provide the bundleId and evidenceId to re-match.');
+    try {
+      const result = await adminDb.runTransaction((tx) => rematchEvidence(trackId, rematch.data, tx));
+      return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error) {
+      return sourceReviewErrorResponse(error);
+    }
+  }
+
   const parsed = SourceReviewRequestSchema.safeParse(json);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
@@ -374,8 +588,20 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Next
     const result = await adminDb.runTransaction((tx) => applyReviewCommand(trackId, parsed.data, auth.user.uid, tx));
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
-    if (error instanceof SourceReviewError) return jsonError(error.status, error.code, error.message);
-    if (error instanceof SourceBundleNotFoundError) return jsonError(404, 'NOT_FOUND', 'This source bundle does not exist.');
-    return jsonError(500, 'SOURCE_REVIEW_FAILED', 'The source review change could not be completed. Reload and try again.');
+    return sourceReviewErrorResponse(error);
   }
+}
+
+function sourceReviewErrorResponse(error: unknown): NextResponse {
+  if (error instanceof SourceReviewError) {
+    if (error.details) {
+      return NextResponse.json(
+        { error: error.code, message: error.message, details: error.details },
+        { status: error.status, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
+    return jsonError(error.status, error.code, error.message);
+  }
+  if (error instanceof SourceBundleNotFoundError) return jsonError(404, 'NOT_FOUND', 'This source bundle does not exist.');
+  return jsonError(500, 'SOURCE_REVIEW_FAILED', 'The source review change could not be completed. Reload and try again.');
 }

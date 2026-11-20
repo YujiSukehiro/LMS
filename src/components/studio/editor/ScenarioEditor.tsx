@@ -20,6 +20,8 @@ import {
   TextField,
   newItemId,
 } from './fields';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { normalizeCanonicalDispositions } from '@/lib/services/verbal-defaults';
 import { ScenarioContextEvidenceEditor } from './ScenarioContextEvidenceEditor';
 import { ScenarioQASection } from './ScenarioQASection';
 
@@ -39,13 +41,17 @@ export function emptySecretConfig(scenario: PublicSimScenario, pillars: Competen
     weight,
     sourcePages: [],
   });
+  const verbalOnly = TRAINING_POLICY.simulationInteractionMode === 'verbal_only';
+  const expectedDisposition = verbalOnly
+    ? (normalizeCanonicalDispositions(scenario.dispositionOptions)[0] ?? 'Recovered')
+    : (scenario.dispositionOptions[0] ?? '');
   return {
     scenarioId: scenario.id,
     personaName: '',
     personaBackstoryAndMood: '',
     hiddenFactsToRevealOnlyWhenAsked: [],
     conditionalBehaviors: [],
-    expectedDisposition: scenario.dispositionOptions[0] ?? '',
+    expectedDisposition,
     autoFailTriggers: [],
     rubricCriteria: [criterion(34), criterion(33), criterion(33)],
   };
@@ -75,10 +81,13 @@ export function ScenarioEditor({
   const setPublic = <K extends keyof PublicSimScenario>(key: K, value: PublicSimScenario[K]) =>
     onScenarioChange({ ...scenario, [key]: value });
 
+  const verbalOnly = TRAINING_POLICY.simulationInteractionMode === 'verbal_only';
+  const showDispositionFields = !verbalOnly || TRAINING_POLICY.requireDispositionInVerbalPractice;
+
   return (
     <div className="flex flex-col gap-4">
       <EditorSection
-        title={`Live Call Sim ${index + 1} — what the agent sees`}
+        title={`${verbalOnly ? 'Verbal Practice' : 'Live Call Sim'} ${index + 1} — what the agent sees`}
         badge={<span className="pulse-pill text-[0.68rem]">Public</span>}
         actions={regenerate}
       >
@@ -99,11 +108,15 @@ export function ScenarioEditor({
           onChange={(v) => setPublic('counterpartyRoleLabel', v)}
         />
         <TextAreaField
-          label="Context ticket"
+          label={verbalOnly ? 'Scenario brief' : 'Context ticket'}
           value={scenario.contextTicketSummary}
           max={280}
           rows={2}
-          hint="Queue, campaign and channel that the agent sees in the ticket header."
+          hint={
+            verbalOnly
+              ? 'Verbal conversation setup shown in the Verbal Practice header (no dialer or CRM buttons).'
+              : 'Queue, campaign and channel that the agent sees in the ticket header.'
+          }
           onChange={(v) => setPublic('contextTicketSummary', v)}
         />
         <TextAreaField
@@ -113,15 +126,17 @@ export function ScenarioEditor({
           rows={3}
           onChange={(v) => setPublic('openingMessage', v)}
         />
-        <StringListField
-          label="Disposition options"
-          values={scenario.dispositionOptions}
-          minItems={3}
-          maxItems={6}
-          maxLength={80}
-          addLabel="Add disposition"
-          onChange={(v) => setPublic('dispositionOptions', v)}
-        />
+        {showDispositionFields ? (
+          <StringListField
+            label="Disposition options"
+            values={scenario.dispositionOptions}
+            minItems={3}
+            maxItems={6}
+            maxLength={80}
+            addLabel="Add disposition"
+            onChange={(v) => setPublic('dispositionOptions', v)}
+          />
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
           <NumberField label="Maximum turns" value={scenario.maxTurns} min={6} max={12} hint="6 to 12." onChange={(v) => setPublic('maxTurns', v)} />
           <NumberField
@@ -135,16 +150,18 @@ export function ScenarioEditor({
         </div>
       </EditorSection>
 
-      <ScenarioContextEvidenceEditor scenario={scenario} onChange={onScenarioChange} />
+      {!verbalOnly ? <ScenarioContextEvidenceEditor scenario={scenario} onChange={onScenarioChange} /> : null}
 
       {secret ? (
         <>
           <SecretEditor scenario={scenario} secret={secret} pillars={pillars} onChange={onSecretChange} />
-          <ScenarioQASection scenario={scenario} secret={secret} onChange={onSecretChange} />
+          {!verbalOnly ? <ScenarioQASection scenario={scenario} secret={secret} onChange={onSecretChange} /> : null}
         </>
       ) : (
         <EditorSection title="Hidden persona and rubric" badge={<SecretBadge />}>
-          <p className="text-sm text-pulse-amber">This Live Call Sim has no hidden persona or grading rubric yet.</p>
+          <p className="text-sm text-pulse-amber">
+            This {verbalOnly ? 'Verbal Practice' : 'Live Call Sim'} has no hidden persona or grading rubric yet.
+          </p>
           <button
             type="button"
             className="pulse-btn w-fit"
@@ -192,7 +209,9 @@ function SecretEditor({
   return (
     <EditorSection title="Hidden persona and rubric" badge={<SecretBadge />}>
       <p className="text-xs text-pulse-muted">
-        Agents never see these fields. The Live Call Sim caller and the rubric judge use them.
+        Agents never see these fields. The{' '}
+        {TRAINING_POLICY.simulationInteractionMode === 'verbal_only' ? 'Verbal Practice' : 'Live Call Sim'} caller and
+        the rubric judge use them.
       </p>
       <TextField label="Persona name" value={secret.personaName} onChange={(v) => set('personaName', v)} />
       <TextAreaField
@@ -217,12 +236,14 @@ function SecretEditor({
         hint="Example: If the agent offers 25% first, push back and ask for a full refund."
         onChange={(v) => set('conditionalBehaviors', v)}
       />
-      <SelectField
-        label="Expected disposition"
-        value={secret.expectedDisposition}
-        options={scenario.dispositionOptions.filter(Boolean).map((d) => ({ value: d, label: d }))}
-        onChange={(v) => set('expectedDisposition', v)}
-      />
+      {TRAINING_POLICY.simulationInteractionMode !== 'verbal_only' || TRAINING_POLICY.requireDispositionInVerbalPractice ? (
+        <SelectField
+          label="Expected disposition"
+          value={secret.expectedDisposition}
+          options={scenario.dispositionOptions.filter(Boolean).map((d) => ({ value: d, label: d }))}
+          onChange={(v) => set('expectedDisposition', v)}
+        />
+      ) : null}
       <StringListField
         label="Auto-fail triggers"
         tone="crimson"

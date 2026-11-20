@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 900" width="1280" height="900" font-family="Plus Jakarta Sans, system-ui, sans-serif">
+  <defs>
+    <style>
+      .h1{font-size:26px;font-weight:700;fill:#0f172a}
+      .h2{font-size:16px;font-weight:700;fill:#0f172a}
+      .t{font-size:13px;fill:#334155}
+      .s{font-size:12px;fill:#5b6b82}
+      .xs{font-size:11px;fill:#5b6b82}
+      .lab{font-size:10.5px;font-weight:700;letter-spacing:1px;fill:#5b6b82}
+      .mono{font-family:JetBrains Mono, ui-monospace, monospace}
+      .w{fill:#fff}
+      .note{font-size:12px;fill:#4338ca;font-weight:600}
+    </style>
+    <filter id="sh" x="-5%" y="-5%" width="110%" height="120%"><feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-color="#1e293b" flood-opacity="0.08"/></filter>
+  </defs>
+  <rect width="1280" height="900" fill="#f6f7fb"/>
+
+  <!-- Sidebar -->
+  <rect width="240" height="900" fill="#fff"/><rect x="239" width="1" height="900" fill="#e3e8f0"/>
+  <rect x="16" y="14" width="32" height="32" rx="8" fill="#eef0fd"/><path d="M22 31h5l3-8 4 14 3-6h5" stroke="#4f46e5" stroke-width="2" fill="none"/>
+  <text x="58" y="28" class="h2" font-size="14">LogiCall Pulse</text><text x="58" y="43" class="xs">Campaign Readiness</text>
+  <text x="24" y="88" class="lab">NAVIGATION</text>
+  <text x="52" y="124" class="t">Home</text>
+  <rect x="12" y="142" width="216" height="36" rx="8" fill="#f1f4f9"/><rect x="12" y="148" width="3" height="24" rx="1.5" fill="#4f46e5"/>
+  <text x="52" y="165" class="t" font-weight="600" style="fill:#0f172a">Team Progress</text>
+  <text x="52" y="206" class="t">Analytics</text>
+  <text x="52" y="246" class="t">Roster</text>
+
+  <!-- Top bar -->
+  <rect x="240" width="1040" height="56" fill="#f6f7fb"/><rect x="240" y="55" width="1040" height="1" fill="#e3e8f0"/>
+  <rect x="264" y="15" width="122" height="26" rx="13" fill="#fff" stroke="#cfd7e3"/><text x="280" y="32" class="s" style="fill:#334155">THS (Nicaragua)</text>
+  <rect x="394" y="15" width="140" height="26" rx="13" fill="#eef0fd" stroke="#c7cbf7"/><text x="408" y="32" class="s" style="fill:#4338ca" font-weight="600">Partner Supervisor</text>
+  <circle cx="1130" cy="28" r="15" fill="#f1f4f9" stroke="#cfd7e3"/><text x="1121" y="32" class="xs" font-weight="700" style="fill:#334155">LM</text>
+  <text x="1152" y="32" class="t">Lucia Morales</text>
+
+  <!-- Header -->
+  <text x="272" y="92" class="lab">TEAM PROGRESS</text>
+  <text x="272" y="124" class="h1">Who is ready to take calls?</text>
+  <text x="272" y="148" class="t">One status per agent per Track, from not started to certified. Click a cell to see what is left.</text>
+  <rect x="1048" y="104" width="200" height="38" rx="10" fill="#4f46e5"/><text x="1080" y="128" class="t" style="fill:#fff" font-weight="600">Nudge 3 stalled agents</text>
+
+  <!-- Status ladder legend / funnel -->
+  <g filter="url(#sh)"><rect x="272" y="168" width="976" height="120" rx="14" fill="#fff" stroke="#e3e8f0"/></g>
+  <text x="292" y="194" class="lab">STATUS LADDER · MVP RETENTION &amp; ESCALATIONS v2 · 7 AGENTS</text>
+  <!-- five stages -->
+  <g>
+    <rect x="292" y="208" width="176" height="62" rx="10" fill="#f1f4f9"/>
+    <circle cx="312" cy="228" r="7" fill="none" stroke="#94a3b8" stroke-width="2"/>
+    <text x="326" y="232" class="t" font-weight="600">Not started</text>
+    <text x="304" y="258" class="h2 mono" font-size="20">1</text><text x="322" y="258" class="xs">agent</text>
+  </g>
+  <path d="M472 239h10" stroke="#cfd7e3" stroke-width="2"/>
+  <g>
+    <rect x="486" y="208" width="176" height="62" rx="10" fill="#fff7ed"/>
+    <circle cx="506" cy="228" r="7" fill="none" stroke="#b45309" stroke-width="2"/><path d="M506 221a7 7 0 0 1 0 14z" fill="#b45309"/>
+    <text x="520" y="232" class="t" font-weight="600">Learning</text>
+    <text x="498" y="258" class="h2 mono" font-size="20">3</text><text x="516" y="258" class="xs">agents · 1 stalled 7+ days</text>
+  </g>
+  <path d="M666 239h10" stroke="#cfd7e3" stroke-width="2"/>
+  <g>
+    <rect x="680" y="208" width="176" height="62" rx="10" fill="#eef0fd"/>
+    <circle cx="700" cy="228" r="7" fill="#4f46e5"/><path d="M696 228l3 3 5-6" stroke="#fff" stroke-width="1.8" fill="none"/>
+    <text x="714" y="232" class="t" font-weight="600">Checkpoints done</text>
+    <text x="692" y="258" class="h2 mono" font-size="20">1</text><text x="710" y="258" class="xs">agent · sim not passed</text>
+  </g>
+  <path d="M860 239h10" stroke="#cfd7e3" stroke-width="2"/>
+  <g>
+    <rect x="874" y="208" width="176" height="62" rx="10" fill="#ecfdf5"/>
+    <path d="M894 220l8 4v6c0 5-4 8-8 9-4-1-8-4-8-9v-6z" fill="#047857"/>
+    <text x="908" y="232" class="t" font-weight="600">Certified</text>
+    <text x="886" y="258" class="h2 mono" font-size="20">1</text><text x="904" y="258" class="xs">agent · valid to Feb 3</text>
+  </g>
+  <path d="M1054 239h10" stroke="#cfd7e3" stroke-width="2"/>
+  <g>
+    <rect x="1068" y="208" width="160" height="62" rx="10" fill="#fef2f2"/>
+    <path d="M1088 221l8 14h-16z" fill="none" stroke="#c81e1e" stroke-width="2"/><text x="1085.5" y="233" font-size="9" font-weight="800" fill="#c81e1e">!</text>
+    <text x="1102" y="232" class="t" font-weight="600">Needs recert</text>
+    <text x="1080" y="258" class="h2 mono" font-size="20">1</text><text x="1098" y="258" class="xs">Playbook changed</text>
+  </g>
+
+  <!-- Board -->
+  <g filter="url(#sh)"><rect x="272" y="306" width="976" height="420" rx="14" fill="#fff" stroke="#e3e8f0"/></g>
+  <text x="292" y="336" class="h2">Agents × Tracks</text>
+  <rect x="868" y="318" width="160" height="30" rx="8" fill="#f1f4f9" stroke="#cfd7e3"/><text x="882" y="338" class="s">Sort: least ready first</text>
+  <rect x="1036" y="318" width="192" height="30" rx="8" fill="#f1f4f9" stroke="#cfd7e3"/><text x="1050" y="338" class="s">Filter: Telehealth, Inbound</text>
+
+  <text x="292" y="378" class="lab">AGENT</text>
+  <text x="520" y="372" class="lab">MVP RETENTION v2</text><text x="520" y="386" class="xs">3 checkpoints + 1 sim</text>
+  <text x="760" y="372" class="lab">NEUROCALMRX v1</text><text x="760" y="386" class="xs">9 checkpoints + 2 sims</text>
+  <text x="1000" y="372" class="lab">NEXT STEP</text>
+  <rect x="292" y="396" width="936" height="1" fill="#e3e8f0"/>
+
+  <!-- row helper: progress segments -->
+  <!-- Row 1 -->
+  <text x="292" y="426" class="t" font-weight="600" style="fill:#0f172a">Ana Ruiz</text><text x="292" y="443" class="xs mono">LC-1044 · last active 9 days ago</text>
+  <rect x="520" y="414" width="12" height="12" rx="6" fill="none" stroke="#94a3b8" stroke-width="2"/><text x="540" y="425" class="s">Not started</text>
+  <g><rect x="760" y="414" width="18" height="8" rx="2" fill="#b45309"/><rect x="781" y="414" width="18" height="8" rx="2" fill="#b45309"/><rect x="802" y="414" width="18" height="8" rx="2" fill="#e3e8f0"/><rect x="823" y="414" width="18" height="8" rx="2" fill="#e3e8f0"/><rect x="844" y="414" width="18" height="8" rx="2" fill="#e3e8f0"/><rect x="865" y="414" width="18" height="8" rx="2" fill="#e3e8f0"/><rect x="886" y="414" width="18" height="8" rx="2" fill="#e3e8f0"/><rect x="907" y="414" width="18" height="8" rx="2" fill="#e3e8f0"/><rect x="928" y="414" width="18" height="8" rx="2" fill="#e3e8f0"/></g>
+  <text x="760" y="440" class="xs">Learning · 2 of 9 · <tspan fill="#c81e1e" font-weight="600">stalled 9 days</tspan></text>
+  <rect x="1000" y="410" width="110" height="26" rx="13" fill="#eef0fd"/><text x="1014" y="427" class="s" style="fill:#4338ca" font-weight="600">Send reminder</text>
+  <rect x="292" y="456" width="936" height="1" fill="#eef1f5"/>
+
+  <!-- Row 2 -->
+  <text x="292" y="486" class="t" font-weight="600" style="fill:#0f172a">Diego Castillo</text><text x="292" y="503" class="xs mono">LC-1043 · active today</text>
+  <g><rect x="520" y="474" width="58" height="8" rx="2" fill="#4f46e5"/><rect x="581" y="474" width="58" height="8" rx="2" fill="#4f46e5"/><rect x="642" y="474" width="58" height="8" rx="2" fill="#4f46e5"/></g><circle cx="716" cy="478" r="6" fill="none" stroke="#4f46e5" stroke-width="2"/>
+  <text x="520" y="500" class="xs">Checkpoints done · sim 72% (needs 80%)</text>
+  <g><rect x="760" y="474" width="18" height="8" rx="2" fill="#b45309"/><rect x="781" y="474" width="18" height="8" rx="2" fill="#b45309"/><rect x="802" y="474" width="18" height="8" rx="2" fill="#b45309"/><rect x="823" y="474" width="18" height="8" rx="2" fill="#b45309"/><rect x="844" y="474" width="18" height="8" rx="2" fill="#b45309"/><rect x="865" y="474" width="18" height="8" rx="2" fill="#e3e8f0"/><rect x="886" y="474" width="18" height="8" rx="2" fill="#e3e8f0"/><rect x="907" y="474" width="18" height="8" rx="2" fill="#e3e8f0"/><rect x="928" y="474" width="18" height="8" rx="2" fill="#e3e8f0"/></g>
+  <text x="760" y="500" class="xs">Learning · 5 of 9</text>
+  <text x="1000" y="486" class="s">Retry sim: <tspan fill="#0f172a" font-weight="600">Price Objection</tspan></text>
+  <rect x="292" y="516" width="936" height="1" fill="#eef1f5"/>
+
+  <!-- Row 3 -->
+  <text x="292" y="546" class="t" font-weight="600" style="fill:#0f172a">Sofia Herrera</text><text x="292" y="563" class="xs mono">LC-1042 · active 2 days ago</text>
+  <rect x="520" y="532" width="120" height="24" rx="12" fill="#fef2f2" stroke="#f5c2c2"/><text x="532" y="548" class="s" style="fill:#c81e1e" font-weight="600">Needs recert</text>
+  <text x="520" y="574" class="xs">Was certified v1 · Playbook p. 4 changed</text>
+  <rect x="760" y="532" width="104" height="24" rx="12" fill="#ecfdf5" stroke="#a7e3c9"/><text x="772" y="548" class="s" style="fill:#047857" font-weight="600">Certified</text>
+  <text x="760" y="574" class="xs">92% sim · valid to Feb 3</text>
+  <text x="1000" y="546" class="s">Redo <tspan fill="#0f172a" font-weight="600">Checkpoint 2</tspan> only</text>
+  <rect x="292" y="590" width="936" height="1" fill="#eef1f5"/>
+
+  <!-- Row 4 -->
+  <text x="292" y="620" class="t" font-weight="600" style="fill:#0f172a">Marco Vega</text><text x="292" y="637" class="xs mono">LC-1045 · deactivated</text>
+  <text x="520" y="624" class="s" style="fill:#94a3b8">Archived (offboarded)</text>
+  <text x="760" y="624" class="s" style="fill:#94a3b8">Archived (offboarded)</text>
+  <text x="1000" y="624" class="s" style="fill:#94a3b8">—</text>
+  <rect x="292" y="652" width="936" height="1" fill="#eef1f5"/>
+
+  <!-- Detail popover -->
+  <g filter="url(#sh)">
+    <rect x="560" y="584" width="300" height="0" fill="none"/>
+  </g>
+  <text x="292" y="690" class="xs">Every status comes from server-verified evidence. Demo replay and unverified history never count toward a status.</text>
+  <text x="292" y="708" class="xs">Partial bars = checkpoints. The ring = the capstone sim. Shield = certified on the current Track version.</text>
+
+  <!-- Annotations -->
+  <g>
+    <rect x="272" y="746" width="976" height="132" rx="14" fill="#eef0fd" stroke="#c7cbf7"/>
+    <text x="292" y="772" class="lab" style="fill:#4338ca">WHAT CHANGES FROM TODAY</text>
+    <text x="292" y="796" class="t">1. One five-step status ladder replaces "In Progress (75%)", "Historical — Unverified", and a separate mastery "–". Same words for agents and supervisors.</text>
+    <text x="292" y="818" class="t">2. Segmented bars show which checkpoint is missing (unit counts vary per Track now), not only a percent.</text>
+    <text x="292" y="840" class="t">3. "Needs recert" names the changed Playbook page and the one checkpoint to redo, instead of resetting the whole Track.</text>
+    <text x="292" y="862" class="t">4. Stalled agents (no activity 7+ days) surface first with a one-click reminder; a "Next step" column tells the supervisor what to coach.</text>
+  </g>
+</svg>

@@ -6,6 +6,7 @@ import { lcNumberToEmail, normalizeLcNumber } from '@/lib/firebase/lc-id';
 import { buildNewUserDoc, claimsForUser } from '@/lib/firebase/users';
 import { ClaimInviteRequestSchema } from '@/lib/schemas/api';
 import { CohortDocSchema } from '@/lib/schemas/domain';
+import { clientKey, joinCodeLimiter } from '@/lib/services/attempt-limiter';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,6 +14,12 @@ export const dynamic = 'force-dynamic';
 class LcNumberInUseError extends Error {}
 
 export async function POST(req: Request): Promise<NextResponse> {
+  const client = clientKey(req);
+  if (!joinCodeLimiter.allowed(client)) {
+    const response = jsonError(429, 'RATE_LIMITED', 'Too many wrong join codes. Wait a few minutes, then try again or ask your supervisor for the code.');
+    response.headers.set('Retry-After', String(joinCodeLimiter.retryAfterSeconds(client)));
+    return response;
+  }
   const body: unknown = await req.json().catch(() => null);
   const parsed = ClaimInviteRequestSchema.safeParse(body);
   if (!parsed.success) {
@@ -31,6 +38,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   const cohortSnap = cohortQuery.docs[0];
   const cohortParsed = cohortSnap ? CohortDocSchema.safeParse({ id: cohortSnap.id, ...cohortSnap.data() }) : null;
   if (!cohortSnap || !cohortParsed?.success || !cohortParsed.data.joinCodeEnabled) {
+    joinCodeLimiter.recordFailure(client);
     return jsonError(
       404,
       'INVALID_JOIN_CODE',

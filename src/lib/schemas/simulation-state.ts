@@ -117,7 +117,8 @@ export const SimulationEventTypeSchema = z.enum([
   'evaluate',
   'abort',
 ]);
-export const SimulationEventProvenanceSchema = z.enum(['learner', 'deterministic', 'local_ai', 'manual_chat', 'replay']);
+/** `hosted_ai` labels hosted (Gemini) actor turns; additive and backward compatible. */
+export const SimulationEventProvenanceSchema = z.enum(['learner', 'deterministic', 'local_ai', 'hosted_ai', 'manual_chat', 'replay']);
 export const SimulationEventSchema = z.object({
   id: z.string().min(1),
   sessionId: z.string().min(1),
@@ -139,7 +140,8 @@ export const SimulationGateResultSchema = z.object({
   status: z.enum(['pass', 'fail', 'not_observed', 'needs_review']),
   evidenceEventIds: z.array(z.string().min(1)),
   learnerFeedback: z.string().min(1),
-  trainerDetail: z.string().min(1),
+  /** Trainer-only explanation. Always stored; removed from learner-facing payloads (src/lib/services/learner-views.ts). */
+  trainerDetail: z.string().min(1).optional(),
 });
 export type SimulationGateResult = z.infer<typeof SimulationGateResultSchema>;
 

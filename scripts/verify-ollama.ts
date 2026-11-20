@@ -1,10 +1,12 @@
 /**
  * npm run verify:ollama — checks the local Ollama daemon before `npm run dev`:
  * provider, base URL, required models, and one tiny structured generation on the fast model.
- * Exits with code 1 and a fix hint when Ollama is unreachable or a model is missing.
+ * Exits with code 1 and a fix hint when Ollama is unreachable, a model is missing, or a model cannot chat
+ * (POST /api/show capabilities lack "completion").
  */
 import { z } from 'zod';
-import { OllamaProvider } from '../src/lib/ai/ollama-provider';
+import { OllamaProvider, ollamaCannotChatMessage } from '../src/lib/ai/ollama-provider';
+import { isAIUnavailableError } from '../src/lib/ai/types';
 
 function line(label: string, value: string): void {
   console.log(`  ${label.padEnd(14)} ${value}`);
@@ -59,6 +61,24 @@ async function main(): Promise<void> {
     );
   }
 
+  console.log('\nCapabilities (POST /api/show):');
+  const cannotChat: string[] = [];
+  for (const name of required) {
+    let capabilities: string[] | null;
+    try {
+      capabilities = await provider.getModelCapabilities(name);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      fail(`Could not read capabilities for ${name}: ${reason}`, ['Run the check again. If it fails again, restart Ollama.']);
+    }
+    const canChat = capabilities === null || capabilities.includes('completion');
+    line(canChat ? '✔ chat' : '✖ no chat', `${name} (${capabilities === null ? 'capabilities not reported' : capabilities.join(', ') || 'none'})`);
+    if (!canChat) cannotChat.push(ollamaCannotChatMessage(name, capabilities));
+  }
+  if (cannotChat.length > 0) {
+    fail('Configured Ollama model(s) cannot chat.', [...cannotChat, 'List chat-capable models with "ollama list" and "ollama show <model>".']);
+  }
+
   console.log('\nStructured output test (fast model)...');
   const TestSchema = z.object({
     status: z.literal('ready'),
@@ -73,11 +93,13 @@ async function main(): Promise<void> {
       schema: TestSchema,
       schemaName: 'VerifyOllama',
       temperature: 0,
+      maxOutputTokens: 256,
     });
     line('Result', JSON.stringify(result));
     line('Time', `${((Date.now() - started) / 1000).toFixed(1)} s`);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    if (isAIUnavailableError(error)) fail(reason, ['Fix the runtime configuration above, then rerun npm run verify:ollama.']);
     fail(`The fast model could not return structured JSON: ${reason}`, [
       `Check the model runs: ollama run ${provider.fastModel} "hello"`,
       'Update Ollama to a version that supports JSON Schema "format" (0.5 or later).',

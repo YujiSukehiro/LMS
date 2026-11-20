@@ -1,4 +1,5 @@
 import type { ProvenanceSource } from '@/lib/ai/provenance';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import type { EnrollmentDoc, SimSessionDoc } from '@/lib/schemas/analytics';
 import type { TrackVersionDoc } from '@/lib/schemas/curriculum';
 import {
@@ -35,6 +36,8 @@ export interface EvidenceVerificationPolicy {
 
 export interface KnowledgeMasteryPolicy {
   minimumCorrectAttemptsPerRule?: number;
+  allowInitialCorrect?: boolean;
+  allowSpacedReviewAsMastery?: boolean;
 }
 
 export interface RetentionPolicy {
@@ -143,6 +146,18 @@ export interface LegacyProgressMigration {
 
 const LIVE_SESSION_SOURCES = new Set<ProvenanceSource>(['local_ai', 'manual_chat']);
 const EVALUATION_SOURCES = new Set<ProvenanceSource>(['local_ai', 'manual_chat', 'deterministic', 'trainer_override']);
+
+function isAllowedLiveSessionSource(source: ProvenanceSource | undefined): boolean {
+  if (!source) return false;
+  if (LIVE_SESSION_SOURCES.has(source)) return true;
+  return TRAINING_POLICY.allowHostedAiForCertification && source === 'hosted_ai';
+}
+
+function isAllowedEvaluationSource(source: ProvenanceSource | undefined): boolean {
+  if (!source) return false;
+  if (EVALUATION_SOURCES.has(source)) return true;
+  return TRAINING_POLICY.allowHostedAiForCertification && source === 'hosted_ai';
+}
 
 function isoDate(value: IsoDateInput): string {
   const date = value instanceof Date ? value : new Date(value);
@@ -297,10 +312,14 @@ export function evaluateKnowledgeMastery(args: {
   const correctAttemptsByRule: Record<string, number> = {};
   const evidenceAttemptIds = new Set<string>();
 
+  const allowInitial = args.masteryPolicy?.allowInitialCorrect ?? TRAINING_POLICY.allowSameSittingRuleMastery;
+  const allowSpaced = args.masteryPolicy?.allowSpacedReviewAsMastery ?? TRAINING_POLICY.allowSameSittingRuleMastery;
   for (const ruleId of args.blueprint.requiredRuleIds) {
     const supportingAttempts = eligibleAttempts.filter(
       (attempt) =>
-        attempt.attemptKind === 'varied_retrieval' &&
+        (attempt.attemptKind === 'varied_retrieval' ||
+          (allowSpaced && attempt.attemptKind === 'spaced_review') ||
+          (allowInitial && attempt.attemptKind === 'initial')) &&
         attempt.correct &&
         args.ruleIdsByDrillId[attempt.drillId]?.includes(ruleId),
     );
@@ -420,8 +439,8 @@ export function evaluateScenarioSessionEvidence(args: {
   }
   if (isReplaySession(session)) reasons.add('replay_excluded');
   const sessionSource = session.provenance?.source;
-  if (!sessionSource || !LIVE_SESSION_SOURCES.has(sessionSource)) reasons.add('session_provenance_unverified');
-  if (!session.evaluation?.provenance || !EVALUATION_SOURCES.has(session.evaluation.provenance.source)) {
+  if (!isAllowedLiveSessionSource(sessionSource)) reasons.add('session_provenance_unverified');
+  if (!isAllowedEvaluationSource(session.evaluation?.provenance?.source)) {
     reasons.add('evaluation_provenance_unverified');
   }
   if (evidence.provenance === 'imported_legacy') {
@@ -881,4 +900,11 @@ export function labelLegacyProgress(args: {
     return { label: 'historical_verified', countsTowardCurrentRequirements: false, reason: 'Verified evidence belongs to another curriculum version.' };
   }
   return { label: 'current_verified', countsTowardCurrentRequirements: true, reason: 'Verified evidence matches the current curriculum version.' };
+}
+
+/** An active certification: status certified, with a certified date, and not past its expiry. */
+export function isCertificationActive(certification: CertificationDoc | null, now: number): boolean {
+  return certification?.status === 'certified' &&
+    certification.certifiedAt !== null &&
+    (!certification.expiresAt || Date.parse(certification.expiresAt) > now);
 }

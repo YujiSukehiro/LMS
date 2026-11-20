@@ -12,8 +12,10 @@ import {
   RotateCcw,
   Sparkles,
   Target,
+  TriangleAlert,
 } from 'lucide-react';
 import type { SimEvaluation } from '@/lib/schemas/analytics';
+import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { cn } from '@/lib/utils';
 import { ScoreGauge, type ScoreTone } from './ScoreGauge';
 
@@ -50,7 +52,12 @@ export function ScorecardView({
   backLabel = 'Back to Track Map',
 }: ScorecardViewProps) {
   const score = Math.round(evaluation.overallScorePct);
-  const autoFailed = Boolean(evaluation.autoFailedReason);
+  const eligibilityReasons =
+    evaluation.assessmentEligibility && !evaluation.assessmentEligibility.eligible ? evaluation.assessmentEligibility.reasons : [];
+  // Older evaluations stored eligibility reasons in autoFailedReason; those are not an automatic fail.
+  const legacyEligibilityOnly =
+    eligibilityReasons.length > 0 && evaluation.autoFailedReason === eligibilityReasons.join(' ');
+  const autoFailed = Boolean(evaluation.autoFailedReason) && !legacyEligibilityOnly;
   const isDemoReplay = demoReplay || evaluation.provenance?.source === 'replay';
   const tone: ScoreTone = evaluation.passed ? 'emerald' : autoFailed ? 'crimson' : 'amber';
   const status = isDemoReplay
@@ -88,22 +95,24 @@ export function ScorecardView({
             </p>
           ) : null}
           <p className="mt-3 text-sm leading-relaxed text-pulse-secondary">{evaluation.summaryFeedback}</p>
-          <p
-            className={cn(
-              'mt-3 flex items-start justify-center gap-2 text-sm @2xl:justify-start',
-              evaluation.dispositionCorrect ? 'text-pulse-emerald' : 'text-pulse-crimson',
-            )}
-          >
-            {evaluation.dispositionCorrect ? (
-              <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0" />
-            ) : (
-              <CircleX aria-hidden className="mt-0.5 size-4 shrink-0" />
-            )}
-            <span>
-              Disposition{selectedDisposition ? ` “${selectedDisposition}”` : ''}:{' '}
-              {evaluation.dispositionCorrect ? 'Correct' : 'Incorrect — review the disposition rules in the coaching notes below'}
-            </span>
-          </p>
+          {TRAINING_POLICY.simulationInteractionMode !== 'verbal_only' || TRAINING_POLICY.requireDispositionInVerbalPractice ? (
+            <p
+              className={cn(
+                'mt-3 flex items-start justify-center gap-2 text-sm @2xl:justify-start',
+                evaluation.dispositionCorrect ? 'text-pulse-emerald' : 'text-pulse-crimson',
+              )}
+            >
+              {evaluation.dispositionCorrect ? (
+                <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0" />
+              ) : (
+                <CircleX aria-hidden className="mt-0.5 size-4 shrink-0" />
+              )}
+              <span>
+                Disposition{selectedDisposition ? ` “${selectedDisposition}”` : ''}:{' '}
+                {evaluation.dispositionCorrect ? 'Correct' : 'Incorrect — review the disposition rules in the coaching notes below'}
+              </span>
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -113,6 +122,20 @@ export function ScorecardView({
           <div>
             <p className="font-bold text-pulse-crimson">Automatic Fail: critical Playbook rule broken</p>
             <p className="mt-1 text-sm text-pulse-primary">{evaluation.autoFailedReason}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {eligibilityReasons.length > 0 ? (
+        <div role="status" className="flex gap-3 rounded-pulse-lg border border-pulse-amber/50 bg-pulse-amber/10 p-4">
+          <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-pulse-amber" />
+          <div>
+            <p className="font-bold text-pulse-amber">Not eligible to pass: required evidence missing</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm text-pulse-primary">
+              {eligibilityReasons.map((reason, index) => (
+                <li key={index}>{reason}</li>
+              ))}
+            </ul>
           </div>
         </div>
       ) : null}

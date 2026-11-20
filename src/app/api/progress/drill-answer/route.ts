@@ -16,6 +16,7 @@ import { correctAnswerForDrill, drillRuleIds, gradeDrillAnswer } from '@/lib/ser
 import { ServiceError } from '@/lib/services/errors';
 import { buildRuleIdsByDrillId } from '@/lib/services/learning-evidence';
 import { classifyDrillAttempt, nextReviewSchedule } from '@/lib/services/retrieval-schedule';
+import { reviewScheduleDocId } from '@/lib/services/review-schedule-id';
 import { errorResponse, parseJsonBody } from '@/lib/services/route-helpers';
 import { loadLearnerTrackContext } from '@/lib/services/track-loader';
 
@@ -73,7 +74,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const requestHash = `sha256:${digest(JSON.stringify({ learnerId: user.uid, ...input }))}`;
     const attemptRef = adminDb.collection('drillAttempts').doc(`attempt_${digest(`${user.uid}:${input.idempotencyKey}`)}`);
     const startRef = adminDb.collection('drillAttemptStarts').doc(input.startId);
-    const scheduleRef = adminDb.collection('reviewSchedules').doc(`review_${digest(`${user.uid}:${version.versionId}:${input.drillId}`)}`);
+    const scheduleRef = adminDb.collection('reviewSchedules').doc(reviewScheduleDocId(user.uid, version.versionId, input.drillId));
     const attemptsQuery = adminDb.collection('drillAttempts')
       .where('learnerId', '==', user.uid)
       .where('trackId', '==', input.trackId)
@@ -91,12 +92,13 @@ export async function POST(req: Request): Promise<NextResponse> {
         const storedSchedule = scheduleSnap.exists
           ? ReviewScheduleDocSchema.parse({ ...scheduleSnap.data(), id: scheduleSnap.id })
           : null;
+        // A matched replay is the same learner resubmitting the identical answer (for example a retry after a
+        // dropped response), so it gets the same feedback the first response carried.
         return responseFor(
           drill,
           existing,
           storedSchedule?.lastAttemptId === existing.id ? storedSchedule : null,
           isDraft,
-          false,
         );
       }
 
@@ -164,11 +166,13 @@ export async function POST(req: Request): Promise<NextResponse> {
       });
       schedule.id = scheduleRef.id;
 
+      // Draft previews store no attempt, so the start stays reusable; consuming it would make a retry with the
+      // same idempotency key fail with START_ALREADY_CONSUMED instead of replaying.
       if (!isDraft) {
         tx.set(attemptRef, attempt);
         tx.set(scheduleRef, ReviewScheduleDocSchema.parse(schedule));
+        tx.update(startRef, { consumedAt: submittedAt });
       }
-      tx.update(startRef, { consumedAt: submittedAt });
       return responseFor(drill, attempt, schedule, isDraft);
     });
 
