@@ -24,6 +24,9 @@ function attachCleanRuntimeMonitor(page: Page): RuntimeIssueTracker {
   page.on('response', (res) => {
     if (res.status() >= 400 && res.url().includes('/api/')) {
       apiErrors.push(`${res.status()} ${res.url()}`);
+    } else if (res.status() >= 400) {
+      // Name the URL so a bare "Failed to load resource" console error is diagnosable.
+      consoleErrors.push(`(resource ${res.status()} ${res.url()})`);
     }
   });
 
@@ -295,7 +298,7 @@ test.describe('LogiCall Pulse usable verbal & retention product flows', () => {
     await cohortDialog.getByRole('button', { name: /^Create Cohort$/i }).click();
     await expect(page.locator('dialog[open]')).toHaveCount(0, { timeout: 10_000 });
     await expect(page.getByRole('heading', { name: 'BPO East' })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/^BPOEAST-\d+$/)).toBeVisible();
+    await expect(page.getByText(/^BPOEAST-[2-9A-HJKMNP-TV-Z]{4}-[2-9A-HJKMNP-TV-Z]{4}$/)).toBeVisible();
 
     await page.getByRole('button', { name: /^Invite Staff$/i }).click();
     const inviteDialog = page.locator('dialog[open]');
