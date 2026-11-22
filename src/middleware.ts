@@ -5,7 +5,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE_NAME } from '@/lib/schemas/constants';
 
-const PUBLIC_PREFIXES = ['/login', '/join/'];
+const PUBLIC_PREFIXES = ['/login', '/join/', '/invite/'];
 
 function isPublicPath(pathname: string): boolean {
   return pathname === '/join' || PUBLIC_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(prefix));

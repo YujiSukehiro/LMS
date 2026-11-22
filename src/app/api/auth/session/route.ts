@@ -133,7 +133,7 @@ async function provisionUser(decoded: DecodedIdToken, email: string, authMethod:
 
     tx.create(userRef, userDoc);
     if (pendingInvite) {
-      tx.update(pendingInvite.ref, { status: 'CLAIMED', claimedByUid: decoded.uid, updatedAt: now });
+      tx.update(pendingInvite.ref, { status: 'CLAIMED', claimedByUid: decoded.uid, setupTokenHash: null, updatedAt: now });
     }
     if (cohortSnap?.exists) {
       tx.update(cohortRef, { activeAgentCount: FieldValue.increment(1), updatedAt: now });
@@ -173,11 +173,16 @@ export async function POST(req: Request): Promise<NextResponse> {
       userDoc = await provisionUser(decoded, email, authMethod);
     }
   } catch (error) {
+    if (error instanceof DomainNotAllowedError || error instanceof InviteRequiredError) {
+      // Firebase created a login for this uninvited outsider during the client sign-in; remove it so rejected
+      // accounts never pile up. Safe: no users/{uid} profile exists for it, so it never had access.
+      await adminAuth.deleteUser(decoded.uid).catch(() => undefined);
+    }
     if (error instanceof DomainNotAllowedError) {
       return jsonError(
         403,
         'DOMAIN_NOT_ALLOWED',
-        'This Google account is not on an approved LogiCall domain. Use your @logicall.io account, or ask an administrator for an invite.',
+        "Sorry, you don't have access to LogiCall Pulse. Sign in with your @logicall.io or @logicall.live Google account, or ask your LogiCall administrator for an invite.",
       );
     }
     if (error instanceof EmailNotVerifiedError) {
@@ -191,7 +196,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       return jsonError(
         403,
         'INVITE_REQUIRED',
-        'This account has not been invited to LogiCall Pulse. Ask your supervisor for an invite or a join code.',
+        "Sorry, you don't have access to LogiCall Pulse yet. Ask your LogiCall administrator or supervisor for an invite or a join code.",
       );
     }
     console.error('[auth/session] user provisioning failed', error);

@@ -550,3 +550,54 @@ export function DeleteCohortDialog({
     </>
   );
 }
+
+/** Issue a fresh one-time setup link for a pending invite and copy it (the previous link stops working). */
+export function CopyInviteLinkButton({ inviteId, displayName }: { inviteId: string; displayName: string }) {
+  const [state, setState] = useState<'idle' | 'pending' | 'copied' | 'error'>('idle');
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function copyLink(): Promise<void> {
+    setState('pending');
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/roster/invites/${encodeURIComponent(inviteId)}/link`, { method: 'POST' });
+      if (!response.ok) throw new Error(await readApiError(response, 'The link could not be created.'));
+      const body = (await response.json()) as { setupPath?: string };
+      const link = `${window.location.origin}${body.setupPath ?? ''}`;
+      try {
+        await navigator.clipboard.writeText(link);
+        setState('copied');
+        window.setTimeout(() => setState('idle'), 2500);
+      } catch {
+        setState('error');
+        setMessage(link);
+      }
+    } catch (requestError) {
+      setState('error');
+      setMessage(requestError instanceof Error ? requestError.message : 'The link could not be created.');
+    }
+  }
+
+  return (
+    <span className="inline-flex flex-col items-end gap-1">
+      <button
+        type="button"
+        className="pulse-btn px-2.5 py-1 text-xs"
+        aria-label={`Copy a new setup link for ${displayName}`}
+        title="Creates a new link; the old one stops working"
+        onClick={() => void copyLink()}
+        disabled={state === 'pending'}
+      >
+        {state === 'pending' ? (
+          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+        ) : state === 'copied' ? (
+          <Check className="h-3 w-3 text-pulse-emerald" aria-hidden="true" />
+        ) : (
+          <Copy className="h-3 w-3" aria-hidden="true" />
+        )}
+        {state === 'copied' ? 'Copied' : 'Copy link'}
+      </button>
+      {message ? <span className="max-w-64 break-all text-[0.7rem] text-pulse-muted">{message}</span> : null}
+    </span>
+  );
+}

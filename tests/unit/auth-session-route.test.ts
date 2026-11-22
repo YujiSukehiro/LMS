@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildNewUserDoc, claimsForUser } from '@/lib/firebase/users';
 
-const { store, invites, mockVerifyIdToken, mockCreateSessionCookie, mockGetUser, mockSetCustomUserClaims } = vi.hoisted(() => ({
+const { store, invites, mockVerifyIdToken, mockCreateSessionCookie, mockGetUser, mockSetCustomUserClaims, mockDeleteUser } = vi.hoisted(() => ({
   store: new Map<string, Record<string, unknown>>(),
   invites: [] as Array<{ id: string; data: Record<string, unknown> }>,
   mockVerifyIdToken: vi.fn(),
   mockCreateSessionCookie: vi.fn(),
   mockGetUser: vi.fn(),
   mockSetCustomUserClaims: vi.fn(),
+  mockDeleteUser: vi.fn(async () => undefined),
 }));
 
 vi.mock('@/lib/firebase/admin', () => {
@@ -48,6 +49,7 @@ vi.mock('@/lib/firebase/admin', () => {
       createSessionCookie: mockCreateSessionCookie,
       getUser: mockGetUser,
       setCustomUserClaims: mockSetCustomUserClaims,
+      deleteUser: mockDeleteUser,
       revokeRefreshTokens: vi.fn(),
     },
     firebaseErrorCode: () => undefined,
@@ -199,6 +201,35 @@ describe('POST /api/auth/session provisioning', () => {
     const response = await POST(request());
     expect(response.status).toBe(200);
     expect(store.get('users/uid-1')).toMatchObject({ role: 'SUPER_ADMIN' });
+  });
+
+  it('refuses an uninvited Google account off the LogiCall domains, says so plainly, and removes its stray login', async () => {
+    process.env.ALLOWED_GOOGLE_WORKSPACE_DOMAINS = 'logicall.io,logicall.live';
+    mockVerifyIdToken.mockResolvedValue(token({ uid: 'outsider', email: 'random@gmail.com', firebase: { sign_in_provider: 'google.com' } }));
+    const response = await POST(request());
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error).toBe('DOMAIN_NOT_ALLOWED');
+    expect(body.message).toMatch(/don't have access/);
+    expect(store.has('users/outsider')).toBe(false);
+    expect(mockDeleteUser).toHaveBeenCalledWith('outsider');
+  });
+
+  it('lets an invited non-LogiCall Google account in with exactly the invited role', async () => {
+    pushInvite('partner@gmail.com');
+    mockVerifyIdToken.mockResolvedValue(token({ email: 'partner@gmail.com', firebase: { sign_in_provider: 'google.com' } }));
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(store.get('users/uid-1')).toMatchObject({ role: 'AGENT', partnerCohortId: 'THS' });
+    expect(mockDeleteUser).not.toHaveBeenCalled();
+  });
+
+  it('self-provisions @logicall.live Google accounts as agents too', async () => {
+    process.env.ALLOWED_GOOGLE_WORKSPACE_DOMAINS = 'logicall.io,logicall.live';
+    mockVerifyIdToken.mockResolvedValue(token({ email: 'new@logicall.live', firebase: { sign_in_provider: 'google.com' } }));
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(store.get('users/uid-1')).toMatchObject({ role: 'AGENT', partnerCohortId: 'INTERNAL' });
   });
 
   it('still self-provisions approved-domain Google SSO as an agent', async () => {

@@ -47,7 +47,8 @@ export function LoginForm({ nextPath, notice }: { nextPath: string; notice: stri
     setPending('google');
     try {
       const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ hd: 'logicall.io', prompt: 'select_account' });
+      // No `hd` hint: it hid @logicall.live and invited non-LogiCall Google accounts. The server decides who gets in.
+      provider.setCustomParameters({ prompt: 'select_account' });
       const credential = await signInWithPopup(getClientAuth(), provider);
       await finishSignIn(credential.user);
     } catch (signInError) {
@@ -108,7 +109,7 @@ export function LoginForm({ nextPath, notice }: { nextPath: string; notice: stri
 
       <button type="button" className="pulse-btn pulse-btn-primary mt-6 w-full justify-center py-2.5" onClick={handleGoogle} disabled={busy}>
         {pending === 'google' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <GoogleMark />}
-        Continue with Google (@logicall.io)
+        Continue with Google
       </button>
 
       <div className="my-6 flex items-center gap-3" role="separator">

@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, UserPlus, X } from 'lucide-react';
+import { Check, Copy, Loader2, UserPlus, X } from 'lucide-react';
 import { RosterCreateInviteResponseSchema } from '@/lib/schemas/api';
 import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import type { DivisionId, UserRole } from '@/lib/schemas/domain';
@@ -31,6 +31,8 @@ export function InviteStaffDialog({
   const [divisionIds, setDivisionIds] = useState<DivisionId[]>(['TELEHEALTH', 'INBOUND']);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [setupLink, setSetupLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   function open(): void {
     setDisplayName('');
@@ -39,6 +41,8 @@ export function InviteStaffDialog({
     setPartnerCohortId(defaultCohort);
     setDivisionIds(['TELEHEALTH', 'INBOUND']);
     setError(null);
+    setSetupLink(null);
+    setCopied(false);
     dialogRef.current?.showModal();
   }
 
@@ -85,8 +89,9 @@ export function InviteStaffDialog({
       if (!response.ok) {
         throw new Error(await readApiError(response, 'The invite could not be created.'));
       }
-      RosterCreateInviteResponseSchema.parse(await response.json());
-      close();
+      const created = RosterCreateInviteResponseSchema.parse(await response.json());
+      setSetupLink(created.setupPath ? `${window.location.origin}${created.setupPath}` : null);
+      if (!created.setupPath) close();
       router.refresh();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'The invite could not be created.');
@@ -103,6 +108,34 @@ export function InviteStaffDialog({
       </button>
 
       <dialog ref={dialogRef} className="pulse-dialog text-left" aria-labelledby={titleId}>
+        {setupLink ? (
+          <div className="space-y-4 p-6">
+            <h2 id={titleId} className="text-lg font-semibold">Invite ready</h2>
+            <p className="text-sm text-pulse-secondary">
+              Send this one-time setup link to <span className="font-medium text-pulse-primary">{email}</span>. They open it to create
+              their account (a password, or their Google account for that same email). LogiCall Google accounts can also just
+              sign in. The link works once and expires with the invite.
+            </p>
+            <div className="flex items-center gap-2">
+              <input className="pulse-input pulse-metric text-xs" value={setupLink} readOnly aria-label="Setup link" onFocus={(e) => e.target.select()} />
+              <button
+                type="button"
+                className="pulse-btn shrink-0"
+                onClick={() => {
+                  void navigator.clipboard.writeText(setupLink).then(() => setCopied(true), () => setCopied(false));
+                }}
+              >
+                {copied ? <Check className="h-4 w-4 text-pulse-emerald" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+                {copied ? 'Copied' : 'Copy link'}
+              </button>
+            </div>
+            <div className="flex justify-end">
+              <button type="button" className="pulse-btn pulse-btn-primary" onClick={close}>
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
         <form onSubmit={submit} className="flex max-h-[calc(100vh-4rem)] flex-col">
           <div className="flex items-start justify-between gap-4 border-b border-pulse-border-subtle p-6">
             <div>
@@ -110,7 +143,7 @@ export function InviteStaffDialog({
                 Invite Staff or Partner Supervisor
               </h2>
               <p className="mt-1 text-sm text-pulse-secondary">
-                Pre-assign a role before their first Google Workspace sign-in.
+                Pick their role now. You&rsquo;ll get a one-time setup link to send them.
               </p>
             </div>
             <button
@@ -214,6 +247,7 @@ export function InviteStaffDialog({
             </button>
           </div>
         </form>
+        )}
       </dialog>
     </>
   );

@@ -302,9 +302,12 @@ test.describe('LogiCall Pulse usable verbal & retention product flows', () => {
     await inviteDialog.getByLabel(/^Full name/i).fill('QA Trainer');
     await inviteDialog.getByLabel(/^Work email/i).fill('qa.trainer@logicall.io');
     await inviteDialog.getByRole('button', { name: /^Create invite$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Invite ready' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('textbox', { name: 'Setup link' })).toHaveValue(/\/invite\/[A-Za-z0-9_-]{40,}$/);
+    await page.getByRole('button', { name: /^Done$/ }).click();
     await expect(page.locator('dialog[open]')).toHaveCount(0, { timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /Pending Staff & Supervisor Invites/i })).toBeVisible();
-    await expect(page.getByText('qa.trainer@logicall.io')).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'qa.trainer@logicall.io' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Edit access for Riley Chen' }).click();
     const editDialog = page.locator('dialog[open]');

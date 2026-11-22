@@ -20,6 +20,7 @@ import { BulkImportDialog } from './_components/BulkImportDialog';
 import {
   BootstrapCohortsButton,
   CohortCardActions,
+  CopyInviteLinkButton,
   CreateCohortDialog,
   DeleteCohortDialog,
   EditCohortDialog,
@@ -322,7 +323,10 @@ export default async function RosterPage({
                         {lockedInvite ? (
                           <span className="text-xs text-pulse-muted">Higher role</span>
                         ) : (
-                          <RevokeInviteButton inviteId={invite.id} displayName={invite.displayName} />
+                          <div className="flex items-start justify-end gap-1.5">
+                            <CopyInviteLinkButton inviteId={invite.id} displayName={invite.displayName} />
+                            <RevokeInviteButton inviteId={invite.id} displayName={invite.displayName} />
+                          </div>
                         )}
                       </td>
                     </tr>

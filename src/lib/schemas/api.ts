@@ -420,7 +420,17 @@ export type RosterCreateInviteRequest = z.infer<typeof RosterCreateInviteRequest
 export const RosterCreateInviteResponseSchema = z.object({
   ok: z.literal(true),
   invite: RosterInviteDocSchema,
+  /** Relative one-time setup link (`/invite/<token>`) to send to the invitee. */
+  setupPath: z.string().optional(),
 });
+export const RosterInviteLinkResponseSchema = z.object({ ok: z.literal(true), setupPath: z.string() });
+export const AcceptInviteRequestSchema = z
+  .object({
+    token: z.string().min(20).max(128),
+    password: z.string().min(8, 'Use a password with 8 characters or more.').max(128),
+  })
+  .strict();
+export const AcceptInviteResponseSchema = z.object({ ok: z.literal(true), emailForSignIn: z.string() });
 export type RosterCreateInviteResponse = z.infer<typeof RosterCreateInviteResponseSchema>;
 
 export const RosterRevokeInviteRequestSchema = z

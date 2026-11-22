@@ -95,6 +95,8 @@ export const RosterInviteDocSchema = z.object({
   status: z.enum(['PENDING', 'CLAIMED', 'REVOKED']),
   createdByUid: z.string(),
   claimedByUid: z.string().nullable(),
+  /** SHA-256 of the one-time setup-link token (never the token itself). Absent on older invites. */
+  setupTokenHash: z.string().nullable().optional(),
   expiresAt: z.number().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),

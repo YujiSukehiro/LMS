@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { inviteSetupPath, newInviteToken } from '@/lib/services/invite-token';
 import { assignableRoles, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
@@ -53,6 +54,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   const divisionIds = Array.from(new Set(input.divisionIds));
   const priorInvites = await adminDb.collection('rosterInvites').where('email', '==', input.email).limit(20).get();
   const inviteRef = adminDb.collection('rosterInvites').doc();
+  const { token, tokenHash } = newInviteToken();
   const invite = RosterInviteDocSchema.parse({
     id: inviteRef.id,
     email: input.email,
@@ -64,6 +66,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     status: 'PENDING',
     createdByUid: actor.uid,
     claimedByUid: null,
+    setupTokenHash: tokenHash,
     expiresAt: now + input.expiresInDays * 86_400_000,
     createdAt: now,
     updatedAt: now,
@@ -79,7 +82,11 @@ export async function POST(req: Request): Promise<NextResponse> {
   await batch.commit();
 
   return NextResponse.json(
-    RosterCreateInviteResponseSchema.parse({ ok: true, invite }),
+    RosterCreateInviteResponseSchema.parse({
+      ok: true,
+      invite: { ...invite, setupTokenHash: null },
+      setupPath: inviteSetupPath(token),
+    }),
     { headers: { 'Cache-Control': 'no-store' } },
   );
 }
