@@ -84,5 +84,3 @@ env:
     secret: GEMINI_API_KEY
     availability:
       - RUNTIME
-  - variable: SMTP_PASSWORD
-    secret: SMTP_PASSWORD
