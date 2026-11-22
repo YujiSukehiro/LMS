@@ -73,6 +73,38 @@ describe('GeminiProvider', () => {
     expect(params.config.thinkingConfig).toBeUndefined();
   });
 
+  it('falls back to a relaxed schema, then to no schema, when Gemini says the schema has too many states', async () => {
+    const tooComplex = new Error('{"error":{"code":400,"message":"The specified schema produces a constraint that has too many states for serving."}}');
+    const bounded = z.object({ items: z.array(z.string()).min(2).max(4) });
+    sdk.generateContent
+      .mockRejectedValueOnce(tooComplex)
+      .mockRejectedValueOnce(tooComplex)
+      .mockResolvedValueOnce(response('{"items":["a","b"]}'))
+      .mockResolvedValueOnce(response('{"items":["c","d"]}'));
+    const provider = new GeminiProvider({ apiKey: 'test-key', heavyModel: 'heavy-model' });
+    const call = () =>
+      provider.generateStructured({ tier: 'heavy', systemPrompt: 'system', userPrompt: 'user', schema: bounded, schemaName: 'Bounded' });
+
+    await expect(call()).resolves.toEqual({ items: ['a', 'b'] });
+    const [full, relaxed, none] = sdk.generateContent.mock.calls.map((c) => c[0]);
+    expect(JSON.stringify(full.config.responseJsonSchema)).toContain('minItems');
+    expect(JSON.stringify(relaxed.config.responseJsonSchema)).not.toContain('minItems');
+    expect(none.config.responseJsonSchema).toBeUndefined();
+    expect(none.config.systemInstruction).toContain('JSON Schema');
+
+    // The fallback is remembered for this schema: the next call goes straight to JSON mode.
+    await expect(call()).resolves.toEqual({ items: ['c', 'd'] });
+    expect(sdk.generateContent).toHaveBeenCalledTimes(4);
+    expect(sdk.generateContent.mock.calls[3][0].config.responseJsonSchema).toBeUndefined();
+  });
+
+  it('does not swallow other Gemini 400 errors', async () => {
+    sdk.generateContent.mockRejectedValueOnce(new Error('{"error":{"code":400,"message":"API key not valid."}}'));
+    const provider = new GeminiProvider({ apiKey: 'test-key' });
+    await expect(structured(provider)).rejects.toThrow(/API key not valid/);
+    expect(sdk.generateContent).toHaveBeenCalledTimes(1);
+  });
+
   it('retries a MAX_TOKENS answer once at double the limit without a repair turn', async () => {
     sdk.generateContent
       .mockResolvedValueOnce(response('{"answer":"cut', FinishReason.MAX_TOKENS))

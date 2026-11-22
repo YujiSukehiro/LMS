@@ -335,3 +335,31 @@ export function toGeminiJsonSchema(schema: unknown): unknown {
   }
   return out;
 }
+
+const GEMINI_BOUND_KEYS = new Set(['minItems', 'maxItems', 'minimum', 'maximum']);
+
+/**
+ * Gemini rejects some response schemas with 400 "too many states for serving" (nested unions with array
+ * length bounds, for example a 5-kind Drill batch). This copy drops array-length and number bounds; Zod
+ * validation and the repair loop still enforce them after the call.
+ */
+export function relaxGeminiJsonSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map((entry) => relaxGeminiJsonSchema(entry));
+  if (schema === null || typeof schema !== 'object') return schema;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (GEMINI_BOUND_KEYS.has(key)) continue;
+    if ((key === 'properties' || key === '$defs') && value && typeof value === 'object' && !Array.isArray(value)) {
+      out[key] = Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([name, sub]) => [name, relaxGeminiJsonSchema(sub)]));
+      continue;
+    }
+    out[key] = relaxGeminiJsonSchema(value);
+  }
+  return out;
+}
+
+/** True for Gemini's 400 "schema produces a constraint that has too many states" error. */
+export function isGeminiSchemaTooComplexError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /too many states/i.test(message);
+}

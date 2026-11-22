@@ -4,6 +4,9 @@ runConfig:
   minInstances: 0
   maxInstances: 10
   concurrency: 80
+  # Track builds run inside the /api/tracks/[id]/generate request and take 20-45 min on Gemini 3.8 Flash.
+  # Cloud Run's default 300 s request timeout cut every build after 5 minutes. 3600 is the App Hosting maximum.
+  timeoutSeconds: 3600
 
 env:
   - variable: AI_PROVIDER

@@ -12,7 +12,13 @@ import {
   type ModelTier,
   type StreamChatOptions,
 } from '@/lib/ai/types';
-import { runStructuredRepairLoop, toGeminiJsonSchema, toJsonSchema } from '@/lib/ai/pipeline/structured-output';
+import {
+  isGeminiSchemaTooComplexError,
+  relaxGeminiJsonSchema,
+  runStructuredRepairLoop,
+  toGeminiJsonSchema,
+  toJsonSchema,
+} from '@/lib/ai/pipeline/structured-output';
 
 export const DEFAULT_GEMINI_HEAVY_MODEL = 'gemini-3.8-flash';
 export const DEFAULT_GEMINI_FAST_MODEL = 'gemini-3.5-flash-lite';
@@ -79,6 +85,21 @@ function nonEmpty(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+/** GEMINI_LOG_USAGE=1 prints one JSON line of token usage per Gemini call (cost measurement). */
+function logGeminiUsage(model: string, label: string, usage: GenerateContentResponse['usageMetadata']): void {
+  if (process.env.GEMINI_LOG_USAGE !== '1' || !usage) return;
+  console.info(`[gemini-usage] ${JSON.stringify({
+    t: Date.now(),
+    model,
+    label,
+    prompt: usage.promptTokenCount ?? 0,
+    cached: usage.cachedContentTokenCount ?? 0,
+    output: usage.candidatesTokenCount ?? 0,
+    thoughts: usage.thoughtsTokenCount ?? 0,
+    total: usage.totalTokenCount ?? 0,
+  })}`);
+}
+
 function textContent(role: 'user' | 'model', text: string): Content {
   return { role, parts: [{ text }] };
 }
@@ -90,6 +111,11 @@ export class GeminiProvider implements LLMGateway {
   readonly thinkingBudget: number | undefined;
   private readonly apiKey: string | undefined;
   private client: GoogleGenAI | null = null;
+  /**
+   * Schema names Gemini rejected as too complex: 1 = send the relaxed schema (no length or number bounds),
+   * 2 = send no response schema (JSON mode, schema in the instructions). Zod still validates every answer.
+   */
+  private readonly schemaFallback = new Map<string, 1 | 2>();
 
   constructor(config: GeminiProviderConfig = {}) {
     this.apiKey = config.apiKey ?? nonEmpty(process.env.GEMINI_API_KEY);
@@ -126,7 +152,13 @@ export class GeminiProvider implements LLMGateway {
   async generateStructured<T extends z.ZodTypeAny>(opts: GenerateStructuredOptions<T>): Promise<z.infer<T>> {
     const ai = this.getClient();
     const model = this.modelFor(opts.tier);
-    const responseJsonSchema = toGeminiJsonSchema(toJsonSchema(opts.schema));
+    const fullSchema = toGeminiJsonSchema(toJsonSchema(opts.schema));
+    const fallbackKey = `${model}:${opts.schemaName ?? 'structured'}`;
+    const schemaFor = (level: 0 | 1 | 2) => (level === 0 ? fullSchema : level === 1 ? relaxGeminiJsonSchema(fullSchema) : undefined);
+    const systemFor = (level: 0 | 1 | 2) =>
+      level === 2
+        ? `${opts.systemPrompt}\n\nReturn ONLY JSON that matches this JSON Schema:\n${JSON.stringify(relaxGeminiJsonSchema(fullSchema))}`
+        : opts.systemPrompt;
     return runStructuredRepairLoop({
       model,
       schema: opts.schema,
@@ -138,18 +170,31 @@ export class GeminiProvider implements LLMGateway {
         const contents: Content[] = messages
           .filter((turn) => turn.role !== 'system')
           .map((turn) => textContent(turn.role === 'assistant' ? 'model' : 'user', turn.content));
-        const response = await ai.models.generateContent({
-          model,
-          contents,
-          config: {
-            systemInstruction: opts.systemPrompt,
-            temperature: opts.temperature ?? 0.2,
-            responseMimeType: 'application/json',
-            responseJsonSchema,
-            ...this.outputConfig(maxOutputTokens),
-            abortSignal: opts.signal,
-          },
-        });
+        let level: 0 | 1 | 2 = this.schemaFallback.get(fallbackKey) ?? 0;
+        let response: GenerateContentResponse;
+        for (;;) {
+          try {
+            response = await ai.models.generateContent({
+              model,
+              contents,
+              config: {
+                systemInstruction: systemFor(level),
+                temperature: opts.temperature ?? 0.2,
+                responseMimeType: 'application/json',
+                ...(level < 2 ? { responseJsonSchema: schemaFor(level) } : {}),
+                ...this.outputConfig(maxOutputTokens),
+                abortSignal: opts.signal,
+              },
+            });
+            break;
+          } catch (error) {
+            if (level === 2 || !isGeminiSchemaTooComplexError(error)) throw error;
+            level = (level + 1) as 1 | 2;
+            this.schemaFallback.set(fallbackKey, level);
+            console.warn('[gemini] response schema too complex; retrying with a simpler schema', { model, schemaName: opts.schemaName, level });
+          }
+        }
+        logGeminiUsage(model, opts.schemaName ?? 'structured', response.usageMetadata);
         const blocked = geminiBlockReason(response);
         // Not repairable: an error thrown by the call leaves the JSON repair loop at once.
         if (blocked) throw blockedError(blocked, model, opts.schemaName);
@@ -179,7 +224,10 @@ export class GeminiProvider implements LLMGateway {
     });
 
     let yielded = false;
+    let usage: GenerateContentResponse['usageMetadata'];
+    try {
     for await (const chunk of stream) {
+      if (chunk.usageMetadata) usage = chunk.usageMetadata;
       if (opts.signal?.aborted) return;
       const token = chunk.text;
       if (token) {
@@ -192,6 +240,9 @@ export class GeminiProvider implements LLMGateway {
         if (!yielded) throw blockedError(blocked, model);
         return;
       }
+    }
+    } finally {
+      logGeminiUsage(model, 'chat', usage);
     }
   }
 
