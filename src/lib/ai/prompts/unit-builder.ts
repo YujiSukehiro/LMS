@@ -734,7 +734,7 @@ export function buildDrillGenerationSchema(kind: DrillKind, ctx: UnitBuildContex
 }
 
 const DRILL_KIND_GUIDE = [
-  `MULTIPLE_CHOICE: "prompt" is a realistic call situation or a rule check. "options" has exactly 4 objects {"id","text"} with ids "a","b","c","d". "correctOptionId" is the id of the one correct option. Wrong options must be plausible mistakes an agent could make.`,
+  `MULTIPLE_CHOICE: "prompt" is a realistic call situation or a rule check. "options" has exactly 4 objects {"id","text"} with ids "a","b","c","d". "correctOptionId" is the id of the one correct option. Wrong options must be plausible mistakes an agent could make. All 4 options have about the same length and level of detail: the correct option is never the only long, specific or Playbook-worded one.`,
   'TRUE_FALSE_SPOT: "statement" describes what an agent said or did on a call. "isCompliant" is true when it follows the Playbook and false when it breaks the Playbook. "prompt" asks the agent to decide.',
   'SEQUENCE_ORDER: "orderedSteps" has 3 to 5 steps {"text"} in the CORRECT order from the Playbook. "prompt" asks the agent to put the steps in order. The "explanation" says why that order is right; it never lists step numbers.',
   'MATCH_PAIRS: "pairs" has 3 or 4 objects {"leftPrompt","rightMatch"} (for example a caller situation and the required action). Each side is a SHORT phrase of at most 80 characters, never a full script. Every right side matches only one left side.',
@@ -765,6 +765,9 @@ export function buildUnitSystemPrompt(divisionId: DivisionId): string {
     '- Write the number of Drills given in the request (CONTENT SIZE). The Drills test the rules on the BriefingCards.',
     `- Use at least ${MIN_DISTINCT_DRILL_KINDS} DIFFERENT Drill kinds in the Unit. Available kinds: ${DRILL_KINDS.join(', ')}.`,
     '- Every Drill has "competencyPillarId" set to one of the CompetencyPillar ids given in the request.',
+    '- Teach what an agent says or does on a call. Skip internal testing steps, URL parameters, screenshot or page-layout details and metric definitions unless an agent uses them on a call.',
+    '- A "Never", "Do not" or compliance rule in the GLOBAL CAMPAIGN SUMMARY or the SOURCE PAGES wins over any script, example or step. Never write a card, a "doList" item, a takeaway or a correct Drill answer that tells the agent to do a forbidden action (for example sending a link after reaching voicemail). When a script on the pages seems to allow it, teach the script words but not the forbidden action.',
+    '- Do not re-teach a rule that one of the "Other Units" listed in the request already covers. Focus on what is new on this Unit\'s pages.',
     '',
     'DRILL KINDS:',
     DRILL_KIND_GUIDE,

@@ -13,7 +13,11 @@ import {
 import type { GenerationStep } from '@/lib/schemas/curriculum';
 import { cn } from '@/lib/utils';
 import { fetchSourceReview, isNoActiveSourceBundle, postSourceReview, type SourceReviewData } from './source-review-api';
-import { parseCheckpointProgress, type CheckpointProgress } from './generation-view';
+import { estimateMinutesLeft, formatMinutesLeft, parseCheckpointProgress, type CheckpointProgress, type EtaSample } from './generation-view';
+
+/** Consecutive dropped connections (no progress in between) before the stepper shows an error. */
+const MAX_SILENT_RECONNECTS = 6;
+const RECONNECT_DELAY_MS = 3000;
 
 interface StepperStage {
   id: string;
@@ -68,6 +72,8 @@ export function GenerationStepper({
   const [unitCounter, setUnitCounter] = useState<CheckpointProgress | null>(() =>
     initialProgress?.step === 'BUILDING_UNITS' ? parseCheckpointProgress(initialProgress.message) : null,
   );
+  const [eta, setEta] = useState<{ first: EtaSample | null; latest: EtaSample } | null>(null);
+  const dropsRef = useRef(0);
   const onCompleteRef = useRef(onComplete);
   useEffect(() => {
     onCompleteRef.current = onComplete;
@@ -78,6 +84,7 @@ export function GenerationStepper({
     let finished = false;
     let cancelled = false;
     let redirectTimer: ReturnType<typeof setTimeout> | undefined;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
     async function start() {
       let review: SourceReviewData | null;
@@ -116,7 +123,10 @@ export function GenerationStepper({
           setState({ kind: 'error', message: next.message || 'Track generation failed.' });
           return;
         }
+        dropsRef.current = 0;
         setProgress(next);
+        const sample = { at: Date.now(), percent: next.percent };
+        setEta((prev) => ({ first: prev?.first ?? sample, latest: sample }));
         if (next.step === 'BUILDING_UNITS') {
           const counter = parseCheckpointProgress(next.message);
           if (counter) setUnitCounter(counter);
@@ -152,6 +162,15 @@ export function GenerationStepper({
           });
           return;
         }
+        // A dropped stream is not a failed build: the hosting request limit (5 min on Cloud Run) or a network
+        // blip ends it while the build goes on. Reconnect quietly; the generate route follows or resumes it.
+        if (dropsRef.current < MAX_SILENT_RECONNECTS) {
+          dropsRef.current += 1;
+          reconnectTimer = setTimeout(() => {
+            if (!cancelled) setAttempt((n) => n + 1);
+          }, RECONNECT_DELAY_MS);
+          return;
+        }
         setState({
           kind: 'error',
           message: 'The connection to the Track generator closed before the Track was ready.',
@@ -165,6 +184,7 @@ export function GenerationStepper({
       finished = true;
       source?.close();
       if (redirectTimer) clearTimeout(redirectTimer);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
     };
   }, [trackId, attempt, redirectOnComplete, router]);
 
@@ -206,6 +226,9 @@ export function GenerationStepper({
           style={{ width: `${percent}%` }}
         />
       </div>
+      {state.kind === 'running' || state.kind === 'connecting' ? (
+        <EtaLine eta={eta} checkpointTotal={unitCounter?.total ?? null} />
+      ) : null}
 
       <ol className="flex flex-col gap-1">
         {STAGES.map((stage, index) => {
@@ -228,6 +251,8 @@ export function GenerationStepper({
                     <Check aria-hidden className="size-4" />
                   ) : failed ? (
                     <CircleAlert aria-hidden className="size-4" />
+                  ) : active && state.kind === 'approval' ? (
+                    index + 1
                   ) : active ? (
                     <LoaderCircle aria-hidden className="size-4 animate-spin" />
                   ) : (
@@ -241,7 +266,7 @@ export function GenerationStepper({
               <div className="min-w-0 flex-1 pb-3">
                 <p className={cn('text-sm font-semibold', !done && !active && 'text-pulse-muted')}>
                   {stage.id === 'units' && unitCounter ? `${stage.label} 1–${unitCounter.total}` : stage.label}
-                  <span className="sr-only">{done ? ' — done' : active ? ' — in progress' : ' — waiting'}</span>
+                  <span className="sr-only">{done ? ' — done' : failed ? ' — failed' : active ? (state.kind === 'approval' ? ' — waiting for your approval' : ' — in progress') : ' — waiting'}</span>
                 </p>
                 {stage.id === 'units' && unitCounter ? (
                   <ul aria-label="Checkpoints" className="mt-1.5 flex flex-wrap gap-1.5">
@@ -323,6 +348,22 @@ export function GenerationStepper({
         </p>
       ) : null}
     </section>
+  );
+}
+
+function EtaLine({ eta, checkpointTotal }: { eta: { first: EtaSample | null; latest: EtaSample } | null; checkpointTotal: number | null }) {
+  // Re-render each 30 s so the estimate does not freeze between progress events.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const minutes = eta ? estimateMinutesLeft({ first: eta.first, latest: eta.latest, checkpointTotal }) : null;
+  return (
+    <p className="-mt-2 text-xs text-pulse-secondary">
+      <span className="font-semibold text-pulse-primary">Estimated time to completion: {minutes ? formatMinutesLeft(minutes) : 'working it out'}. </span>
+      You can leave this page. The build keeps running, and the Track shows up in Track Studio when it is ready.
+    </p>
   );
 }
 

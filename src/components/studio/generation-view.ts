@@ -38,3 +38,40 @@ export function parseCheckpointProgress(message: string): CheckpointProgress | n
   if (!Number.isInteger(n) || !Number.isInteger(total) || total <= 0 || total > MAX_CHECKPOINTS || n < 1 || n > total) return null;
   return verb === 'writing' ? { completed: n - 1, current: n, total } : { completed: n, current: null, total };
 }
+
+/** Measured on Gemini 3.8 Flash with a 1024-token thinking cap (2026-11-22): 9 Checkpoints in about 8 minutes. */
+export const MINUTES_PER_CHECKPOINT = 1;
+export const FIXED_BUILD_MINUTES = 2;
+
+export interface EtaSample {
+  at: number;
+  percent: number;
+}
+
+/**
+ * Minutes left in a build. Uses the pace seen on this page once the bar has moved at least 3 points;
+ * before that, the planned Checkpoint count. Null when nothing is known yet.
+ */
+export function estimateMinutesLeft(input: {
+  first: EtaSample | null;
+  latest: EtaSample;
+  checkpointTotal: number | null;
+}): number | null {
+  const { first, latest, checkpointTotal } = input;
+  const remainingShare = Math.max(0, 100 - latest.percent) / 100;
+  if (first && latest.percent - first.percent >= 3 && latest.at > first.at) {
+    const msPerPoint = (latest.at - first.at) / (latest.percent - first.percent);
+    return Math.max(1, Math.ceil((msPerPoint * (100 - latest.percent)) / 60_000));
+  }
+  if (!checkpointTotal) return null;
+  const plannedMinutes = checkpointTotal * MINUTES_PER_CHECKPOINT + FIXED_BUILD_MINUTES;
+  return Math.max(1, Math.ceil(plannedMinutes * remainingShare));
+}
+
+export function formatMinutesLeft(minutes: number): string {
+  if (minutes < 2) return 'about a minute left';
+  if (minutes < 60) return `about ${minutes} min left`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `about ${hours} h ${rest} min left`;
+}

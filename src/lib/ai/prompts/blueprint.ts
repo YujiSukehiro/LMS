@@ -198,7 +198,7 @@ export function buildBlueprintSystemPrompt(divisionId: DivisionId): string {
     '',
     'CAMPAIGN CODE AND SUMMARY:',
     '- "campaignCode": the short campaign code from the Playbook (capital letters, digits, and hyphens, at most 32 characters). If the trainer supplied a code, use it.',
-    `- "globalSummary": at most ${GLOBAL_SUMMARY_MAX_WORDS} words. State the campaign offer, the call flow, the most important policy rules with their exact values, and the escalation rules. Other build steps use this summary as context.`,
+    `- "globalSummary": at most ${GLOBAL_SUMMARY_MAX_WORDS} words. State the campaign offer, the call flow, the most important policy rules with their exact values, the escalation rules, and every "Never" / "Do not" compliance rule. Other build steps use this summary as context, and its "Never" rules win over any script.`,
     '',
     'Return one JSON object that matches the schema. No markdown, no comments.',
   ].join('\n');

@@ -4,9 +4,6 @@ runConfig:
   minInstances: 0
   maxInstances: 10
   concurrency: 80
-  # Track builds run inside the /api/tracks/[id]/generate request and take 20-45 min on Gemini 3.8 Flash.
-  # Cloud Run's default 300 s request timeout cut every build after 5 minutes. 3600 is the App Hosting maximum.
-  timeoutSeconds: 3600
 
 env:
   - variable: AI_PROVIDER
@@ -19,6 +16,12 @@ env:
       - RUNTIME
   - variable: GEMINI_FAST_MODEL
     value: gemini-3.5-flash-lite
+    availability:
+      - RUNTIME
+  # Caps Gemini "thinking" per call. Unset, 3.8 Flash spent ~74% of output tokens thinking and some Drill
+  # batches ran out of output room (truncated, then retried). The cap is added on top of each call's limit.
+  - variable: GEMINI_THINKING_BUDGET
+    value: "1024"
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_USE_FIREBASE_EMULATOR

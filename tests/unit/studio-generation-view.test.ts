@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { newTrackViewFor, parseCheckpointProgress } from '@/components/studio/generation-view';
+import { estimateMinutesLeft, formatMinutesLeft, newTrackViewFor, parseCheckpointProgress } from '@/components/studio/generation-view';
 import { bundleLegacyPages } from '@/app/api/tracks/upload/legacy-pages';
 import { SourcePageEvidenceSchema, type SourcePageEvidence } from '@/lib/schemas/source-truth';
 
@@ -73,5 +73,29 @@ describe('bundleLegacyPages', () => {
       { pageNumber: 3, text: 'product page 1' },
       { pageNumber: 4, text: 'product page 2' },
     ]);
+  });
+});
+
+describe('estimateMinutesLeft', () => {
+  it('uses the planned Checkpoint count before the bar has moved', () => {
+    // 9 Checkpoints x 1 min + 2 min = 11 min planned; 70% of it is left at 30%.
+    expect(estimateMinutesLeft({ first: null, latest: { at: 0, percent: 30 }, checkpointTotal: 9 })).toBe(8);
+  });
+
+  it('switches to the pace seen on the page once the bar moves 3 points', () => {
+    const first = { at: 0, percent: 30 };
+    const latest = { at: 4 * 60_000, percent: 40 }; // 10 points in 4 min -> 60 points left = 24 min
+    expect(estimateMinutesLeft({ first, latest, checkpointTotal: 9 })).toBe(24);
+  });
+
+  it('returns null with no pace and no plan, and never less than a minute', () => {
+    expect(estimateMinutesLeft({ first: null, latest: { at: 0, percent: 10 }, checkpointTotal: null })).toBeNull();
+    expect(estimateMinutesLeft({ first: null, latest: { at: 0, percent: 99 }, checkpointTotal: 2 })).toBe(1);
+  });
+
+  it('formats minutes in plain words', () => {
+    expect(formatMinutesLeft(1)).toBe('about a minute left');
+    expect(formatMinutesLeft(24)).toBe('about 24 min left');
+    expect(formatMinutesLeft(75)).toBe('about 1 h 15 min left');
   });
 });
