@@ -65,16 +65,15 @@ env:
     value: "LogiCall Pulse <pulse@logicall.io>"
     availability:
       - RUNTIME
-  # Gmail / Workspace sending (preferred): the account that owns the App Password, plus its secret.
-  # Uncomment only after `apphosting:secrets:set SMTP_PASSWORD` (a binding to a missing secret fails the rollout).
-  # - variable: SMTP_USER
-  #   value: connorleavitt@logicall.io
-  #   availability:
-  #     - RUNTIME
-  # - variable: SMTP_PASSWORD
-  #   secret: SMTP_PASSWORD
-  #   availability:
-  #     - RUNTIME
+  # Gmail / Workspace sending: the account that owns the App Password (secret SMTP_PASSWORD in Secret Manager).
+  - variable: SMTP_USER
+    value: connorleavitt@logicall.io
+    availability:
+      - RUNTIME
+  - variable: SMTP_PASSWORD
+    secret: SMTP_PASSWORD
+    availability:
+      - RUNTIME
   # Resend alternative. Uncomment only after `apphosting:secrets:set RESEND_API_KEY`.
   # - variable: RESEND_API_KEY
   #   secret: RESEND_API_KEY
@@ -85,3 +84,5 @@ env:
     secret: GEMINI_API_KEY
     availability:
       - RUNTIME
+  - variable: SMTP_PASSWORD
+    secret: SMTP_PASSWORD
