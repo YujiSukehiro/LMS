@@ -75,3 +75,8 @@ export function formatMinutesLeft(minutes: number): string {
   const rest = minutes % 60;
   return `about ${hours} h ${rest} min left`;
 }
+
+/** Progress messages sent while a resumed build replays saved Checkpoints ("Resumed Checkpoint 3 of 9: …"). */
+export function isReplayMessage(message: string): boolean {
+  return /^\s*resumed\b/i.test(message);
+}

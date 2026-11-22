@@ -13,11 +13,12 @@ import {
 import type { GenerationStep } from '@/lib/schemas/curriculum';
 import { cn } from '@/lib/utils';
 import { fetchSourceReview, isNoActiveSourceBundle, postSourceReview, type SourceReviewData } from './source-review-api';
-import { estimateMinutesLeft, formatMinutesLeft, parseCheckpointProgress, type CheckpointProgress, type EtaSample } from './generation-view';
+import { estimateMinutesLeft, formatMinutesLeft, isReplayMessage, parseCheckpointProgress, type CheckpointProgress, type EtaSample } from './generation-view';
 
 /** Consecutive dropped connections (no progress in between) before the stepper shows an error. */
 const MAX_SILENT_RECONNECTS = 6;
 const RECONNECT_DELAY_MS = 3000;
+const REPLAY_SETTLE_MS = 20_000;
 
 interface StepperStage {
   id: string;
@@ -74,6 +75,7 @@ export function GenerationStepper({
   );
   const [eta, setEta] = useState<{ first: EtaSample | null; latest: EtaSample } | null>(null);
   const dropsRef = useRef(0);
+  const openedAtRef = useRef(0);
   const onCompleteRef = useRef(onComplete);
   useEffect(() => {
     onCompleteRef.current = onComplete;
@@ -108,6 +110,7 @@ export function GenerationStepper({
 
       source = new EventSource(`/api/tracks/${encodeURIComponent(trackId)}/generate`);
       source.addEventListener('open', () => {
+        openedAtRef.current = Date.now();
         if (!finished) setState({ kind: 'running' });
       });
 
@@ -125,8 +128,13 @@ export function GenerationStepper({
         }
         dropsRef.current = 0;
         setProgress(next);
-        const sample = { at: Date.now(), percent: next.percent };
-        setEta((prev) => ({ first: prev?.first ?? sample, latest: sample }));
+        // Resumed Checkpoints replay from saved checkpoints in seconds; timing them would make the estimate far too short.
+        // The first seconds after (re)connecting can also be replay, so the pace starts 20 s after the stream opened.
+        if (!isReplayMessage(next.message)) {
+          const sample = { at: Date.now(), percent: next.percent };
+          const settled = sample.at - openedAtRef.current >= REPLAY_SETTLE_MS;
+          setEta((prev) => ({ first: prev?.first ?? (settled ? sample : null), latest: sample }));
+        }
         if (next.step === 'BUILDING_UNITS') {
           const counter = parseCheckpointProgress(next.message);
           if (counter) setUnitCounter(counter);

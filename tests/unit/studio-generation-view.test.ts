@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { estimateMinutesLeft, formatMinutesLeft, newTrackViewFor, parseCheckpointProgress } from '@/components/studio/generation-view';
+import { estimateMinutesLeft, formatMinutesLeft, isReplayMessage, newTrackViewFor, parseCheckpointProgress } from '@/components/studio/generation-view';
 import { bundleLegacyPages } from '@/app/api/tracks/upload/legacy-pages';
 import { SourcePageEvidenceSchema, type SourcePageEvidence } from '@/lib/schemas/source-truth';
 
@@ -97,5 +97,13 @@ describe('estimateMinutesLeft', () => {
     expect(formatMinutesLeft(1)).toBe('about a minute left');
     expect(formatMinutesLeft(24)).toBe('about 24 min left');
     expect(formatMinutesLeft(75)).toBe('about 1 h 15 min left');
+  });
+});
+
+describe('isReplayMessage', () => {
+  it('spots resumed Checkpoints only', () => {
+    expect(isReplayMessage('Resumed Checkpoint 3 of 9: Pricing')).toBe(true);
+    expect(isReplayMessage('Writing Checkpoint 3 of 9: Drills (batch 1 of 2) for Pricing')).toBe(false);
+    expect(isReplayMessage('Built Checkpoint 3 of 9: Pricing')).toBe(false);
   });
 });
