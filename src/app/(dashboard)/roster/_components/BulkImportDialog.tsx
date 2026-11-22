@@ -1,26 +1,38 @@
 'use client';
 
-import type { UserRole } from '@/lib/schemas/domain';
+import type { DivisionId, UserRole } from '@/lib/schemas/domain';
 
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, CheckCircle2, Download, Loader2, Upload, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react';
 import { RosterImportResponseSchema, type RosterImportResponse } from '@/lib/schemas/api';
 import { ROLE_LABELS } from '@/lib/schemas/constants';
 import { cn } from '@/lib/utils';
-import { parseRosterCsv, ROSTER_CSV_COLUMNS } from './roster-csv';
+import { parseRosterCsv, rosterTemplateCsv, ROSTER_CSV_COLUMNS } from './roster-csv';
 
 const EXAMPLE_CSV = [
   ROSTER_CSV_COLUMNS.join(','),
   'Maria Fernanda Lopez,LC-1101,,AGENT,THS,TELEHEALTH|INBOUND',
-  'Jordan Blake,,jordan.blake@partner-example.com,PARTNER_SUPERVISOR,DOZ,INBOUND',
+  'Jordan Blake,,jordan.blake@partner-example.com,,DOZ,',
 ].join('\n');
+
+function downloadText(text: string, filename: string): void {
+  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export function BulkImportDialog({
   cohorts,
   allowedRoles,
 }: {
-  cohorts: Array<{ id: string; name: string }>;
+  cohorts: Array<{ id: string; name: string; defaultDivisionIds?: DivisionId[] }>;
   allowedRoles: readonly UserRole[];
 }) {
   const router = useRouter();
@@ -32,8 +44,32 @@ export function BulkImportDialog({
   const [submittedLineNumbers, setSubmittedLineNumbers] = useState<number[]>([]);
 
   const cohortIds = useMemo(() => new Set(cohorts.map((cohort) => cohort.id)), [cohorts]);
+  const cohortDefaultDivisions = useMemo(
+    () => Object.fromEntries(cohorts.map((cohort) => [cohort.id, cohort.defaultDivisionIds ?? []])),
+    [cohorts],
+  );
+  const [fileError, setFileError] = useState<string | null>(null);
+
+  async function loadFile(file: File | undefined): Promise<void> {
+    setFileError(null);
+    if (!file) return;
+    if (/\.xlsx?$/i.test(file.name)) {
+      setFileError('Save the spreadsheet as CSV first (Excel: File → Save As → CSV UTF-8), then upload that file.');
+      return;
+    }
+    if (file.size > 2_000_000) {
+      setFileError('That file is too large. Import 500 rows or fewer at a time.');
+      return;
+    }
+    setCsvText(await file.text());
+  }
+
+  function downloadTemplate(): void {
+    const example = cohorts.find((cohort) => cohort.id !== 'INTERNAL')?.id ?? cohorts[0]?.id ?? 'THS';
+    downloadText(rosterTemplateCsv(example), 'pulse-roster-template.csv');
+  }
   const lines = useMemo(() => {
-    return parseRosterCsv(csvText).map((line) => {
+    return parseRosterCsv(csvText, { cohortDefaultDivisions }).map((line) => {
       if (!line.row) return line;
       if (!cohortIds.has(line.row.partnerCohortId)) {
         return { ...line, row: null, error: `Cohort "${line.row.partnerCohortId}" does not exist.` };
@@ -43,7 +79,7 @@ export function BulkImportDialog({
       }
       return line;
     });
-  }, [csvText, cohortIds, allowedRoles]);
+  }, [csvText, cohortIds, allowedRoles, cohortDefaultDivisions]);
 
   const validRows = lines.flatMap((line) => (line.row ? [line.row] : []));
   const invalidCount = lines.length - validRows.length;
@@ -90,15 +126,7 @@ export function BulkImportDialog({
 
   function downloadCredentials(): void {
     if (!result) return;
-    const blob = new Blob([result.credentialsCsv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `pulse-roster-credentials-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadText(result.credentialsCsv, `pulse-roster-credentials-${new Date().toISOString().slice(0, 10)}.csv`);
   }
 
   return (
@@ -120,10 +148,14 @@ export function BulkImportDialog({
                 Bulk Import Roster
               </h2>
               <p className="mt-1 text-sm text-pulse-secondary">
-                Paste CSV rows. Columns: <span className="pulse-metric text-xs">{ROSTER_CSV_COLUMNS.join(',')}</span>.
-                Separate Divisions with <span className="pulse-kbd">|</span>. An optional 7th column sets the initial
-                password; otherwise Pulse makes a strong temporary password.
+                Download the template, fill it in Excel or Google Sheets, save as CSV, then upload it (or paste rows).
+                Each row needs a name, an LC Number <em>or</em> email, and a Cohort ID.
               </p>
+              <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-xs text-pulse-muted">
+                <li>Blank <span className="pulse-metric">role</span> → Agent (basic user). Other values: PARTNER_SUPERVISOR, TRAINER, ADMIN.</li>
+                <li>Blank <span className="pulse-metric">divisionIds</span> → the Cohort&rsquo;s default Divisions. Separate several with <span className="pulse-kbd">|</span>.</li>
+                <li>Blank <span className="pulse-metric">initialPassword</span> → Pulse makes a temporary password you download after import.</li>
+              </ul>
             </div>
             <button type="button" className="pulse-btn pulse-btn-ghost p-1.5" aria-label="Close" onClick={close}>
               <X className="h-4 w-4" aria-hidden="true" />
@@ -174,14 +206,38 @@ export function BulkImportDialog({
                     <label htmlFor="bulk-import-csv" className="pulse-label">
                       CSV rows
                     </label>
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-pulse-indigo hover:underline"
-                      onClick={() => setCsvText(EXAMPLE_CSV)}
-                    >
-                      Insert example
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button type="button" className="pulse-btn px-2.5 py-1 text-xs" onClick={downloadTemplate}>
+                        <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />
+                        Download template
+                      </button>
+                      <label className="pulse-btn cursor-pointer px-2.5 py-1 text-xs">
+                        <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                        Upload CSV
+                        <input
+                          type="file"
+                          accept=".csv,text/csv,.xlsx,.xls"
+                          className="sr-only"
+                          onChange={(event) => {
+                            void loadFile(event.target.files?.[0]);
+                            event.target.value = '';
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-pulse-indigo hover:underline"
+                        onClick={() => setCsvText(EXAMPLE_CSV)}
+                      >
+                        Insert example
+                      </button>
+                    </div>
                   </div>
+                  {fileError ? (
+                    <p role="alert" className="mb-1.5 text-xs text-pulse-crimson">
+                      {fileError}
+                    </p>
+                  ) : null}
                   <textarea
                     id="bulk-import-csv"
                     className="pulse-textarea min-h-36 w-full font-mono text-xs"

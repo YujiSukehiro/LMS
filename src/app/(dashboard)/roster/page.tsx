@@ -197,7 +197,7 @@ export default async function RosterPage({
             allowedRoles={allowedRoles}
           />
           <BulkImportDialog
-            cohorts={cohortChoices.map((c) => ({ id: c.id, name: c.name }))}
+            cohorts={cohorts.map((c) => ({ id: c.id, name: c.name, defaultDivisionIds: c.defaultDivisionIds }))}
             allowedRoles={allowedRoles}
           />
         </div>

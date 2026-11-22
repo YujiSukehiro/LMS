@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { Check, Copy, Loader2, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { RosterCohortResponseSchema } from '@/lib/schemas/api';
 import type { DivisionId } from '@/lib/schemas/domain';
 import { DivisionCheckboxes, readApiError } from './RosterFormFields';
@@ -443,13 +443,25 @@ export function DeleteCohortDialog({
   const titleId = useId();
   const confirmId = useId();
   const [typed, setTyped] = useState('');
+  const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function open(): void {
     setTyped('');
+    setCopied(false);
     setError(null);
     dialogRef.current?.showModal();
+  }
+
+  async function copyId(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(cohortId);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Copy is blocked in this browser. Type the ID instead.');
+    }
   }
 
   async function remove(): Promise<void> {
@@ -492,9 +504,23 @@ export function DeleteCohortDialog({
               <p className="mt-2 text-sm text-pulse-secondary">
                 This removes the Cohort and its join code. Tracks assigned to it will no longer list it. This cannot be undone.
               </p>
-              <label htmlFor={confirmId} className="pulse-label mb-1.5 mt-4 block">
-                Type <span className="pulse-metric normal-case">{cohortId}</span> to confirm
-              </label>
+              <div className="mb-1.5 mt-4 flex flex-wrap items-center gap-1.5 text-sm text-pulse-secondary">
+                <label htmlFor={confirmId}>Type</label>
+                <button
+                  type="button"
+                  onClick={() => void copyId()}
+                  title="Click to copy"
+                  aria-label={`Copy Cohort ID ${cohortId}`}
+                  className="inline-flex items-center gap-1 rounded-pulse-sm border border-pulse-border bg-pulse-surface-2 px-1.5 py-0.5 pulse-metric text-sm font-bold text-pulse-primary hover:border-pulse-indigo hover:text-pulse-indigo-text"
+                >
+                  {cohortId}
+                  {copied ? <Check className="h-3.5 w-3.5 text-pulse-emerald" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5 text-pulse-muted" aria-hidden="true" />}
+                </button>
+                <span>to confirm</span>
+                <span role="status" className="text-xs text-pulse-emerald">
+                  {copied ? 'Copied' : ''}
+                </span>
+              </div>
               <input
                 id={confirmId}
                 className="pulse-input pulse-metric"

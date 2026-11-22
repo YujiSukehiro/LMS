@@ -1,11 +1,29 @@
 /**
  * Pure CSV helpers for the roster Bulk Import dialog.
  * Columns: displayName,lcNumber,email,role,partnerCohortId,divisionIds[,initialPassword]
- * divisionIds are separated by `|` (for example TELEHEALTH|INBOUND).
+ * - With a header row, columns are matched by name (any order; optional columns may be left out).
+ * - Blank role → AGENT (lowest permission). Blank divisionIds → the Cohort's default Divisions.
+ * - divisionIds are separated by `|` (for example TELEHEALTH|INBOUND).
  */
 import { RosterImportRowSchema, type RosterImportRow } from '@/lib/schemas/api';
+import type { DivisionId } from '@/lib/schemas/domain';
 
 export const ROSTER_CSV_COLUMNS = ['displayName', 'lcNumber', 'email', 'role', 'partnerCohortId', 'divisionIds'] as const;
+const OPTIONAL_COLUMNS = ['initialPassword'] as const;
+type Column = (typeof ROSTER_CSV_COLUMNS)[number] | (typeof OPTIONAL_COLUMNS)[number];
+const ALL_COLUMNS: readonly Column[] = [...ROSTER_CSV_COLUMNS, ...OPTIONAL_COLUMNS];
+
+/** Role used when the role cell is blank: a plain learner account. */
+export const DEFAULT_IMPORT_ROLE = 'AGENT' as const;
+
+/** Downloadable template: header plus two example rows (one LC-number agent, one email agent with blanks). */
+export function rosterTemplateCsv(exampleCohortId = 'THS'): string {
+  return [
+    [...ROSTER_CSV_COLUMNS, 'initialPassword'].join(','),
+    `Maria Lopez,LC-1101,,AGENT,${exampleCohortId},TELEHEALTH|INBOUND,`,
+    `Jordan Blake,,jordan.blake@example.com,,${exampleCohortId},,`,
+  ].join('\r\n') + '\r\n';
+}
 
 export interface ParsedRosterLine {
   lineNumber: number;
@@ -54,38 +72,74 @@ export function parseCsv(text: string): string[][] {
   return records.filter((cells) => cells.some((value) => value.trim().length > 0));
 }
 
-function isHeaderRow(cells: string[]): boolean {
-  return (cells[0] ?? '').trim().toLowerCase() === 'displayname';
+function normalizeHeader(value: string): string {
+  return value.replace(/^\uFEFF/, '').trim().toLowerCase().replace(/[\s_-]+/g, '');
 }
 
-export function parseRosterCsv(text: string): ParsedRosterLine[] {
-  const records = parseCsv(text);
-  const startsWithHeader = records.length > 0 && isHeaderRow(records[0]);
-  const body = startsWithHeader ? records.slice(1) : records;
+/** Map a header row to column positions; null when the row is not a header. */
+function headerIndex(cells: string[]): Partial<Record<Column, number>> | null {
+  if (normalizeHeader(cells[0] ?? '') !== 'displayname' && !cells.some((cell) => normalizeHeader(cell) === 'displayname')) return null;
+  const byName = new Map(ALL_COLUMNS.map((column) => [column.toLowerCase(), column]));
+  const index: Partial<Record<Column, number>> = {};
+  cells.forEach((cell, position) => {
+    const column = byName.get(normalizeHeader(cell));
+    if (column && index[column] === undefined) index[column] = position;
+  });
+  return index;
+}
+
+const POSITIONAL: Partial<Record<Column, number>> = Object.fromEntries(ALL_COLUMNS.map((column, i) => [column, i]));
+
+export function parseRosterCsv(
+  text: string,
+  options: { cohortDefaultDivisions?: Readonly<Record<string, readonly DivisionId[]>> } = {},
+): ParsedRosterLine[] {
+  const records = parseCsv(text.replace(/^\uFEFF/, ''));
+  const header = records.length > 0 ? headerIndex(records[0]) : null;
+  const columns = header ?? POSITIONAL;
+  const body = header ? records.slice(1) : records;
   return body.map((rawCells, index) => {
     const cells = rawCells.map((value) => value.trim());
-    const lineNumber = index + (startsWithHeader ? 2 : 1);
-    if (cells.length < ROSTER_CSV_COLUMNS.length) {
-      return { lineNumber, cells, row: null, error: `Expected ${ROSTER_CSV_COLUMNS.length} columns, found ${cells.length}.` };
+    const lineNumber = index + (header ? 2 : 1);
+    const cell = (column: Column) => {
+      const position = columns[column];
+      return position === undefined ? '' : (cells[position] ?? '');
+    };
+    if (header && columns.displayName === undefined) {
+      return { lineNumber, cells, row: null, error: 'The header needs a displayName column.' };
     }
-    const [displayName, lcNumber, email, role, partnerCohortId, divisionIds, initialPassword] = cells;
+    if (!header && cells.length < 5) {
+      return { lineNumber, cells, row: null, error: 'Expected at least displayName, lcNumber, email, role and partnerCohortId.' };
+    }
+    const lcNumber = cell('lcNumber');
+    const email = cell('email');
+    const role = cell('role');
+    const partnerCohortId = cell('partnerCohortId').toUpperCase();
+    const initialPassword = cell('initialPassword');
+    const divisionIds = cell('divisionIds')
+      .split('|')
+      .map((value) => value.trim().toUpperCase())
+      .filter((value) => value.length > 0);
     const candidate = {
-      displayName,
+      displayName: cell('displayName'),
       lcNumber: lcNumber ? lcNumber.toUpperCase() : undefined,
       email: email ? email.toLowerCase() : undefined,
-      role: role.toUpperCase(),
-      partnerCohortId: partnerCohortId.toUpperCase(),
-      divisionIds: divisionIds
-        .split('|')
-        .map((value) => value.trim().toUpperCase())
-        .filter((value) => value.length > 0),
+      role: role ? role.toUpperCase().replace(/[\s-]+/g, '_') : DEFAULT_IMPORT_ROLE,
+      partnerCohortId,
+      divisionIds: divisionIds.length > 0 ? divisionIds : [...(options.cohortDefaultDivisions?.[partnerCohortId] ?? [])],
       initialPassword: initialPassword ? initialPassword : undefined,
     };
     const parsed = RosterImportRowSchema.safeParse(candidate);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       const field = issue?.path.join('.') || 'row';
-      return { lineNumber, cells, row: null, error: issue ? `${field}: ${issue.message}` : 'The row is not valid.' };
+      const message =
+        field === 'divisionIds' && divisionIds.length === 0
+          ? 'divisionIds: leave blank only for an existing Cohort (it uses that Cohort’s default Divisions).'
+          : issue
+            ? `${field}: ${issue.message}`
+            : 'The row is not valid.';
+      return { lineNumber, cells, row: null, error: message };
     }
     return { lineNumber, cells, row: parsed.data, error: null };
   });
