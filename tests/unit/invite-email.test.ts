@@ -60,4 +60,29 @@ describe('sendEmail', () => {
     expect(JSON.stringify(result)).not.toContain('re_secret');
     expect(JSON.stringify(result)).toContain('domain not verified');
   });
+
+  it('prefers Gmail/Workspace SMTP when an App Password is configured, using the alias as From', async () => {
+    const sendMail = vi.fn(async () => ({ messageId: '<m1@gmail>' }));
+    const smtpFactory = vi.fn(() => ({ sendMail }));
+    const fetchImpl = vi.fn();
+    const env = {
+      SMTP_USER: 'connorleavitt@logicall.io',
+      SMTP_PASSWORD: 'abcd efgh ijkl mnop',
+      EMAIL_FROM: 'LogiCall Pulse <pulse@logicall.io>',
+      RESEND_API_KEY: 're_unused',
+    };
+    expect(emailConfigured(env)).toBe(true);
+    expect(await sendEmail(message, { env, fetchImpl, smtpFactory })).toEqual({ status: 'sent', id: '<m1@gmail>' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(smtpFactory).toHaveBeenCalledWith(expect.objectContaining({
+      host: 'smtp.gmail.com', port: 465, secure: true, auth: { user: 'connorleavitt@logicall.io', pass: 'abcdefghijklmnop' },
+    }));
+    expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ from: 'LogiCall Pulse <pulse@logicall.io>', to: 'pat@example.com' }));
+  });
+
+  it('reports an SMTP failure by code without the password', async () => {
+    const smtpFactory = vi.fn(() => ({ sendMail: vi.fn(async () => { throw Object.assign(new Error('Invalid login: secretpass'), { code: 'EAUTH' }); }) }));
+    const result = await sendEmail(message, { env: { SMTP_USER: 'a@logicall.io', SMTP_PASSWORD: 'secretpass', EMAIL_FROM: 'a@logicall.io' }, smtpFactory });
+    expect(result).toEqual({ status: 'failed', reason: 'smtp EAUTH' });
+  });
 });
