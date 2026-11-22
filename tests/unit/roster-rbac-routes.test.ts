@@ -441,7 +441,7 @@ describe('Roster RBAC & Cohort admin routes', () => {
     );
     expect(createRes.status).toBe(200);
     const created = (await createRes.json()) as { cohort: CohortDoc };
-    expect(created.cohort.joinCode).toMatch(/^BPOEAST-\d{4}$/);
+    expect(created.cohort.joinCode).toMatch(/^BPOEAST-[2-9A-Z]{4}-[2-9A-Z]{4}$/);
 
     const rotateRes = await patchUpdateCohort(
       new Request('http://localhost/api/roster/cohorts/BPO_EAST', {
@@ -477,7 +477,7 @@ describe('Roster RBAC & Cohort admin routes', () => {
     expect(body.createdIds).toEqual(expect.arrayContaining(['NGA', 'ZIM', 'MRR', 'CALL_CORE', 'LATAM_DIRECT']));
     expect(store.get('cohorts/THS')?.activeAgentCount).toBe(2);
     expect(store.get('cohorts/NGA')?.activeAgentCount).toBe(0);
-    expect(String(store.get('cohorts/NGA')?.joinCode)).toMatch(/^NGA-\d{4}$/);
+    expect(String(store.get('cohorts/NGA')?.joinCode)).toMatch(/^NGA-[2-9A-Z]{4}-[2-9A-Z]{4}$/);
   });
 
   function asActor(role: SessionUser['role'], uid = role === 'SUPER_ADMIN' ? 'super-1' : 'admin-1') {
