@@ -22,18 +22,19 @@ export async function readApiError(response: Response, fallback: string): Promis
 export function RoleRadioGroup({
   name,
   value,
-  canAssignSuperAdmin,
+  allowedRoles,
   onChange,
   legend = 'Role',
 }: {
   name: string;
   value: UserRole;
-  canAssignSuperAdmin: boolean;
+  /** Roles the signed-in admin may grant (from `assignableRoles`). The current value is always shown. */
+  allowedRoles: readonly UserRole[];
   onChange: (role: UserRole) => void;
   legend?: string;
 }) {
   const baseId = useId();
-  const visibleRoles = EDITABLE_ROLES.filter((role) => role !== 'SUPER_ADMIN' || canAssignSuperAdmin || value === 'SUPER_ADMIN');
+  const visibleRoles = EDITABLE_ROLES.filter((role) => allowedRoles.includes(role) || value === role);
 
   return (
     <fieldset className="space-y-2">
@@ -52,7 +53,7 @@ export function RoleRadioGroup({
                 name={name}
                 value={role}
                 checked={value === role}
-                disabled={role === 'SUPER_ADMIN' && !canAssignSuperAdmin}
+                disabled={!allowedRoles.includes(role)}
                 onChange={() => onChange(role)}
                 style={{ accentColor: 'var(--pulse-indigo)' }}
                 className="h-4 w-4 shrink-0"

@@ -1,4 +1,5 @@
 import type { UserRole } from '@/lib/schemas/domain';
+import { ALL_ROLES, can } from '@/lib/auth/rbac';
 
 export type NavIconName = 'home' | 'retention' | 'studio' | 'progress' | 'analytics' | 'roster';
 
@@ -15,11 +16,18 @@ const PROGRESS: NavItem = { href: '/progress', label: 'Team Progress', icon: 'pr
 const ANALYTICS: NavItem = { href: '/analytics', label: 'Analytics', icon: 'analytics' };
 const ROSTER: NavItem = { href: '/roster', label: 'Roster', icon: 'roster' };
 
-/** Sidebar navigation for each role (SWARM brief: navigation per role). */
-export const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
-  AGENT: [HOME, RETENTION],
-  PARTNER_SUPERVISOR: [HOME, PROGRESS, ANALYTICS],
-  TRAINER: [HOME, STUDIO, PROGRESS, ANALYTICS],
-  ADMIN: [HOME, STUDIO, PROGRESS, ANALYTICS, ROSTER],
-  SUPER_ADMIN: [HOME, STUDIO, PROGRESS, ANALYTICS, ROSTER],
-};
+function navFor(role: UserRole): NavItem[] {
+  const items: NavItem[] = [HOME];
+  // Agents get the Retention shortcut; staff can still open /learn/review directly.
+  if (role === 'AGENT') items.push(RETENTION);
+  if (can(role, 'tracks.author')) items.push(STUDIO);
+  if (can(role, 'progress.view')) items.push(PROGRESS);
+  if (can(role, 'analytics.view')) items.push(ANALYTICS);
+  if (can(role, 'roster.view')) items.push(ROSTER);
+  return items;
+}
+
+/** Sidebar navigation for each role, derived from the RBAC matrix in `@/lib/auth/rbac`. */
+export const NAV_BY_ROLE: Record<UserRole, NavItem[]> = Object.fromEntries(
+  ALL_ROLES.map((role) => [role, navFor(role)]),
+) as Record<UserRole, NavItem[]>;

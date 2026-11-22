@@ -13,10 +13,19 @@ import {
   type UserDoc,
   type UserRole,
 } from '@/lib/schemas/domain';
-import { DIVISION_LABELS, ROLE_LABELS, ROSTER_ADMIN_ROLES } from '@/lib/schemas/constants';
+import { DIVISION_LABELS, ROLE_LABELS } from '@/lib/schemas/constants';
+import { assignableRoles, can, canManageRole, canManageUser, rolesWith } from '@/lib/auth/rbac';
 import { cn } from '@/lib/utils';
 import { BulkImportDialog } from './_components/BulkImportDialog';
-import { BootstrapCohortsButton, CohortCardActions, CreateCohortDialog, RevokeInviteButton } from './_components/CohortAdminControls';
+import {
+  BootstrapCohortsButton,
+  CohortCardActions,
+  CreateCohortDialog,
+  DeleteCohortDialog,
+  EditCohortDialog,
+  RevokeInviteButton,
+} from './_components/CohortAdminControls';
+import { RolesPermissionsPanel } from './_components/RolesPermissionsPanel';
 import { CopyJoinLinkButton } from './_components/CopyJoinLinkButton';
 import { EditUserPermissionsDialog } from './_components/EditUserPermissionsDialog';
 import { InviteStaffDialog } from './_components/InviteStaffDialog';
@@ -108,7 +117,7 @@ export default async function RosterPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const actor = await requirePageUser(ROSTER_ADMIN_ROLES);
+  const actor = await requirePageUser(rolesWith('roster.view'));
   const params = await searchParams;
 
   const [cohortSnaps, inviteSnaps] = await Promise.all([
@@ -159,7 +168,18 @@ export default async function RosterPage({
 
   const activeCount = allRows.filter((row) => row.active).length;
   const inactiveCount = allRows.length - activeCount;
-  const canManageSuperAdmin = actor.role === 'SUPER_ADMIN';
+  const allowedRoles = assignableRoles(actor.role);
+  const canEditCohorts = can(actor.role, 'cohorts.edit');
+  const canDeleteCohorts = can(actor.role, 'cohorts.delete');
+  // Every user (active or not) still pins a Cohort, so deletion stays blocked until it is empty.
+  const memberCounts = new Map(
+    await Promise.all(
+      cohorts.map(async (cohort) => {
+        const snap = await adminDb.collection('users').where('partnerCohortId', '==', cohort.id).count().get();
+        return [cohort.id, snap.data().count] as const;
+      }),
+    ),
+  );
 
   return (
     <div className="space-y-5">
@@ -174,11 +194,11 @@ export default async function RosterPage({
         <div className="flex flex-wrap items-center gap-2">
           <InviteStaffDialog
             cohorts={cohortChoices.map((c) => ({ id: c.id, name: c.name }))}
-            canAssignSuperAdmin={canManageSuperAdmin}
+            allowedRoles={allowedRoles}
           />
           <BulkImportDialog
             cohorts={cohortChoices.map((c) => ({ id: c.id, name: c.name }))}
-            canCreateSuperAdmin={canManageSuperAdmin}
+            allowedRoles={allowedRoles}
           />
         </div>
       </header>
@@ -202,8 +222,16 @@ export default async function RosterPage({
             {cohorts.map((cohort) => (
               <article key={cohort.id} className="pulse-card flex flex-col gap-2 p-3">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold">{cohort.name}</h3>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1">
+                      <h3 className="truncate font-semibold">{cohort.name}</h3>
+                      {canEditCohorts ? (
+                        <EditCohortDialog cohortId={cohort.id} cohortName={cohort.name} defaultDivisionIds={cohort.defaultDivisionIds} />
+                      ) : null}
+                      {canDeleteCohorts && !cohort.isInternal ? (
+                        <DeleteCohortDialog cohortId={cohort.id} cohortName={cohort.name} memberCount={memberCounts.get(cohort.id) ?? 0} />
+                      ) : null}
+                    </div>
                     <p className="pulse-metric text-xs text-pulse-muted">{cohort.id}</p>
                   </div>
                   <div className="text-right">
@@ -267,7 +295,7 @@ export default async function RosterPage({
               </thead>
               <tbody>
                 {pendingInvites.map((invite) => {
-                  const lockedInvite = invite.role === 'SUPER_ADMIN' && !canManageSuperAdmin;
+                  const lockedInvite = !canManageRole(actor.role, invite.role);
                   return (
                     <tr key={invite.id} className="border-b border-pulse-border-subtle last:border-0">
                       <th scope="row" className="px-3 py-2 font-medium">
@@ -292,7 +320,7 @@ export default async function RosterPage({
                       <td className="px-3 py-2 text-xs text-pulse-muted">{formatExpiry(invite.expiresAt)}</td>
                       <td className="px-3 py-2 text-right">
                         {lockedInvite ? (
-                          <span className="text-xs text-pulse-muted">Super Admin only</span>
+                          <span className="text-xs text-pulse-muted">Higher role</span>
                         ) : (
                           <RevokeInviteButton inviteId={invite.id} displayName={invite.displayName} />
                         )}
@@ -346,7 +374,7 @@ export default async function RosterPage({
               ) : (
                 rows.map((row) => {
                   const isSelf = row.uid === actor.uid;
-                  const locked = isSelf || (row.role === 'SUPER_ADMIN' && !canManageSuperAdmin);
+                  const locked = !canManageUser(actor, row, 'users.editAccess');
                   return (
                     <tr
                       key={row.uid}
@@ -397,13 +425,13 @@ export default async function RosterPage({
                       </td>
                       <td className="px-3 py-2 text-right">
                         {locked ? (
-                          <span className="text-xs text-pulse-muted">{isSelf ? 'Your account' : 'Super Admin only'}</span>
+                          <span className="text-xs text-pulse-muted">{isSelf ? 'Your account' : 'Higher role'}</span>
                         ) : (
                           <div className="flex flex-nowrap items-center justify-end gap-1">
                             <EditUserPermissionsDialog
                               user={row}
                               cohorts={cohortChoices}
-                              canAssignSuperAdmin={canManageSuperAdmin}
+                              allowedRoles={allowedRoles}
                             />
                             {row.authMethod !== 'GOOGLE_SSO' ? (
                               <ResetPasswordDialog
@@ -429,6 +457,8 @@ export default async function RosterPage({
           </p>
         ) : null}
       </section>
+
+      <RolesPermissionsPanel actorRole={actor.role} />
     </div>
   );
 }

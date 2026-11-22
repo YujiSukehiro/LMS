@@ -1,5 +1,6 @@
 import type { CanonicalPillarKey } from './curriculum';
 import type { DivisionId, UserRole } from './domain';
+import { rolesWith } from '@/lib/auth/rbac';
 
 export const SESSION_COOKIE_NAME = '__session';
 export const SESSION_COOKIE_MAX_AGE_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
@@ -52,12 +53,12 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   AGENT: 'Agent',
 };
 
-/** Roles with cross-Cohort visibility and Track authoring rights. */
-export const INTERNAL_OPS_ROLES: readonly UserRole[] = ['SUPER_ADMIN', 'ADMIN', 'TRAINER'];
-/** Roles that manage the roster. */
-export const ROSTER_ADMIN_ROLES: readonly UserRole[] = ['SUPER_ADMIN', 'ADMIN'];
-/** Roles that can open analytics. */
-export const ANALYTICS_ROLES: readonly UserRole[] = ['SUPER_ADMIN', 'ADMIN', 'TRAINER', 'PARTNER_SUPERVISOR'];
+/** Roles with cross-Cohort visibility and Track authoring rights (derived from the RBAC matrix). */
+export const INTERNAL_OPS_ROLES: readonly UserRole[] = rolesWith('tracks.author');
+/** Roles that open the roster (derived from the RBAC matrix; per-action checks use `can`/`canManageUser`). */
+export const ROSTER_ADMIN_ROLES: readonly UserRole[] = rolesWith('roster.view');
+/** Roles that can open analytics (derived from the RBAC matrix). */
+export const ANALYTICS_ROLES: readonly UserRole[] = rolesWith('analytics.view');
 
 /** The 8 canonical CompetencyPillar keys and display labels (docs/04 §3.2). */
 export const CANONICAL_PILLARS: ReadonlyArray<{ key: CanonicalPillarKey; label: string; shortLabel: string }> = [

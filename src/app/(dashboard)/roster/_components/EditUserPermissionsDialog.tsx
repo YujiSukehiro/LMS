@@ -22,11 +22,11 @@ interface EditableUser {
 export function EditUserPermissionsDialog({
   user,
   cohorts,
-  canAssignSuperAdmin,
+  allowedRoles,
 }: {
   user: EditableUser;
   cohorts: Array<{ id: string; name: string; isInternal: boolean }>;
-  canAssignSuperAdmin: boolean;
+  allowedRoles: readonly UserRole[];
 }) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -156,7 +156,7 @@ export function EditUserPermissionsDialog({
             <RoleRadioGroup
               name={`role-${user.uid}`}
               value={role}
-              canAssignSuperAdmin={canAssignSuperAdmin}
+              allowedRoles={allowedRoles}
               onChange={handleRoleChange}
             />
 

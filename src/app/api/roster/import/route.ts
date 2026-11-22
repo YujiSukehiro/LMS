@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { assignableRoles, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminAuth, adminDb, firebaseErrorCode } from '@/lib/firebase/admin';
 import { requireAuth } from '@/lib/firebase/auth-guard';
@@ -9,7 +10,6 @@ import {
   type RosterImportResponse,
   type RosterImportRow,
 } from '@/lib/schemas/api';
-import { ROSTER_ADMIN_ROLES } from '@/lib/schemas/constants';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,7 +31,7 @@ interface CreatedCredential {
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
-  const auth = await requireAuth(req, ROSTER_ADMIN_ROLES);
+  const auth = await requireAuth(req, rolesWith('users.invite'));
   if (!auth.ok) return auth.response;
   const actor = auth.user;
 
@@ -60,8 +60,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     const row = rows[rowIndex];
     const fail = (message: string) => errors.push({ rowIndex, message });
 
-    if (row.role === 'SUPER_ADMIN' && actor.role !== 'SUPER_ADMIN') {
-      fail('Only a Super Admin can create a Super Admin account.');
+    if (!assignableRoles(actor.role).includes(row.role)) {
+      fail(manageDeniedReason(actor.role, row.role));
       continue;
     }
     if (!cohortIds.has(row.partnerCohortId)) {

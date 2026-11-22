@@ -1,16 +1,18 @@
 import { NextResponse } from 'next/server';
+import { FieldValue } from 'firebase-admin/firestore';
+import { rolesWith } from '@/lib/auth/rbac';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { RosterCohortResponseSchema, RosterUpdateCohortRequestSchema } from '@/lib/schemas/api';
-import { ROSTER_ADMIN_ROLES } from '@/lib/schemas/constants';
 import { CohortDocSchema } from '@/lib/schemas/domain';
+import { ALL_COHORTS_ID } from '@/lib/schemas/constants';
 import { generateUniqueJoinCode } from '@/lib/services/cohort-join-code';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ cohortId: string }> }): Promise<NextResponse> {
-  const auth = await requireAuth(req, ROSTER_ADMIN_ROLES);
+  const auth = await requireAuth(req, rolesWith('cohorts.edit'));
   if (!auth.ok) return auth.response;
   const { cohortId } = await params;
 
@@ -94,6 +96,65 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ cohort
 
   return NextResponse.json(
     RosterCohortResponseSchema.parse({ ok: true, cohort: updated }),
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
+}
+
+/**
+ * DELETE /api/roster/cohorts/[cohortId] — remove an empty Cohort.
+ * Refuses while any user or pending invite still belongs to it, or while a Track is assigned only to it,
+ * so nobody is orphaned. Other Track assignments drop the Cohort; learner history keeps its old Cohort id.
+ */
+export async function DELETE(req: Request, { params }: { params: Promise<{ cohortId: string }> }): Promise<NextResponse> {
+  const auth = await requireAuth(req, rolesWith('cohorts.delete'));
+  if (!auth.ok) return auth.response;
+  const { cohortId } = await params;
+  if (!cohortId || cohortId.includes('/') || cohortId === ALL_COHORTS_ID) {
+    return jsonError(400, 'VALIDATION_FAILED', 'This Cohort cannot be deleted.');
+  }
+
+  const ref = adminDb.collection('cohorts').doc(cohortId);
+  const snap = await ref.get();
+  if (!snap.exists) return jsonError(404, 'NOT_FOUND', `Cohort "${cohortId}" does not exist.`);
+  const cohort = CohortDocSchema.safeParse({ id: snap.id, ...snap.data() });
+  if (cohort.success && cohort.data.isInternal) {
+    return jsonError(400, 'INTERNAL_COHORT', 'The internal staff Cohort cannot be deleted.');
+  }
+
+  const [usersCount, invitesSnap, tracksSnap] = await Promise.all([
+    adminDb.collection('users').where('partnerCohortId', '==', cohortId).count().get(),
+    adminDb.collection('rosterInvites').where('partnerCohortId', '==', cohortId).where('status', '==', 'PENDING').limit(50).get(),
+    adminDb.collection('tracks').where('assignedCohortIds', 'array-contains', cohortId).get(),
+  ]);
+  const userCount = usersCount.data().count;
+  if (userCount > 0) {
+    return jsonError(
+      409,
+      'COHORT_NOT_EMPTY',
+      `${userCount} user${userCount === 1 ? '' : 's'} still belong${userCount === 1 ? 's' : ''} to this Cohort (including deactivated users). Move them to another Cohort with Access first.`,
+    );
+  }
+  if (!invitesSnap.empty) {
+    return jsonError(409, 'COHORT_HAS_INVITES', `Revoke the ${invitesSnap.size} pending invite${invitesSnap.size === 1 ? '' : 's'} for this Cohort first.`);
+  }
+  const onlyHere = tracksSnap.docs.filter((doc) => {
+    const ids = doc.get('assignedCohortIds');
+    return Array.isArray(ids) && ids.length === 1;
+  });
+  if (onlyHere.length > 0) {
+    const titles = onlyHere.map((doc) => `"${String(doc.get('title') ?? doc.id)}"`).join(', ');
+    return jsonError(409, 'COHORT_ONLY_TRACK_ASSIGNMENT', `${titles} ${onlyHere.length === 1 ? 'is' : 'are'} assigned only to this Cohort. Assign ${onlyHere.length === 1 ? 'it' : 'them'} to another Cohort before deleting.`);
+  }
+
+  const batch = adminDb.batch();
+  for (const doc of tracksSnap.docs) {
+    batch.update(doc.ref, { assignedCohortIds: FieldValue.arrayRemove(cohortId), updatedAt: Date.now() });
+  }
+  batch.delete(ref);
+  await batch.commit();
+
+  return NextResponse.json(
+    { ok: true, cohortId, removedFromTrackIds: tracksSnap.docs.map((doc) => doc.id) },
     { headers: { 'Cache-Control': 'no-store' } },
   );
 }

@@ -10,10 +10,10 @@ import { DivisionCheckboxes, RoleRadioGroup, readApiError } from './RosterFormFi
 
 export function InviteStaffDialog({
   cohorts,
-  canAssignSuperAdmin,
+  allowedRoles,
 }: {
   cohorts: Array<{ id: string; name: string }>;
-  canAssignSuperAdmin: boolean;
+  allowedRoles: readonly UserRole[];
 }) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -168,7 +168,7 @@ export function InviteStaffDialog({
             <RoleRadioGroup
               name="invite-role"
               value={role}
-              canAssignSuperAdmin={canAssignSuperAdmin}
+              allowedRoles={allowedRoles}
               onChange={handleRoleChange}
             />
 

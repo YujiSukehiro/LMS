@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus, RefreshCw, X } from 'lucide-react';
+import { Loader2, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { RosterCohortResponseSchema } from '@/lib/schemas/api';
 import type { DivisionId } from '@/lib/schemas/domain';
 import { DivisionCheckboxes, readApiError } from './RosterFormFields';
@@ -329,5 +329,198 @@ export function BootstrapCohortsButton() {
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** Rename a Cohort and change its default Divisions (internal Cohort included). */
+export function EditCohortDialog({
+  cohortId,
+  cohortName,
+  defaultDivisionIds,
+}: {
+  cohortId: string;
+  cohortName: string;
+  defaultDivisionIds: DivisionId[];
+}) {
+  const router = useRouter();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const nameId = useId();
+  const [name, setName] = useState(cohortName);
+  const [divisionIds, setDivisionIds] = useState<DivisionId[]>(defaultDivisionIds);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function open(): void {
+    setName(cohortName);
+    setDivisionIds(defaultDivisionIds);
+    setError(null);
+    dialogRef.current?.showModal();
+  }
+
+  async function submit(e: FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    if (name.trim().length < 2) return setError('Enter a name with at least 2 characters.');
+    if (divisionIds.length === 0) return setError('Select at least one Division.');
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/roster/cohorts/${encodeURIComponent(cohortId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_details', name: name.trim(), defaultDivisionIds: divisionIds }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response, 'The Cohort could not be saved.'));
+      RosterCohortResponseSchema.parse(await response.json());
+      dialogRef.current?.close();
+      router.refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'The Cohort could not be saved.');
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="pulse-btn pulse-btn-ghost size-7 min-h-0 p-0"
+        aria-label={`Edit ${cohortName}`}
+        title="Edit Cohort"
+        onClick={open}
+      >
+        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      <dialog ref={dialogRef} className="pulse-dialog text-left" aria-labelledby={titleId}>
+        <form onSubmit={submit} className="flex flex-col">
+          <div className="border-b border-pulse-border-subtle p-5">
+            <h2 id={titleId} className="text-lg font-semibold">Edit {cohortName}</h2>
+            <p className="mt-0.5 text-xs text-pulse-muted">
+              Cohort ID <span className="pulse-metric">{cohortId}</span> stays the same.
+            </p>
+          </div>
+          <div className="space-y-4 p-5">
+            <div>
+              <label htmlFor={nameId} className="pulse-label mb-1.5 block">Display name</label>
+              <input id={nameId} className="pulse-input" value={name} onChange={(e) => setName(e.target.value)} required />
+            </div>
+            <DivisionCheckboxes
+              name={`edit-divisions-${cohortId}`}
+              legend="Default divisions"
+              selected={divisionIds}
+              onToggle={(id) => setDivisionIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]))}
+            />
+            {error ? <p role="alert" className="text-sm text-pulse-crimson">{error}</p> : null}
+          </div>
+          <div className="flex justify-end gap-2 border-t border-pulse-border-subtle p-5">
+            <button type="button" className="pulse-btn pulse-btn-ghost" onClick={() => dialogRef.current?.close()} disabled={pending}>
+              Cancel
+            </button>
+            <button type="submit" className="pulse-btn pulse-btn-primary" disabled={pending}>
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+              Save
+            </button>
+          </div>
+        </form>
+      </dialog>
+    </>
+  );
+}
+
+/** Delete an empty Cohort after a typed confirmation; the server refuses while users, invites or sole Track assignments remain. */
+export function DeleteCohortDialog({
+  cohortId,
+  cohortName,
+  memberCount,
+}: {
+  cohortId: string;
+  cohortName: string;
+  memberCount: number;
+}) {
+  const router = useRouter();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const confirmId = useId();
+  const [typed, setTyped] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function open(): void {
+    setTyped('');
+    setError(null);
+    dialogRef.current?.showModal();
+  }
+
+  async function remove(): Promise<void> {
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/roster/cohorts/${encodeURIComponent(cohortId)}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error(await readApiError(response, 'The Cohort could not be deleted.'));
+      dialogRef.current?.close();
+      router.refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'The Cohort could not be deleted.');
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="pulse-btn pulse-btn-ghost size-7 min-h-0 p-0 text-pulse-crimson"
+        aria-label={`Delete ${cohortName}`}
+        title="Delete Cohort"
+        onClick={open}
+      >
+        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      <dialog ref={dialogRef} className="pulse-dialog text-left" aria-labelledby={titleId}>
+        <div className="p-5">
+          <h2 id={titleId} className="text-lg font-semibold">Delete {cohortName}?</h2>
+          {memberCount > 0 ? (
+            <p className="mt-2 text-sm text-pulse-secondary">
+              <span className="pulse-metric">{memberCount}</span> user{memberCount === 1 ? '' : 's'} still belong
+              {memberCount === 1 ? 's' : ''} to this Cohort. Move {memberCount === 1 ? 'them' : 'them all'} to another Cohort with
+              <span className="font-medium"> Access</span> before deleting.
+            </p>
+          ) : (
+            <>
+              <p className="mt-2 text-sm text-pulse-secondary">
+                This removes the Cohort and its join code. Tracks assigned to it will no longer list it. This cannot be undone.
+              </p>
+              <label htmlFor={confirmId} className="pulse-label mb-1.5 mt-4 block">
+                Type <span className="pulse-metric normal-case">{cohortId}</span> to confirm
+              </label>
+              <input
+                id={confirmId}
+                className="pulse-input pulse-metric"
+                autoComplete="off"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value.toUpperCase())}
+              />
+            </>
+          )}
+          {error ? <p role="alert" className="mt-3 text-sm text-pulse-crimson">{error}</p> : null}
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" className="pulse-btn pulse-btn-ghost" onClick={() => dialogRef.current?.close()} disabled={pending}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="pulse-btn pulse-btn-danger"
+              onClick={() => void remove()}
+              disabled={pending || memberCount > 0 || typed !== cohortId}
+            >
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+              Delete Cohort
+            </button>
+          </div>
+        </div>
+      </dialog>
+    </>
   );
 }

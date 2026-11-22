@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
+import { canManageRole, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminAuth, adminDb, firebaseErrorCode } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { claimsForUser, parseStoredUserDoc, writeCustomClaims } from '@/lib/firebase/users';
 import { RosterStatusRequestSchema } from '@/lib/schemas/api';
-import { ROSTER_ADMIN_ROLES } from '@/lib/schemas/constants';
 import type { UserDoc } from '@/lib/schemas/domain';
 
 export const runtime = 'nodejs';
@@ -21,7 +21,7 @@ class StatusError extends Error {
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ uid: string }> }): Promise<NextResponse> {
-  const auth = await requireAuth(req, ROSTER_ADMIN_ROLES);
+  const auth = await requireAuth(req, rolesWith('users.deactivate'));
   if (!auth.ok) return auth.response;
   const actor = auth.user;
   const { uid } = await params;
@@ -43,8 +43,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ uid: s
       const snap = await tx.get(userRef);
       if (!snap.exists) throw new StatusError(404, 'NOT_FOUND', 'This user does not exist.');
       const user = parseStoredUserDoc(uid, snap.data() ?? {});
-      if (user.role === 'SUPER_ADMIN' && actor.role !== 'SUPER_ADMIN') {
-        throw new StatusError(403, 'FORBIDDEN', 'Only a Super Admin can change the status of a Super Admin.');
+      if (!canManageRole(actor.role, user.role)) {
+        throw new StatusError(403, 'FORBIDDEN', manageDeniedReason(actor.role, user.role));
       }
       if (user.active === active) return user;
 

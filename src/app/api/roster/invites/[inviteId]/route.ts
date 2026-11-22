@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
+import { canManageRole, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { RosterRevokeInviteRequestSchema, RosterRevokeInviteResponseSchema } from '@/lib/schemas/api';
-import { ROSTER_ADMIN_ROLES } from '@/lib/schemas/constants';
 import { RosterInviteDocSchema } from '@/lib/schemas/domain';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ inviteId: string }> }): Promise<NextResponse> {
-  const auth = await requireAuth(req, ROSTER_ADMIN_ROLES);
+  const auth = await requireAuth(req, rolesWith('users.invite'));
   if (!auth.ok) return auth.response;
   const actor = auth.user;
   const { inviteId } = await params;
@@ -27,8 +27,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ invite
   const invite = RosterInviteDocSchema.safeParse({ id: snap.id, ...snap.data() });
   if (!invite.success) return jsonError(404, 'NOT_FOUND', 'This invite record is not valid.');
 
-  if (invite.data.role === 'SUPER_ADMIN' && actor.role !== 'SUPER_ADMIN') {
-    return jsonError(403, 'FORBIDDEN', 'Only a Super Admin can revoke a Super Admin invite.');
+  if (!canManageRole(actor.role, invite.data.role)) {
+    return jsonError(403, 'FORBIDDEN', manageDeniedReason(actor.role, invite.data.role));
   }
   if (invite.data.status !== 'PENDING') {
     return jsonError(409, 'ALREADY_FINALIZED', 'Only pending invites can be revoked.');

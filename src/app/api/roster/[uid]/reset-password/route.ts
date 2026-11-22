@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
+import { canManageUser, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { adminAuth, adminDb, firebaseErrorCode } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { generateTemporaryPassword, parseStoredUserDoc } from '@/lib/firebase/users';
 import { RosterResetPasswordRequestSchema, RosterResetPasswordResponseSchema } from '@/lib/schemas/api';
-import { ROSTER_ADMIN_ROLES } from '@/lib/schemas/constants';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request, { params }: { params: Promise<{ uid: string }> }): Promise<NextResponse> {
-  const auth = await requireAuth(req, ROSTER_ADMIN_ROLES);
+  const auth = await requireAuth(req, rolesWith('users.resetPassword'));
   if (!auth.ok) return auth.response;
   const actor = auth.user;
   const { uid } = await params;
@@ -26,8 +26,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ uid: st
   if (!snap.exists) return jsonError(404, 'NOT_FOUND', 'This user does not exist.');
   const user = parseStoredUserDoc(uid, snap.data() ?? {});
 
-  if (user.role === 'SUPER_ADMIN' && actor.role !== 'SUPER_ADMIN') {
-    return jsonError(403, 'FORBIDDEN', 'Only a Super Admin can reset a Super Admin password.');
+  if (!canManageUser(actor, { uid, role: user.role }, 'users.resetPassword')) {
+    return jsonError(403, 'FORBIDDEN', uid === actor.uid ? 'Change your own password from the sign-in page.' : manageDeniedReason(actor.role, user.role));
   }
   if (user.authMethod === 'GOOGLE_SSO') {
     return jsonError(

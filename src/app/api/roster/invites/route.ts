@@ -1,16 +1,16 @@
 import { NextResponse } from 'next/server';
+import { assignableRoles, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { isSyntheticLcEmail } from '@/lib/firebase/lc-id';
 import { RosterCreateInviteRequestSchema, RosterCreateInviteResponseSchema } from '@/lib/schemas/api';
-import { ROSTER_ADMIN_ROLES } from '@/lib/schemas/constants';
 import { RosterInviteDocSchema } from '@/lib/schemas/domain';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request): Promise<NextResponse> {
-  const auth = await requireAuth(req, ROSTER_ADMIN_ROLES);
+  const auth = await requireAuth(req, rolesWith('users.invite'));
   if (!auth.ok) return auth.response;
   const actor = auth.user;
 
@@ -22,8 +22,8 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const input = parsed.data;
 
-  if (input.role === 'SUPER_ADMIN' && actor.role !== 'SUPER_ADMIN') {
-    return jsonError(403, 'FORBIDDEN', 'Only a Super Admin can invite a Super Admin.');
+  if (!assignableRoles(actor.role).includes(input.role)) {
+    return jsonError(403, 'FORBIDDEN', manageDeniedReason(actor.role, input.role));
   }
   if (isSyntheticLcEmail(input.email)) {
     return jsonError(

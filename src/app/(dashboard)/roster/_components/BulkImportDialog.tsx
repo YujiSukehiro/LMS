@@ -1,5 +1,7 @@
 'use client';
 
+import type { UserRole } from '@/lib/schemas/domain';
+
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, CheckCircle2, Download, Loader2, Upload, X } from 'lucide-react';
@@ -16,10 +18,10 @@ const EXAMPLE_CSV = [
 
 export function BulkImportDialog({
   cohorts,
-  canCreateSuperAdmin,
+  allowedRoles,
 }: {
   cohorts: Array<{ id: string; name: string }>;
-  canCreateSuperAdmin: boolean;
+  allowedRoles: readonly UserRole[];
 }) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -36,12 +38,12 @@ export function BulkImportDialog({
       if (!cohortIds.has(line.row.partnerCohortId)) {
         return { ...line, row: null, error: `Cohort "${line.row.partnerCohortId}" does not exist.` };
       }
-      if (line.row.role === 'SUPER_ADMIN' && !canCreateSuperAdmin) {
-        return { ...line, row: null, error: 'Only a Super Admin can create a Super Admin account.' };
+      if (!allowedRoles.includes(line.row.role)) {
+        return { ...line, row: null, error: `You can't create ${line.row.role} accounts. You can only add roles below your own.` };
       }
       return line;
     });
-  }, [csvText, cohortIds, canCreateSuperAdmin]);
+  }, [csvText, cohortIds, allowedRoles]);
 
   const validRows = lines.flatMap((line) => (line.row ? [line.row] : []));
   const invalidCount = lines.length - validRows.length;

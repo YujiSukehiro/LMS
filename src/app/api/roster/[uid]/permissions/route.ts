@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { assignableRoles, canManageRole, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminAuth, adminDb, firebaseErrorCode } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
@@ -7,7 +8,6 @@ import {
   RosterUpdatePermissionsRequestSchema,
   RosterUpdatePermissionsResponseSchema,
 } from '@/lib/schemas/api';
-import { ROSTER_ADMIN_ROLES } from '@/lib/schemas/constants';
 import type { UserDoc } from '@/lib/schemas/domain';
 
 export const runtime = 'nodejs';
@@ -29,7 +29,7 @@ function safeDecrementDelta(currentCount: unknown): number {
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ uid: string }> }): Promise<NextResponse> {
-  const auth = await requireAuth(req, ROSTER_ADMIN_ROLES);
+  const auth = await requireAuth(req, rolesWith('users.editAccess'));
   if (!auth.ok) return auth.response;
   const actor = auth.user;
   const { uid } = await params;
@@ -54,12 +54,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ uid: s
       if (uid === actor.uid && (input.role !== existing.role || input.partnerCohortId !== existing.partnerCohortId)) {
         throw new PermissionsError(400, 'CANNOT_CHANGE_SELF', 'You cannot change your own role or Cohort.');
       }
-      if ((existing.role === 'SUPER_ADMIN' || input.role === 'SUPER_ADMIN') && actor.role !== 'SUPER_ADMIN') {
-        throw new PermissionsError(
-          403,
-          'FORBIDDEN',
-          'Only a Super Admin can grant or modify Super Admin access.',
-        );
+      // Hierarchy: manage only roles below your own (Super Admins manage everyone), and grant only those roles.
+      if (uid !== actor.uid && !canManageRole(actor.role, existing.role)) {
+        throw new PermissionsError(403, 'FORBIDDEN', manageDeniedReason(actor.role, existing.role));
+      }
+      if (input.role !== existing.role && !assignableRoles(actor.role).includes(input.role)) {
+        throw new PermissionsError(403, 'FORBIDDEN', manageDeniedReason(actor.role, input.role));
       }
 
       const nextCohortRef = adminDb.collection('cohorts').doc(input.partnerCohortId);

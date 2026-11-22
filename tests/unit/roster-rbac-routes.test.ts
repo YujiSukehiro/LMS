@@ -10,7 +10,11 @@ const { store, adminDb, activeActor, mockUpdateUser, mockRevokeRefreshTokens, mo
   const applyPatch = (target: DocData, patch: DocData): DocData => {
     const next = structuredClone(target);
     for (const [key, value] of Object.entries(patch)) {
-      if (typeof value === 'object' && value !== null && '__increment' in value) {
+      if (typeof value === 'object' && value !== null && '__arrayRemove' in value) {
+        const removed = (value as { __arrayRemove: unknown[] }).__arrayRemove;
+        const prev = Array.isArray(next[key]) ? (next[key] as unknown[]) : [];
+        next[key] = prev.filter((item) => !removed.includes(item));
+      } else if (typeof value === 'object' && value !== null && '__increment' in value) {
         const delta = (value as { __increment: number }).__increment;
         const prev = typeof next[key] === 'number' ? (next[key] as number) : 0;
         next[key] = prev + delta;
@@ -50,11 +54,14 @@ const { store, adminDb, activeActor, mockUpdateUser, mockRevokeRefreshTokens, mo
     return ref;
   };
 
-  const runQuery = (name: string, filters: Array<{ field: string; value: unknown }>) => {
+  type Filter = { field: string; op: string; value: unknown };
+  const matches = (data: DocData, f: Filter) =>
+    f.op === 'array-contains' ? Array.isArray(data[f.field]) && (data[f.field] as unknown[]).includes(f.value) : data[f.field] === f.value;
+  const runQuery = (name: string, filters: Filter[]) => {
     const prefix = `${name}/`;
     const docs = [...store.entries()]
       .filter(([path]) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
-      .filter(([, data]) => filters.every((f) => data[f.field] === f.value))
+      .filter(([, data]) => filters.every((f) => matches(data, f)))
       .map(([path, data]) => {
         const ref = makeRef(path);
         return {
@@ -70,13 +77,15 @@ const { store, adminDb, activeActor, mockUpdateUser, mockRevokeRefreshTokens, mo
 
   const adminDb = {
     collection: (name: string) => {
-      const queryFor = (filters: Array<{ field: string; value: unknown }>) => ({
+      const queryFor = (filters: Filter[]): Record<string, unknown> => ({
+        where: (field: string, op: string, value: unknown) => queryFor([...filters, { field, op, value }]),
         limit: () => ({ get: async () => runQuery(name, filters) }),
+        count: () => ({ get: async () => ({ data: () => ({ count: runQuery(name, filters).size }) }) }),
         get: async () => runQuery(name, filters),
       });
       return {
         doc: (id?: string) => makeRef(`${name}/${id ?? `auto_${++autoId}`}`),
-        where: (field: string, _op: string, value: unknown) => queryFor([{ field, value }]),
+        where: (field: string, op: string, value: unknown) => queryFor([{ field, op, value }]),
         get: async () => runQuery(name, []),
       };
     },
@@ -88,6 +97,11 @@ const { store, adminDb, activeActor, mockUpdateUser, mockRevokeRefreshTokens, mo
         },
         update: (ref: ReturnType<typeof makeRef>, patch: DocData) => {
           ops.push(() => ref.update(patch));
+        },
+        delete: (ref: ReturnType<typeof makeRef>) => {
+          ops.push(async () => {
+            store.delete(ref.path);
+          });
         },
         commit: async () => {
           for (const op of ops) await op();
@@ -131,7 +145,10 @@ const { store, adminDb, activeActor, mockUpdateUser, mockRevokeRefreshTokens, mo
 });
 
 vi.mock('firebase-admin/firestore', () => ({
-  FieldValue: { increment: (n: number) => ({ __increment: n }) },
+  FieldValue: {
+    increment: (n: number) => ({ __increment: n }),
+    arrayRemove: (...items: unknown[]) => ({ __arrayRemove: items }),
+  },
 }));
 
 vi.mock('@/lib/firebase/admin', () => ({
@@ -171,7 +188,8 @@ import { POST as postCreateInvite } from '@/app/api/roster/invites/route';
 import { PATCH as patchRevokeInvite } from '@/app/api/roster/invites/[inviteId]/route';
 import { POST as postCreateCohort } from '@/app/api/roster/cohorts/route';
 import { POST as postBootstrapCohorts } from '@/app/api/roster/cohorts/bootstrap/route';
-import { PATCH as patchUpdateCohort } from '@/app/api/roster/cohorts/[cohortId]/route';
+import { DELETE as deleteCohort, PATCH as patchUpdateCohort } from '@/app/api/roster/cohorts/[cohortId]/route';
+import { PATCH as patchStatus } from '@/app/api/roster/[uid]/status/route';
 
 function seedCohort(id: string, name: string, overrides: Partial<CohortDoc> = {}) {
   const doc: CohortDoc = {
@@ -460,5 +478,96 @@ describe('Roster RBAC & Cohort admin routes', () => {
     expect(store.get('cohorts/THS')?.activeAgentCount).toBe(2);
     expect(store.get('cohorts/NGA')?.activeAgentCount).toBe(0);
     expect(String(store.get('cohorts/NGA')?.joinCode)).toMatch(/^NGA-\d{4}$/);
+  });
+
+  function asActor(role: SessionUser['role'], uid = role === 'SUPER_ADMIN' ? 'super-1' : 'admin-1') {
+    activeActor.current = { ...activeActor.current, uid, role };
+  }
+
+  function accessRequest(uid: string, role: string, cohort = 'INTERNAL') {
+    return patchPermissions(
+      new Request(`http://localhost/api/roster/${uid}/permissions`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ role, partnerCohortId: cohort, divisionIds: ['TELEHEALTH'] }),
+      }),
+      { params: Promise.resolve({ uid }) },
+    );
+  }
+
+  it('enforces the role hierarchy: Admins cannot edit, promote to, reset or deactivate peers or higher roles', async () => {
+    seedUser('admin-2', { email: 'peer.admin@logicall.io', authMethod: 'LC_ID_PASSWORD', lcNumber: 'LC-9002', role: 'ADMIN', partnerCohortId: 'INTERNAL' });
+    seedUser('trainer-1', { email: 'trainer@logicall.io', authMethod: 'LC_ID_PASSWORD', lcNumber: 'LC-9003', role: 'TRAINER', partnerCohortId: 'INTERNAL' });
+
+    expect((await accessRequest('admin-2', 'TRAINER')).status).toBe(403); // demote a peer
+    expect((await accessRequest('trainer-1', 'ADMIN')).status).toBe(403); // promote to own level
+    expect((await accessRequest('trainer-1', 'PARTNER_SUPERVISOR')).status).toBe(200); // below own level
+
+    const resetPeer = await postResetPassword(
+      new Request('http://localhost/api/roster/admin-2/reset-password', { method: 'POST', body: '{}' }),
+      { params: Promise.resolve({ uid: 'admin-2' }) },
+    );
+    expect(resetPeer.status).toBe(403);
+
+    const deactivatePeer = await patchStatus(
+      new Request('http://localhost/api/roster/admin-2/status', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ active: false }),
+      }),
+      { params: Promise.resolve({ uid: 'admin-2' }) },
+    );
+    expect(deactivatePeer.status).toBe(403);
+    expect(store.get('users/admin-2')?.active).toBe(true);
+
+    const invitePeer = await postCreateInvite(
+      new Request('http://localhost/api/roster/invites', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ displayName: 'Another Admin', email: 'another.admin@logicall.io', role: 'ADMIN', partnerCohortId: 'INTERNAL', divisionIds: ['TELEHEALTH'] }),
+      }),
+    );
+    expect(invitePeer.status).toBe(403);
+
+    asActor('SUPER_ADMIN');
+    expect((await accessRequest('admin-2', 'TRAINER')).status).toBe(200);
+  });
+
+  it('keeps Trainers, Supervisors and Agents out of every roster mutation', async () => {
+    for (const role of ['TRAINER', 'PARTNER_SUPERVISOR', 'AGENT'] as const) {
+      asActor(role, `${role.toLowerCase()}-actor`);
+      expect((await accessRequest('agent-1', 'AGENT', 'THS')).status).toBe(403);
+      const del = await deleteCohort(new Request('http://localhost/api/roster/cohorts/DOZ', { method: 'DELETE' }), {
+        params: Promise.resolve({ cohortId: 'DOZ' }),
+      });
+      expect(del.status).toBe(403);
+    }
+  });
+
+  it('deletes only empty Cohorts and detaches them from multi-Cohort Tracks', async () => {
+    const del = (id: string) =>
+      deleteCohort(new Request(`http://localhost/api/roster/cohorts/${id}`, { method: 'DELETE' }), { params: Promise.resolve({ cohortId: id }) });
+
+    expect((await del('INTERNAL')).status).toBe(400);
+    expect((await del('NOPE')).status).toBe(404);
+
+    const notEmpty = await del('THS'); // agent-1 belongs to THS
+    expect(notEmpty.status).toBe(409);
+    expect(((await notEmpty.json()) as { error: string }).error).toBe('COHORT_NOT_EMPTY');
+
+    store.set('rosterInvites/inv-1', { id: 'inv-1', partnerCohortId: 'DOZ', status: 'PENDING' });
+    expect(((await (await del('DOZ')).json()) as { error: string }).error).toBe('COHORT_HAS_INVITES');
+    store.delete('rosterInvites/inv-1');
+
+    store.set('tracks/solo', { id: 'solo', title: 'Solo Track', assignedCohortIds: ['DOZ'] });
+    const solo = await del('DOZ');
+    expect(solo.status).toBe(409);
+    expect(((await solo.json()) as { error: string }).error).toBe('COHORT_ONLY_TRACK_ASSIGNMENT');
+
+    store.set('tracks/solo', { id: 'solo', title: 'Solo Track', assignedCohortIds: ['DOZ', 'THS'] });
+    const ok = await del('DOZ');
+    expect(ok.status).toBe(200);
+    expect(store.has('cohorts/DOZ')).toBe(false);
+    expect(store.get('tracks/solo')?.assignedCohortIds).toEqual(['THS']);
   });
 });
