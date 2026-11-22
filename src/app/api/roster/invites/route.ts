@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { deliverInviteEmail } from '@/lib/email/invite-delivery';
 import { inviteSetupPath, newInviteToken } from '@/lib/services/invite-token';
 import { assignableRoles, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { adminDb } from '@/lib/firebase/admin';
@@ -81,11 +82,14 @@ export async function POST(req: Request): Promise<NextResponse> {
   batch.create(inviteRef, invite);
   await batch.commit();
 
+  const delivery = await deliverInviteEmail({ req, invite, token, inviterName: actor.displayName });
+
   return NextResponse.json(
     RosterCreateInviteResponseSchema.parse({
       ok: true,
       invite: { ...invite, setupTokenHash: null },
       setupPath: inviteSetupPath(token),
+      emailStatus: delivery.status,
     }),
     { headers: { 'Cache-Control': 'no-store' } },
   );

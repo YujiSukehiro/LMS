@@ -422,8 +422,15 @@ export const RosterCreateInviteResponseSchema = z.object({
   invite: RosterInviteDocSchema,
   /** Relative one-time setup link (`/invite/<token>`) to send to the invitee. */
   setupPath: z.string().optional(),
+  /** Whether the invite email went out ('not_configured' = no email provider; copy the link instead). */
+  emailStatus: z.enum(['sent', 'not_configured', 'failed']).optional(),
 });
-export const RosterInviteLinkResponseSchema = z.object({ ok: z.literal(true), setupPath: z.string() });
+export const RosterInviteLinkRequestSchema = z.object({ sendEmail: z.boolean().default(false) }).strict();
+export const RosterInviteLinkResponseSchema = z.object({
+  ok: z.literal(true),
+  setupPath: z.string(),
+  emailStatus: z.enum(['sent', 'not_configured', 'failed', 'skipped']).default('skipped'),
+});
 export const AcceptInviteRequestSchema = z
   .object({
     token: z.string().min(20).max(128),

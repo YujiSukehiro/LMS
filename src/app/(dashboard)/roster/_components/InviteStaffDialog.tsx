@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Copy, Loader2, UserPlus, X } from 'lucide-react';
+import { Check, Copy, Loader2, MailCheck, UserPlus, X } from 'lucide-react';
 import { RosterCreateInviteResponseSchema } from '@/lib/schemas/api';
 import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import type { DivisionId, UserRole } from '@/lib/schemas/domain';
@@ -32,6 +32,7 @@ export function InviteStaffDialog({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [setupLink, setSetupLink] = useState<string | null>(null);
+  const [emailStatus, setEmailStatus] = useState<'sent' | 'not_configured' | 'failed' | null>(null);
   const [copied, setCopied] = useState(false);
 
   function open(): void {
@@ -42,6 +43,7 @@ export function InviteStaffDialog({
     setDivisionIds(['TELEHEALTH', 'INBOUND']);
     setError(null);
     setSetupLink(null);
+    setEmailStatus(null);
     setCopied(false);
     dialogRef.current?.showModal();
   }
@@ -91,6 +93,7 @@ export function InviteStaffDialog({
       }
       const created = RosterCreateInviteResponseSchema.parse(await response.json());
       setSetupLink(created.setupPath ? `${window.location.origin}${created.setupPath}` : null);
+      setEmailStatus(created.emailStatus ?? null);
       if (!created.setupPath) close();
       router.refresh();
     } catch (requestError) {
@@ -110,12 +113,24 @@ export function InviteStaffDialog({
       <dialog ref={dialogRef} className="pulse-dialog text-left" aria-labelledby={titleId}>
         {setupLink ? (
           <div className="space-y-4 p-6">
-            <h2 id={titleId} className="text-lg font-semibold">Invite ready</h2>
-            <p className="text-sm text-pulse-secondary">
-              Send this one-time setup link to <span className="font-medium text-pulse-primary">{email}</span>. They open it to create
-              their account (a password, or their Google account for that same email). LogiCall Google accounts can also just
-              sign in. The link works once and expires with the invite.
-            </p>
+            <h2 id={titleId} className="text-lg font-semibold">{emailStatus === 'sent' ? 'Invite sent' : 'Invite ready'}</h2>
+            {emailStatus === 'sent' ? (
+              <p className="flex items-start gap-2 rounded-pulse-md border border-pulse-emerald/40 bg-pulse-emerald/10 px-3 py-2 text-sm text-pulse-secondary">
+                <MailCheck className="mt-0.5 h-4 w-4 shrink-0 text-pulse-emerald" aria-hidden="true" />
+                <span>
+                  We emailed a setup link to <span className="font-medium text-pulse-primary">{email}</span>. You can also copy it below.
+                </span>
+              </p>
+            ) : (
+              <p className="text-sm text-pulse-secondary">
+                {emailStatus === 'failed'
+                  ? 'The invite email could not be sent, so send this link yourself. '
+                  : 'Send this one-time setup link yourself. '}
+                <span className="font-medium text-pulse-primary">{email}</span> opens it to create their account (a password, or their
+                Google account for that same email).
+              </p>
+            )}
+            <p className="text-xs text-pulse-muted">The link works once and expires with the invite.</p>
             <div className="flex items-center gap-2">
               <input className="pulse-input pulse-metric text-xs" value={setupLink} readOnly aria-label="Setup link" onFocus={(e) => e.target.select()} />
               <button

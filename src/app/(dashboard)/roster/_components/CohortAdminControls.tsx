@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Copy, Loader2, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { Check, Copy, Loader2, Mail, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { RosterCohortResponseSchema } from '@/lib/schemas/api';
 import type { DivisionId } from '@/lib/schemas/domain';
 import { DivisionCheckboxes, readApiError } from './RosterFormFields';
@@ -551,19 +551,35 @@ export function DeleteCohortDialog({
   );
 }
 
-/** Issue a fresh one-time setup link for a pending invite and copy it (the previous link stops working). */
+/** Copy a fresh one-time setup link, or email it again. Either way the previous link stops working. */
 export function CopyInviteLinkButton({ inviteId, displayName }: { inviteId: string; displayName: string }) {
-  const [state, setState] = useState<'idle' | 'pending' | 'copied' | 'error'>('idle');
+  const [state, setState] = useState<'idle' | 'pending' | 'copied' | 'emailed' | 'error'>('idle');
   const [message, setMessage] = useState<string | null>(null);
 
-  async function copyLink(): Promise<void> {
+  async function issue(sendEmail: boolean): Promise<void> {
     setState('pending');
     setMessage(null);
     try {
-      const response = await fetch(`/api/roster/invites/${encodeURIComponent(inviteId)}/link`, { method: 'POST' });
+      const response = await fetch(`/api/roster/invites/${encodeURIComponent(inviteId)}/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sendEmail }),
+      });
       if (!response.ok) throw new Error(await readApiError(response, 'The link could not be created.'));
-      const body = (await response.json()) as { setupPath?: string };
+      const body = (await response.json()) as { setupPath?: string; emailStatus?: string };
       const link = `${window.location.origin}${body.setupPath ?? ''}`;
+      if (sendEmail) {
+        if (body.emailStatus === 'sent') {
+          setState('emailed');
+          window.setTimeout(() => setState('idle'), 3000);
+          return;
+        }
+        setMessage(
+          body.emailStatus === 'not_configured'
+            ? 'Automatic email is not set up yet. A new link was copied instead.'
+            : 'The email could not be sent. A new link was copied instead.',
+        );
+      }
       try {
         await navigator.clipboard.writeText(link);
         setState('copied');
@@ -580,23 +596,36 @@ export function CopyInviteLinkButton({ inviteId, displayName }: { inviteId: stri
 
   return (
     <span className="inline-flex flex-col items-end gap-1">
-      <button
-        type="button"
-        className="pulse-btn px-2.5 py-1 text-xs"
-        aria-label={`Copy a new setup link for ${displayName}`}
-        title="Creates a new link; the old one stops working"
-        onClick={() => void copyLink()}
-        disabled={state === 'pending'}
-      >
-        {state === 'pending' ? (
-          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-        ) : state === 'copied' ? (
-          <Check className="h-3 w-3 text-pulse-emerald" aria-hidden="true" />
-        ) : (
-          <Copy className="h-3 w-3" aria-hidden="true" />
-        )}
-        {state === 'copied' ? 'Copied' : 'Copy link'}
-      </button>
+      <span className="inline-flex gap-1.5">
+        <button
+          type="button"
+          className="pulse-btn px-2.5 py-1 text-xs"
+          aria-label={`Email ${displayName} a new setup link`}
+          title="Sends a new link; the old one stops working"
+          onClick={() => void issue(true)}
+          disabled={state === 'pending'}
+        >
+          {state === 'emailed' ? <Check className="h-3 w-3 text-pulse-emerald" aria-hidden="true" /> : <Mail className="h-3 w-3" aria-hidden="true" />}
+          {state === 'emailed' ? 'Sent' : 'Email again'}
+        </button>
+        <button
+          type="button"
+          className="pulse-btn px-2.5 py-1 text-xs"
+          aria-label={`Copy a new setup link for ${displayName}`}
+          title="Creates a new link; the old one stops working"
+          onClick={() => void issue(false)}
+          disabled={state === 'pending'}
+        >
+          {state === 'pending' ? (
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+          ) : state === 'copied' ? (
+            <Check className="h-3 w-3 text-pulse-emerald" aria-hidden="true" />
+          ) : (
+            <Copy className="h-3 w-3" aria-hidden="true" />
+          )}
+          {state === 'copied' ? 'Copied' : 'Copy link'}
+        </button>
+      </span>
       {message ? <span className="max-w-64 break-all text-[0.7rem] text-pulse-muted">{message}</span> : null}
     </span>
   );

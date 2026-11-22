@@ -56,6 +56,20 @@ env:
     value: "15"
     availability:
       - RUNTIME
+  # Invite emails (Resend). Links in emails use APP_BASE_URL. Sending stays off until RESEND_API_KEY exists.
+  - variable: APP_BASE_URL
+    value: https://logicall-pulse--telehealthlms.us-central1.hosted.app
+    availability:
+      - RUNTIME
+  - variable: EMAIL_FROM
+    value: "LogiCall Pulse <pulse@logicall.io>"
+    availability:
+      - RUNTIME
+  # Uncomment only after `apphosting:secrets:set RESEND_API_KEY` (a binding to a missing secret fails the rollout).
+  # - variable: RESEND_API_KEY
+  #   secret: RESEND_API_KEY
+  #   availability:
+  #     - RUNTIME
   # Value lives in Cloud Secret Manager (set with apphosting:secrets:set GEMINI_API_KEY); never commit it.
   - variable: GEMINI_API_KEY
     secret: GEMINI_API_KEY

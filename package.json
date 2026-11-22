@@ -23,6 +23,7 @@
     "verify:usable": "node scripts/verify-usable-product.mjs",
     "verify:usable:offline": "node scripts/verify-usable-product.mjs --offline",
     "export:review": "node scripts/export-review-bundle.mjs",
+    "email:preview": "tsx scripts/preview-invite-email.ts",
     "dev:local": "npm run verify:ollama && npm run dev",
     "dev:mlx": "sh scripts/with-mlx-env.sh sh -c 'npm run verify:local-ai && npm run dev'"
   },

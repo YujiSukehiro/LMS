@@ -3,7 +3,8 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { canManageRole, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
-import { RosterInviteLinkResponseSchema } from '@/lib/schemas/api';
+import { RosterInviteLinkRequestSchema, RosterInviteLinkResponseSchema } from '@/lib/schemas/api';
+import { deliverInviteEmail } from '@/lib/email/invite-delivery';
 import { RosterInviteDocSchema } from '@/lib/schemas/domain';
 import { inviteSetupPath, newInviteToken } from '@/lib/services/invite-token';
 
@@ -29,9 +30,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ inviteI
     return jsonError(410, 'INVITE_EXPIRED', 'This invite has expired. Create a new invite.');
   }
 
+  const body = RosterInviteLinkRequestSchema.safeParse(await req.json().catch(() => ({})));
+  if (!body.success) return jsonError(400, 'VALIDATION_FAILED', 'Send {} or { "sendEmail": true }.');
+
   const { token, tokenHash } = newInviteToken();
   await ref.update({ setupTokenHash: tokenHash, updatedAt: Date.now() });
-  return NextResponse.json(RosterInviteLinkResponseSchema.parse({ ok: true, setupPath: inviteSetupPath(token) }), {
+  const emailStatus = body.data.sendEmail
+    ? (await deliverInviteEmail({ req, invite: invite.data, token, inviterName: auth.user.displayName })).status
+    : 'skipped';
+  return NextResponse.json(RosterInviteLinkResponseSchema.parse({ ok: true, setupPath: inviteSetupPath(token), emailStatus }), {
     headers: { 'Cache-Control': 'no-store' },
   });
 }
