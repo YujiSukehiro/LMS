@@ -24,14 +24,18 @@ export function UnitAttentionPanel({
   unitNumber,
   onOpenSourceReview,
   action,
+  extraNotes = [],
 }: {
   unit: TrackUnit;
   unitNumber: number;
+  /** Track-level notes for this Unit, for example Drills that repeat an earlier Checkpoint. */
+  extraNotes?: string[];
   onOpenSourceReview?: () => void;
   /** For example the Add Drill button. */
   action?: ReactNode;
 }) {
-  const attention = unitAttention(unit, unitNumber);
+  const base = unitAttention(unit, unitNumber);
+  const attention = { ...base, notes: [...base.notes, ...extraNotes] };
   if (!unitNeedsAttention(attention)) return null;
   const evidenceCount = attention.cardIdsNeedingEvidence.length + attention.drillIdsNeedingEvidence.length;
   const labels = [

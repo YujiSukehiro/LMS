@@ -154,3 +154,15 @@ describe('content depth', () => {
     expect(unitCountNote(8, null)).toBeNull();
   });
 });
+
+describe('page-based Checkpoint cap (review 2026-11-23)', () => {
+  it('keeps a dense 8-page policy to about one Checkpoint per 1.5 pages', () => {
+    const dense = Array.from({ length: 8 }, (_, i) => ({
+      pageNumber: i + 1,
+      text: Array.from({ length: 18 }, (_, r) => `- Agents must never share record ${r} outside approved systems on page ${i + 1}.`).join('\n'),
+    }));
+    const depth = measureSourceDepth(dense);
+    expect(depth.ruleSignals).toBeGreaterThan(130);
+    expect(depth.units.target).toBeLessThanOrEqual(6);
+  });
+});

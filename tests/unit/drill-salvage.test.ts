@@ -124,3 +124,24 @@ describe('drill batch salvage', () => {
     expect(z.array(z.string()).safeParse(unit.reviewNotes).success).toBe(true);
   });
 });
+
+describe('Drill kind mix (review 2026-11-23)', () => {
+  it('plans mostly scenario questions with at most one ordering and one matching Drill per Unit', async () => {
+    const { planDrillKinds } = await import('@/lib/ai/prompts/unit-builder');
+    for (const count of [4, 6, 8, 10]) {
+      const kinds = planDrillKinds(count, 3);
+      expect(kinds.filter((kind) => kind === 'SEQUENCE_ORDER').length).toBeLessThanOrEqual(1);
+      expect(kinds.filter((kind) => kind === 'MATCH_PAIRS').length).toBeLessThanOrEqual(1);
+      expect(new Set(kinds).size).toBeGreaterThanOrEqual(3);
+    }
+    expect(planDrillKinds(4)).not.toContain('SEQUENCE_ORDER');
+  });
+
+  it('lets a scenario question fill an ordering slot when the pages have no fixed order', () => {
+    const schema = buildUnitDrillBatchSchema({ ...ctx, strictEvidence: false }, ['MULTIPLE_CHOICE', 'SEQUENCE_ORDER']);
+    expect(schema.safeParse({ drills: [validMc, { ...validMc, prompt: 'A member asks to stop calls. What next?' }] }).success).toBe(true);
+    // A planned MULTIPLE_CHOICE slot is still required.
+    const strict = buildUnitDrillBatchSchema({ ...ctx, strictEvidence: false }, ['MULTIPLE_CHOICE', 'TRUE_FALSE_SPOT']);
+    expect(strict.safeParse({ drills: [validMc, { ...validMc, prompt: 'Another' }] }).success).toBe(false);
+  });
+});

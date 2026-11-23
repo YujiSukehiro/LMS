@@ -71,7 +71,14 @@ export const MIN_BRIEFING_CARDS = DEPTH_LIMITS.minCards;
 export const MAX_BRIEFING_CARDS = DEPTH_LIMITS.maxCards;
 export const MIN_DRILLS = DEPTH_LIMITS.minDrills;
 export const MAX_DRILLS = DEPTH_LIMITS.maxDrills;
-export const MIN_DISTINCT_DRILL_KINDS = 4;
+export const MIN_DISTINCT_DRILL_KINDS = 3;
+
+/**
+ * Kinds that only fit some pages. When a Checkpoint's pages have no fixed-order procedure (or no natural pairs), the
+ * model may write a MULTIPLE_CHOICE or TRUE_FALSE_SPOT Drill in that slot instead of forcing one (review 2026-11-23).
+ */
+export const FLEXIBLE_DRILL_KINDS: ReadonlySet<DrillKind> = new Set(['SEQUENCE_ORDER', 'MATCH_PAIRS']);
+const FLEXIBLE_SUBSTITUTES: ReadonlySet<string> = new Set(['MULTIPLE_CHOICE', 'TRUE_FALSE_SPOT']);
 /** Character budget for verbatim SOURCE PAGE text in one Unit Builder prompt (fits num_ctx 16384 with output room). */
 export const UNIT_SOURCE_CHAR_BUDGET = 32000;
 
@@ -688,10 +695,18 @@ export type UnitDrillBatchGeneration = z.infer<ReturnType<typeof buildUnitDrillB
 function missingKinds(drills: readonly DrillGeneration[], kinds: readonly DrillKind[]): DrillKind[] {
   const available = drills.map((drill) => drill.kind as DrillKind);
   const missing: DrillKind[] = [];
+  const flexibleMisses: DrillKind[] = [];
   for (const kind of kinds) {
     const at = available.indexOf(kind);
-    if (at === -1) missing.push(kind);
-    else available.splice(at, 1);
+    if (at !== -1) available.splice(at, 1);
+    else if (FLEXIBLE_DRILL_KINDS.has(kind)) flexibleMisses.push(kind);
+    else missing.push(kind);
+  }
+  // A flexible slot may be filled by a spare MULTIPLE_CHOICE or TRUE_FALSE_SPOT Drill.
+  for (const kind of flexibleMisses) {
+    const at = available.findIndex((have) => FLEXIBLE_SUBSTITUTES.has(have));
+    if (at !== -1) available.splice(at, 1);
+    else missing.push(kind);
   }
   return missing;
 }
@@ -700,19 +715,41 @@ function missingKinds(drills: readonly DrillGeneration[], kinds: readonly DrillK
 export function pickPlannedDrills(drills: readonly DrillGeneration[], kinds: readonly DrillKind[]): DrillGeneration[] {
   const pool = [...drills];
   const picked: DrillGeneration[] = [];
+  const flexibleMisses: DrillKind[] = [];
   for (const kind of kinds) {
     const at = pool.findIndex((drill) => drill.kind === kind);
+    if (at !== -1) picked.push(...pool.splice(at, 1));
+    else if (FLEXIBLE_DRILL_KINDS.has(kind)) flexibleMisses.push(kind);
+  }
+  for (let slot = 0; slot < flexibleMisses.length; slot += 1) {
+    const at = pool.findIndex((drill) => FLEXIBLE_SUBSTITUTES.has(drill.kind));
     if (at !== -1) picked.push(...pool.splice(at, 1));
   }
   return picked;
 }
 
 /**
- * Planned Drill kinds for one Unit: cycle through every kind (offset by Unit so Tracks vary) so any
- * Unit with 4+ Drills uses at least 4 different kinds without cross-call validation.
+ * Mix of Drill kinds for one Unit, mostly scenario questions. SEQUENCE_ORDER and MATCH_PAIRS appear at most once
+ * each per Unit (and only in Units of 5+ / 6+ Drills), and the model may swap them for a scenario question when the
+ * pages don't suit them (FLEXIBLE_DRILL_KINDS). Before, every Unit cycled through all five kinds, which forced
+ * ordering Drills onto pages with no order (review 2026-11-23).
  */
+const DRILL_KIND_PATTERN: readonly DrillKind[] = [
+  'MULTIPLE_CHOICE',
+  'TRUE_FALSE_SPOT',
+  'FILL_BLANK_CHOICE',
+  'MULTIPLE_CHOICE',
+  'SEQUENCE_ORDER',
+  'MATCH_PAIRS',
+  'TRUE_FALSE_SPOT',
+  'MULTIPLE_CHOICE',
+  'FILL_BLANK_CHOICE',
+  'MULTIPLE_CHOICE',
+];
+
 export function planDrillKinds(count: number, unitOrderIndex = 0): DrillKind[] {
-  return Array.from({ length: count }, (_, index) => DRILL_KINDS[(index + unitOrderIndex) % DRILL_KINDS.length]);
+  void unitOrderIndex;
+  return Array.from({ length: count }, (_, index) => DRILL_KIND_PATTERN[index % DRILL_KIND_PATTERN.length]);
 }
 
 /** Split planned kinds into batches of at most `size` Drills. */
@@ -917,6 +954,9 @@ export function buildUnitDrillsUserPrompt(input: DrillBatchPromptInput): string 
     input.previousDrillPrompts.length > 0 ? `Drills already written (do not repeat them): ${input.previousDrillPrompts.join(' | ')}` : '',
     '',
     `TASK (Drill batch ${input.batchIndex + 1} of ${input.batchCount}): Write exactly ${input.kinds.length} Drills, one of each kind in this order: ${input.kinds.join(', ')}.`,
+    ...(input.kinds.some((kind) => FLEXIBLE_DRILL_KINDS.has(kind))
+      ? ['If these pages give no fixed-order procedure (for SEQUENCE_ORDER) or no natural pairs (for MATCH_PAIRS), write a MULTIPLE_CHOICE scenario Drill in that slot instead. Never invent an order or pairing.']
+      : []),
     'Each Drill tests a different rule from the cards above with one clear correct answer.',
     'Return {"drills": [ ... ]} only.',
   ]

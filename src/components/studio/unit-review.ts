@@ -8,7 +8,7 @@
 import { DEPTH_LIMITS, thinUnitProblems } from '@/lib/ai/pipeline/content-depth';
 import type { DrillItem, TrackUnit, TrackVersionDoc } from '@/lib/schemas/curriculum';
 import type { ClaimEvidence } from '@/lib/schemas/source-truth';
-import { isConditionalStep } from '@/lib/services/drill-label';
+import { crossUnitRepeatNotes, isConditionalStep } from '@/lib/services/drill-label';
 
 /** Most Drills a Unit may hold (TrackUnitSchema). */
 export const MAX_UNIT_DRILLS = 10;
@@ -116,8 +116,12 @@ export interface TrackAttention {
 
 /** Summary across the ordered Units (only Units that need attention are listed). */
 export function trackAttention(units: TrackUnit[]): TrackAttention {
+  const repeats = crossUnitRepeatNotes(units);
   const listed = units
-    .map((unit, index) => ({ ...unitAttention(unit, index + 1), unitNumber: index + 1, title: unit.title }))
+    .map((unit, index) => {
+      const attention = unitAttention(unit, index + 1);
+      return { ...attention, notes: [...attention.notes, ...(repeats.get(index) ?? [])], unitNumber: index + 1, title: unit.title };
+    })
     .filter(unitNeedsAttention);
   return {
     units: listed,

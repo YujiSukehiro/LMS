@@ -109,6 +109,9 @@ export class GeminiProvider implements LLMGateway {
   readonly heavyModel: string;
   readonly fastModel: string;
   readonly thinkingBudget: number | undefined;
+  /** Model and thinking budget for planning calls (the Track blueprint). Default: the heavy model and budget. */
+  readonly planningModel: string;
+  readonly planningThinkingBudget: number | undefined;
   private readonly apiKey: string | undefined;
   private client: GoogleGenAI | null = null;
   /**
@@ -122,6 +125,8 @@ export class GeminiProvider implements LLMGateway {
     this.heavyModel = config.heavyModel ?? nonEmpty(process.env.GEMINI_HEAVY_MODEL) ?? DEFAULT_GEMINI_HEAVY_MODEL;
     this.fastModel = config.fastModel ?? nonEmpty(process.env.GEMINI_FAST_MODEL) ?? DEFAULT_GEMINI_FAST_MODEL;
     this.thinkingBudget = config.thinkingBudget ?? thinkingBudgetFromEnv();
+    this.planningModel = nonEmpty(process.env.GEMINI_PLANNING_MODEL) ?? this.heavyModel;
+    this.planningThinkingBudget = thinkingBudgetFromEnv(process.env.GEMINI_PLANNING_THINKING_BUDGET) ?? this.thinkingBudget;
   }
 
   /**
@@ -129,11 +134,14 @@ export class GeminiProvider implements LLMGateway {
    * budget is added on top, so the caller's limit stays the limit for the visible answer. Without one the model's
    * default (dynamic) thinking shares the caller's limit; a truncated structured answer is retried once at double.
    */
-  private outputConfig(maxOutputTokens: number | undefined): { maxOutputTokens?: number; thinkingConfig?: { thinkingBudget: number } } {
-    if (this.thinkingBudget === undefined) return { maxOutputTokens };
+  private outputConfig(
+    maxOutputTokens: number | undefined,
+    budget: number | undefined = this.thinkingBudget,
+  ): { maxOutputTokens?: number; thinkingConfig?: { thinkingBudget: number } } {
+    if (budget === undefined) return { maxOutputTokens };
     return {
-      maxOutputTokens: maxOutputTokens === undefined ? undefined : maxOutputTokens + this.thinkingBudget,
-      thinkingConfig: { thinkingBudget: this.thinkingBudget },
+      maxOutputTokens: maxOutputTokens === undefined ? undefined : maxOutputTokens + budget,
+      thinkingConfig: { thinkingBudget: budget },
     };
   }
 
@@ -151,7 +159,9 @@ export class GeminiProvider implements LLMGateway {
 
   async generateStructured<T extends z.ZodTypeAny>(opts: GenerateStructuredOptions<T>): Promise<z.infer<T>> {
     const ai = this.getClient();
-    const model = this.modelFor(opts.tier);
+    const planning = opts.purpose === 'planning';
+    const model = planning ? this.planningModel : this.modelFor(opts.tier);
+    const budget = planning ? this.planningThinkingBudget : this.thinkingBudget;
     const fullSchema = toGeminiJsonSchema(toJsonSchema(opts.schema));
     const fallbackKey = `${model}:${opts.schemaName ?? 'structured'}`;
     const schemaFor = (level: 0 | 1 | 2) => (level === 0 ? fullSchema : level === 1 ? relaxGeminiJsonSchema(fullSchema) : undefined);
@@ -182,7 +192,7 @@ export class GeminiProvider implements LLMGateway {
                 temperature: opts.temperature ?? 0.2,
                 responseMimeType: 'application/json',
                 ...(level < 2 ? { responseJsonSchema: schemaFor(level) } : {}),
-                ...this.outputConfig(maxOutputTokens),
+                ...this.outputConfig(maxOutputTokens, budget),
                 abortSignal: opts.signal,
               },
             });

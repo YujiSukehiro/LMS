@@ -16,6 +16,11 @@ export interface GenerateStructuredOptions<T extends z.ZodTypeAny> {
   temperature?: number; // Default 0.2 for deterministic grounded curriculum/grading
   maxOutputTokens?: number;
   signal?: AbortSignal;
+  /**
+   * 'planning' marks the one call that plans a whole Track (the blueprint). Providers that support it may use a
+   * stronger model or more thinking for it (Gemini: GEMINI_PLANNING_MODEL / GEMINI_PLANNING_THINKING_BUDGET).
+   */
+  purpose?: 'planning';
 }
 
 export interface StreamChatOptions {
