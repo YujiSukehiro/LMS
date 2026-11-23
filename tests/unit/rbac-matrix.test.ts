@@ -12,9 +12,18 @@ describe('RBAC matrix', () => {
 
   it('lets everyone learn but only admins manage people and Cohorts', () => {
     for (const role of ALL_ROLES) expect(can(role, 'learn.take')).toBe(true);
-    for (const permission of ['users.editAccess', 'users.deactivate', 'cohorts.create', 'cohorts.edit', 'cohorts.delete'] as const) {
+    for (const permission of ['cohorts.create', 'cohorts.edit', 'cohorts.delete'] as const) {
       expect(PERMISSIONS[permission].roles).toEqual(['SUPER_ADMIN', 'ADMIN']);
     }
+    // Connor 2026-11-23: Trainers get most people permissions, limited by the hierarchy to supervisors and agents.
+    for (const permission of ['users.editAccess', 'users.deactivate'] as const) {
+      expect(PERMISSIONS[permission].roles).toEqual(['SUPER_ADMIN', 'ADMIN', 'TRAINER']);
+    }
+    const trainer = { uid: 't', role: 'TRAINER' as const };
+    expect(canManageUser(trainer, { uid: 'x', role: 'AGENT' }, 'users.editAccess')).toBe(true);
+    expect(canManageUser(trainer, { uid: 'x', role: 'PARTNER_SUPERVISOR' }, 'users.deactivate')).toBe(true);
+    expect(canManageUser(trainer, { uid: 'x', role: 'TRAINER' }, 'users.editAccess')).toBe(false);
+    expect(canManageUser(trainer, { uid: 'x', role: 'ADMIN' }, 'users.resetPassword')).toBe(false);
     // Connor 2026-11-23: Trainers open the Roster and add staff (Trainers, supervisors, agents; never Admins).
     expect(PERMISSIONS['roster.view'].roles).toEqual(['SUPER_ADMIN', 'ADMIN', 'TRAINER']);
     expect(PERMISSIONS['users.invite'].roles).toEqual(['SUPER_ADMIN', 'ADMIN', 'TRAINER']);
@@ -22,7 +31,7 @@ describe('RBAC matrix', () => {
     expect(invitableRoles('ADMIN')).toEqual(['TRAINER', 'PARTNER_SUPERVISOR', 'AGENT']);
     expect(invitableRoles('PARTNER_SUPERVISOR')).toEqual([]);
     // Supervisors can issue temporary passwords, scoped by canManageUser to active agents in their own Cohort.
-    expect(PERMISSIONS['users.resetPassword'].roles).toEqual(['SUPER_ADMIN', 'ADMIN', 'PARTNER_SUPERVISOR']);
+    expect(PERMISSIONS['users.resetPassword'].roles).toEqual(['SUPER_ADMIN', 'ADMIN', 'TRAINER', 'PARTNER_SUPERVISOR']);
     expect(can('PARTNER_SUPERVISOR', 'analytics.viewAllCohorts')).toBe(false);
     expect(can(undefined, 'learn.take')).toBe(false);
   });
@@ -34,10 +43,10 @@ describe('RBAC matrix', () => {
     expect(canManageRole('ADMIN', 'TRAINER')).toBe(true);
     expect(assignableRoles('ADMIN')).toEqual(['TRAINER', 'PARTNER_SUPERVISOR', 'AGENT']);
     expect(assignableRoles('SUPER_ADMIN')).toEqual(ALL_ROLES);
-    expect(assignableRoles('TRAINER')).toEqual([]);
+    expect(assignableRoles('TRAINER')).toEqual(['PARTNER_SUPERVISOR', 'AGENT']);
     const actor = { uid: 'a', role: 'SUPER_ADMIN' as const };
     expect(canManageUser(actor, { uid: 'a', role: 'AGENT' }, 'users.editAccess')).toBe(false);
-    expect(canManageUser({ uid: 't', role: 'TRAINER' }, { uid: 'x', role: 'AGENT' }, 'users.editAccess')).toBe(false);
+    expect(canManageUser({ uid: 't', role: 'TRAINER' }, { uid: 'x', role: 'TRAINER' }, 'users.editAccess')).toBe(false);
   });
 
   it('scopes supervisor password resets to active agents in their own Cohort', () => {

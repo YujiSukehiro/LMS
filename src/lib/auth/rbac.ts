@@ -56,13 +56,15 @@ export const PERMISSIONS: Record<Permission, PermissionInfo> = {
   'roster.view': { label: 'Open the Roster', group: 'People', roles: [...ADMINS, 'TRAINER'] },
   // Connor 2026-11-23: Trainers can add staff too (Trainers, supervisors and agents; never Admins).
   'users.invite': { label: 'Invite staff and bulk-import agents', group: 'People', roles: [...ADMINS, 'TRAINER'] },
-  'users.editAccess': { label: 'Change role, Cohort and Divisions', group: 'People', roles: ADMINS },
+  // Connor 2026-11-23: Trainers get most people permissions; canManageUser still limits them to roles below their own
+  // (Partner Supervisors and Agents).
+  'users.editAccess': { label: 'Change role, Cohort and Divisions', group: 'People', roles: [...ADMINS, 'TRAINER'] },
   'users.resetPassword': {
     label: 'Issue temporary passwords (supervisors: active agents in their own Cohort)',
     group: 'People',
-    roles: [...ADMINS, 'PARTNER_SUPERVISOR'],
+    roles: [...ADMINS, 'TRAINER', 'PARTNER_SUPERVISOR'],
   },
-  'users.deactivate': { label: 'Deactivate and reactivate users', group: 'People', roles: ADMINS },
+  'users.deactivate': { label: 'Deactivate and reactivate users', group: 'People', roles: [...ADMINS, 'TRAINER'] },
   'cohorts.create': { label: 'Create Cohorts', group: 'Cohorts', roles: ADMINS },
   'cohorts.edit': { label: 'Rename, set Divisions, manage join codes', group: 'Cohorts', roles: ADMINS },
   'cohorts.delete': { label: 'Delete empty Cohorts', group: 'Cohorts', roles: ADMINS },
