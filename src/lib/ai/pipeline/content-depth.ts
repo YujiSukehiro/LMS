@@ -11,7 +11,7 @@
  */
 
 /** Part of the stage cache identity: change it when the sizing rules change. */
-export const CONTENT_SIZING_VERSION = 'content-depth-v2';
+export const CONTENT_SIZING_VERSION = 'content-depth-v3';
 
 /** Hard limits. The Track schema and Studio UI are sized for these. */
 export const DEPTH_LIMITS = {
@@ -42,6 +42,8 @@ export function depthLimitsForProvider(provider: string): DepthLimits {
 
 /** Tuning: about how many rule signals one Unit, one card, and one Drill should carry. */
 const RULES_PER_UNIT = 12;
+/** At most one Checkpoint per this many pages, however many rules each page holds. */
+const PAGES_PER_UNIT = 1.5;
 const WORDS_PER_UNIT = 900;
 const RULES_PER_CARD = 2;
 const DRILLS_PER_CARD = 1.4;
@@ -142,7 +144,10 @@ export function measureSourceDepth(pages: ReadonlyArray<{ pageNumber: number; te
   const byRules = ruleSignals / RULES_PER_UNIT;
   const byWords = words / WORDS_PER_UNIT;
   const bySections = headings / 6;
-  const target = Math.max(byRules, (byRules + byWords + bySections) / 3);
+  // A dense policy packs many rule sentences onto each page; counting rules alone split an 8-page PHI policy into
+  // 11 near-duplicate Checkpoints (review 2026-11-23). Keep about one Checkpoint per 1.5 pages.
+  const byPages = Math.max(DEPTH_LIMITS.minUnits, Math.ceil(pages.length / PAGES_PER_UNIT));
+  const target = Math.min(byPages, Math.max(byRules, (byRules + byWords + bySections) / 3));
   const spread = target >= 7 ? 2 : 1;
   return {
     pages: measured,

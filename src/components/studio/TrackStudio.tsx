@@ -34,6 +34,7 @@ import { AddDrillButton, TrackAttentionBanner, UnitAttentionPanel } from './Unit
 import { appendDrill, refreshUnitReviewNotes } from './unit-review';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { DIVISION_LABELS } from '@/lib/schemas/constants';
+import { crossUnitRepeatNotes } from '@/lib/services/drill-label';
 import { ensureVerbalScenarioDefaults, ensureVerbalSecretDefaults } from '@/lib/services/verbal-defaults';
 import { DEPTH_LIMITS } from '@/lib/ai/pipeline/content-depth';
 import { issueTargetsKey, validateStudioDraft, type StudioIssue } from './validation';
@@ -263,10 +264,12 @@ export function TrackStudio({
     );
   }
 
+  const repeatNotes = useMemo(() => crossUnitRepeatNotes(units), [units]);
   const renderAttention = (unit: TrackUnit, unitNumber: number, withAddDrill: boolean) => (
     <UnitAttentionPanel
       unit={unit}
       unitNumber={unitNumber}
+      extraNotes={repeatNotes.get(unitNumber - 1)}
       onOpenSourceReview={() => setMode('source')}
       action={withAddDrill && unit.drills.length < DEPTH_LIMITS.minDrills ? (
         <AddDrillButton unit={unit} disabled={saveState.kind === 'saving'} onAdd={() => addDrillTo(unit.id)} />

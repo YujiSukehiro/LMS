@@ -735,6 +735,7 @@ export async function runTrackGeneration(
       task: async (_input, { signal }) => {
         const blueprintOptions = {
           tier: 'heavy' as const,
+          purpose: 'planning' as const,
           systemPrompt: buildBlueprintSystemPrompt(track.divisionId),
           userPrompt: buildBlueprintUserPrompt({
             trackTitle: track.title,

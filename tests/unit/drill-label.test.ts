@@ -68,3 +68,18 @@ describe('ordering Drills with options instead of steps (feedback 2026-11-23)', 
     expect(drillQualityNotes({ briefingCards: [], drills: [stored as never] }).join(' ')).toContain('some steps are options for different situations');
   });
 });
+
+describe('Drills repeated across Checkpoints (review 2026-11-23)', () => {
+  it('flags a later Drill that tests the same thing as an earlier Checkpoint', async () => {
+    const { crossUnitRepeatNotes } = await import('@/lib/services/drill-label');
+    const tf = (id: string, statement: string) =>
+      ({ id, kind: 'TRUE_FALSE_SPOT', competencyPillarId: 'p', prompt: 'Does this agent action follow the Playbook?', explanation: 'x', sourcePages: [4], statement, isCompliant: false }) as DrillItem;
+    const units = [
+      { drills: [tf('a', 'The agent signs the electronic attestation for the patient after verbal confirmation.')] },
+      { drills: [tf('b', 'The patient asks about billing, so the agent opens the secure payment flow.'), tf('c', 'After verbal confirmation, the agent signs the electronic attestation on the patient behalf.')] },
+    ];
+    const notes = crossUnitRepeatNotes(units);
+    expect(notes.get(1)).toEqual(['Drill 2 repeats Checkpoint 1, Drill 1. Replace it with a rule this Checkpoint has not tested yet.']);
+    expect(notes.has(0)).toBe(false);
+  });
+});
