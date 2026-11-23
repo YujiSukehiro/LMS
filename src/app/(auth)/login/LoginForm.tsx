@@ -2,9 +2,10 @@
 
 import { useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup, signOut, type User } from 'firebase/auth';
+import { GoogleAuthProvider, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, type User } from 'firebase/auth';
 import { ArrowRight, KeyRound, Loader2, X } from 'lucide-react';
 import { establishServerSession, getClientAuth, identifierToEmail } from '@/lib/firebase/client';
+import { isLcNumber } from '@/lib/firebase/lc-id';
 import { describeAuthError, isSilentAuthError } from '@/lib/firebase/auth-errors';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 
@@ -28,6 +29,7 @@ export function LoginForm({ nextPath, notice }: { nextPath: string; notice: stri
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState('');
+  const [forgot, setForgot] = useState<'closed' | 'open' | 'sending' | 'sent'>('closed');
   const joinDialogRef = useRef<HTMLDialogElement>(null);
 
   async function finishSignIn(user: User): Promise<void> {
@@ -72,6 +74,15 @@ export function LoginForm({ nextPath, notice }: { nextPath: string; notice: stri
       setError(describeAuthError(signInError));
       setPending(null);
     }
+  }
+
+  async function handleResetEmail(): Promise<void> {
+    const value = identifier.trim();
+    if (!value || isLcNumber(value)) return;
+    setForgot('sending');
+    // Same answer whether or not the account exists, so this never confirms who has an account.
+    await sendPasswordResetEmail(getClientAuth(), value.toLowerCase()).catch(() => undefined);
+    setForgot('sent');
   }
 
   function handleJoin(event: FormEvent<HTMLFormElement>): void {
@@ -131,7 +142,10 @@ export function LoginForm({ nextPath, notice }: { nextPath: string; notice: stri
             spellCheck={false}
             placeholder="LC-1042 or name@partner.com"
             value={identifier}
-            onChange={(event) => setIdentifier(event.target.value)}
+            onChange={(event) => {
+              setIdentifier(event.target.value);
+              if (forgot === 'sent') setForgot('open');
+            }}
             disabled={busy}
           />
         </div>
@@ -148,7 +162,40 @@ export function LoginForm({ nextPath, notice }: { nextPath: string; notice: stri
             onChange={(event) => setPassword(event.target.value)}
             disabled={busy}
           />
+          <button
+            type="button"
+            className="mt-1.5 text-xs font-medium text-pulse-indigo hover:underline"
+            aria-expanded={forgot !== 'closed'}
+            aria-controls="forgot-password-panel"
+            onClick={() => setForgot((state) => (state === 'closed' ? 'open' : 'closed'))}
+          >
+            Forgot password?
+          </button>
         </div>
+        {forgot !== 'closed' ? (
+          <div id="forgot-password-panel" role="region" aria-label="Forgot password" className="rounded-pulse-md border border-pulse-border bg-pulse-surface-2 px-3 py-2.5 text-sm">
+            {!identifier.trim() ? (
+              <p className="text-pulse-secondary">Type your LC Number or email above first.</p>
+            ) : isLcNumber(identifier) ? (
+              <p className="text-pulse-secondary">
+                Ask your supervisor or LogiCall admin for a temporary password. You&apos;ll choose your own password when you sign in
+                with it.
+              </p>
+            ) : forgot === 'sent' ? (
+              <p role="status" className="text-pulse-secondary">
+                If an account uses that email, we sent it a link to set a new password. Check your inbox.
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-pulse-secondary">We&apos;ll email a link to set a new password.</p>
+                <button type="button" className="pulse-btn text-xs" onClick={() => void handleResetEmail()} disabled={forgot === 'sending'}>
+                  {forgot === 'sending' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+                  Send reset link
+                </button>
+              </div>
+            )}
+          </div>
+        ) : null}
         <button type="submit" className="pulse-btn w-full justify-center py-2.5" disabled={busy}>
           {pending === 'password' ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

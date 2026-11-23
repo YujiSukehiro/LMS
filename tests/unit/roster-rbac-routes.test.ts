@@ -4,7 +4,7 @@ import type { CohortDoc, SessionUser, UserDoc } from '@/lib/schemas/domain';
 
 type DocData = Record<string, unknown>;
 
-const { store, adminDb, activeActor, mockUpdateUser, mockRevokeRefreshTokens, mockWriteCustomClaims } = vi.hoisted(() => {
+const { store, adminDb, activeActor, mockUpdateUser, mockRevokeRefreshTokens, mockWriteCustomClaims, mockSetMustChange, mockAudit } = vi.hoisted(() => {
   const store = new Map<string, DocData>();
 
   const applyPatch = (target: DocData, patch: DocData): DocData => {
@@ -141,8 +141,12 @@ const { store, adminDb, activeActor, mockUpdateUser, mockRevokeRefreshTokens, mo
     mockUpdateUser: vi.fn(async () => undefined),
     mockRevokeRefreshTokens: vi.fn(async () => undefined),
     mockWriteCustomClaims: vi.fn(async () => undefined),
+    mockSetMustChange: vi.fn(async () => undefined),
+    mockAudit: vi.fn(async () => undefined),
   };
 });
+
+vi.mock('@/lib/services/audit', () => ({ recordAuditEvent: mockAudit }));
 
 vi.mock('firebase-admin/firestore', () => ({
   FieldValue: {
@@ -179,6 +183,7 @@ vi.mock('@/lib/firebase/users', async () => {
   return {
     ...actual,
     writeCustomClaims: mockWriteCustomClaims,
+    setMustChangePassword: mockSetMustChange,
   };
 });
 
@@ -228,6 +233,8 @@ describe('Roster RBAC & Cohort admin routes', () => {
     mockUpdateUser.mockClear();
     mockRevokeRefreshTokens.mockClear();
     mockWriteCustomClaims.mockClear();
+    mockSetMustChange.mockClear();
+    mockAudit.mockClear();
     activeActor.current = {
       uid: 'admin-1',
       email: 'ops.admin@logicall.io',
@@ -378,6 +385,56 @@ describe('Roster RBAC & Cohort admin routes', () => {
       { params: Promise.resolve({ uid: 'admin-1' }) },
     );
     expect(ssoAsSuper.status).toBe(400);
+  });
+
+  it('makes a reset agent choose a new password and records the reset (QA H3)', async () => {
+    const res = await postResetPassword(
+      new Request('http://localhost/api/roster/agent-1/reset-password', { method: 'POST', body: JSON.stringify({}) }),
+      { params: Promise.resolve({ uid: 'agent-1' }) },
+    );
+    expect(res.status).toBe(200);
+    expect(mockSetMustChange).toHaveBeenCalledWith('agent-1', true);
+    expect(mockAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'password.reset_by_staff', actorUid: 'admin-1', targetUid: 'agent-1', partnerCohortId: 'THS' }),
+    );
+  });
+
+  it('lets a partner supervisor reset only active agents in their own Cohort (QA H3)', async () => {
+    seedUser('agent-doz', { partnerCohortId: 'DOZ', role: 'AGENT', lcNumber: 'LC-1050' });
+    seedUser('agent-off', { partnerCohortId: 'THS', role: 'AGENT', lcNumber: 'LC-1049', active: false });
+    seedUser('sup-2', { partnerCohortId: 'THS', role: 'PARTNER_SUPERVISOR', lcNumber: 'LC-2009' });
+    activeActor.current = { ...activeActor.current, uid: 'sup-ths', role: 'PARTNER_SUPERVISOR', partnerCohortId: 'THS' };
+    const reset = (uid: string) =>
+      postResetPassword(new Request(`http://localhost/api/roster/${uid}/reset-password`, { method: 'POST', body: JSON.stringify({}) }), {
+        params: Promise.resolve({ uid }),
+      });
+    expect((await reset('agent-1')).status).toBe(200);
+    expect((await reset('agent-doz')).status).toBe(403);
+    expect((await reset('agent-off')).status).toBe(403);
+    expect((await reset('sup-2')).status).toBe(403);
+  });
+
+  it('refuses Trainer, Admin or Super Admin outside the internal Cohort (QA M3)', async () => {
+    const res = await patchPermissions(
+      new Request('http://localhost/api/roster/agent-1/permissions', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ displayName: 'Ana Ruiz', role: 'TRAINER', partnerCohortId: 'DOZ', divisionIds: ['INBOUND'] }),
+      }),
+      { params: Promise.resolve({ uid: 'agent-1' }) },
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('ROLE_COHORT_MISMATCH');
+
+    const invite = await postCreateInvite(
+      new Request('http://localhost/api/roster/invites', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'new.trainer@partner.com', displayName: 'New Trainer', role: 'TRAINER', partnerCohortId: 'THS', divisionIds: ['TELEHEALTH'] }),
+      }),
+    );
+    expect(invite.status).toBe(400);
+    expect(((await invite.json()) as { error: string }).error).toBe('ROLE_COHORT_MISMATCH');
   });
 
   it('creates pending email invites, rejects duplicates, and revokes invites cleanly', async () => {

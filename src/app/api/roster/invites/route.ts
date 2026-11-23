@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { deliverInviteEmail } from '@/lib/email/invite-delivery';
 import { inviteSetupPath, newInviteToken } from '@/lib/services/invite-token';
-import { assignableRoles, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
+import { assignableRoles, manageDeniedReason, roleCohortFitError, rolesWith } from '@/lib/auth/rbac';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { isSyntheticLcEmail } from '@/lib/firebase/lc-id';
@@ -43,6 +43,8 @@ export async function POST(req: Request): Promise<NextResponse> {
   if (!cohortSnap.exists) {
     return jsonError(400, 'INVALID_COHORT', `Cohort "${input.partnerCohortId}" does not exist.`);
   }
+  const fitError = roleCohortFitError(input.role, cohortSnap.get('isInternal') === true);
+  if (fitError) return jsonError(400, 'ROLE_COHORT_MISMATCH', fitError);
   if (!existingUsers.empty) {
     return jsonError(
       409,

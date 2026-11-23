@@ -33,7 +33,7 @@ import { buildLearningAnalytics, type CurrentLearningAnalytics } from './learnin
 import { drillRuleIds } from './drill-grader';
 import { ServiceError } from './errors';
 import { scenarioCoverageDocId } from './scenario-coverage';
-import { isTrackVisibleToLearner, loadTrack, loadVersion } from './track-loader';
+import { isTrackAssignedToUser, isTrackVisibleToLearner, loadTrack, loadVersion } from './track-loader';
 
 export interface CurrentLearningEvidenceData {
   blueprint: AssessmentBlueprintDoc;
@@ -217,7 +217,12 @@ export async function loadLearningEvidenceForUser(args: {
   if (!ownRecord && !cohortSupervisor && !isInternalOps(args.user)) {
     throw new ServiceError(403, 'FORBIDDEN', 'You do not have access to this learner evidence.');
   }
-  if (!isInternalOps(args.user) && !isTrackVisibleToLearner(track, { partnerCohortId: target.partnerCohortId })) {
+  // A learner sees only Tracks assigned to them (Cohort + Division). A supervisor viewing a passport checks the Cohort
+  // only, so training done before a Division change stays visible as history.
+  const visible = ownRecord
+    ? isTrackVisibleToLearner(track, args.user)
+    : track.status === 'PUBLISHED' && isTrackAssignedToUser(track, { partnerCohortId: target.partnerCohortId });
+  if (!isInternalOps(args.user) && !visible) {
     throw new ServiceError(404, 'TRACK_NOT_FOUND', 'This Track is not available.');
   }
 

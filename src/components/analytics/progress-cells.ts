@@ -8,9 +8,9 @@ import type { EnrollmentDoc } from '@/lib/schemas/analytics';
 import type { TrackDoc } from '@/lib/schemas/curriculum';
 import { CertificationDocSchema, type CertificationDoc } from '@/lib/schemas/learning';
 import { selectCurrentCertification } from '@/lib/services/learning-evidence';
-import { loadVersion } from '@/lib/services/track-loader';
 import { deriveProgressCell, type ProgressCell, type ProgressTrackShape } from '@/lib/services/team-progress';
-import { isTrackAssignedToCohort, type UserSummary } from './server-data';
+import { isTrackAssignedToLearner, loadVersion } from '@/lib/services/track-loader';
+import type { UserSummary } from './server-data';
 
 export interface ProgressTrack {
   track: TrackDoc;
@@ -94,7 +94,8 @@ export function buildProgressCells(args: {
               track: shape,
               enrollment: enrollmentByKey.get(key),
               certification: args.certifications.get(key) ?? null,
-              assigned: isTrackAssignedToCohort(track, agent.partnerCohortId),
+              // Cohort + Division (GATE-05), so an Inbound-only agent is "Not assigned" on a Telehealth Track.
+              assigned: isTrackAssignedToLearner(track, agent),
               agentActive: agent.active,
               assignedAt,
               now,

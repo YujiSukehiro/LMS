@@ -15,7 +15,7 @@ import {
   type TrackDoc,
   type TrackVersionDoc,
 } from '@/lib/schemas/curriculum';
-import { ALL_COHORTS_ID } from '@/lib/schemas/constants';
+import { isTrackVisibleToLearner } from '@/lib/services/track-loader';
 import type { SessionUser } from '@/lib/schemas/domain';
 
 export interface LearnContext {
@@ -54,9 +54,8 @@ export function resolveVersionAccess(
     return null;
   }
   if (!published || !track.publishedVersionId) return null;
-  const assigned =
-    track.assignedCohortIds.includes(ALL_COHORTS_ID) || track.assignedCohortIds.includes(user.partnerCohortId);
-  return assigned ? { versionId: track.publishedVersionId, isPreview: false } : null;
+  // Same rule as every learner API (Cohort + Division), so a direct URL never opens a Track the learner can't see.
+  return isTrackVisibleToLearner(track, user) ? { versionId: track.publishedVersionId, isPreview: false } : null;
 }
 
 /** Loads everything a learner page needs, or calls `notFound()` when the Track is missing or not visible. */

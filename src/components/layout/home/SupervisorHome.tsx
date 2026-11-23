@@ -15,6 +15,8 @@ import { EmptyState, KpiStrip, SectionHeader } from '@/components/analytics/KpiS
 import { ProgressStatusChip, isReadyForCalls } from '@/components/progress/ProgressStatusChip';
 import { BAND_TEXT_CLASS, bandFor, formatPct } from '@/components/analytics/strength';
 import { cn } from '@/lib/utils';
+import { canManageUser } from '@/lib/auth/rbac';
+import { ResetPasswordDialog } from '@/app/(dashboard)/roster/_components/ResetPasswordDialog';
 import { cohortLabel, relativeTime } from '../labels';
 
 /** PARTNER_SUPERVISOR home: own Cohort only. Every query is scoped to user.partnerCohortId. */
@@ -128,9 +130,12 @@ export async function SupervisorHome({ user, showOffboarded = false }: { user: S
                         <Link href={`/analytics/agents/${encodeURIComponent(agent.uid)}`} className="hover:text-pulse-indigo hover:underline">
                           {agent.displayName}
                         </Link>
-                        <span className="block text-xs font-normal text-pulse-muted">
+                        <span className="flex items-center gap-1.5 text-xs font-normal text-pulse-muted">
                           {agent.lcNumber ?? agent.email}
                           {agent.active ? '' : ' · Offboarded'}
+                          {canManageUser(user, agent, 'users.resetPassword') ? (
+                            <ResetPasswordDialog uid={agent.uid} displayName={agent.displayName} loginIdentifier={agent.lcNumber ?? agent.email} />
+                          ) : null}
                         </span>
                       </th>
                       <td className="py-2.5 pr-3">

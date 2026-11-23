@@ -11,6 +11,8 @@ import type { PublicationGateReport } from '@/lib/schemas/source-truth';
 export interface PublishCohortOption {
   id: string;
   name: string;
+  /** Active agents in this Cohort whose Divisions include the Track's Division. */
+  reach: number;
 }
 
 /**
@@ -22,6 +24,7 @@ export function PublishDialog({
   trackTitle,
   cohorts,
   initialCohortIds,
+  divisionLabel,
   beforePublish,
   onOpenSourceReview,
   disabled,
@@ -30,6 +33,8 @@ export function PublishDialog({
   trackTitle: string;
   cohorts: PublishCohortOption[];
   initialCohortIds: string[];
+  /** The Track's Division, for "Cohorts with Telehealth agents". */
+  divisionLabel: string;
   /** Saves pending edits. Return false to stop the publish. */
   beforePublish: () => Promise<boolean>;
   onOpenSourceReview: () => void;
@@ -45,8 +50,15 @@ export function PublishDialog({
   const [copied, setCopied] = useState(false);
 
   const allSelected = selected.has(ALL_COHORTS_ID);
+  // Only Cohorts with agents in this Division are listed; ones already assigned stay listed so they can be removed.
+  const listed = cohorts.filter((cohort) => cohort.reach > 0 || selected.has(cohort.id));
+  const hiddenCount = cohorts.length - listed.length;
+  const reach = allSelected
+    ? cohorts.reduce((sum, cohort) => sum + cohort.reach, 0)
+    : cohorts.filter((cohort) => selected.has(cohort.id)).reduce((sum, cohort) => sum + cohort.reach, 0);
 
   function open() {
+    setSelected(new Set(initialCohortIds));
     setError(null);
     setGateReport(null);
     setPublished(null);
@@ -155,31 +167,42 @@ export function PublishDialog({
         ) : (
           <div className="flex flex-col gap-4 px-5 py-5">
             <p className="text-sm text-pulse-secondary">
-              Select the Cohorts that must take this Track. Publishing freezes the current draft as a new TrackVersion; earlier
-              records stay intact.
+              Select the Cohorts that must take this Track. Only agents with the {divisionLabel} Division see it. Publishing freezes
+              the current draft as a new TrackVersion; earlier records stay intact.
             </p>
             <fieldset className="flex flex-col gap-1.5">
               <legend className="pulse-label mb-2">Target Cohorts</legend>
-              <CohortCheckbox
-                id={ALL_COHORTS_ID}
-                label="All Active Cohorts"
-                checked={allSelected}
-                onToggle={toggle}
-                emphasis
-              />
               <div className="grid gap-1.5 sm:grid-cols-2">
-                {cohorts.map((cohort) => (
+                {listed.map((cohort) => (
                   <CohortCheckbox
                     key={cohort.id}
                     id={cohort.id}
                     label={cohort.name}
+                    hint={`${cohort.reach} agent${cohort.reach === 1 ? '' : 's'}`}
                     checked={allSelected || selected.has(cohort.id)}
                     disabled={allSelected}
                     onToggle={toggle}
                   />
                 ))}
               </div>
+              {listed.length === 0 ? (
+                <p className="text-xs text-pulse-muted">No Cohort has active {divisionLabel} agents yet.</p>
+              ) : null}
+              <CohortCheckbox
+                id={ALL_COHORTS_ID}
+                label="Every Cohort, including ones added later"
+                checked={allSelected}
+                onToggle={toggle}
+              />
+              {hiddenCount > 0 ? (
+                <p className="text-xs text-pulse-muted">
+                  {hiddenCount} Cohort{hiddenCount === 1 ? ' has' : 's have'} no {divisionLabel} agents and {hiddenCount === 1 ? 'is' : 'are'} not listed.
+                </p>
+              ) : null}
             </fieldset>
+            <p className="text-sm font-medium text-pulse-secondary" aria-live="polite">
+              {selected.size === 0 ? 'Pick at least one Cohort.' : `Reaches ${reach} agent${reach === 1 ? '' : 's'}.`}
+            </p>
             {error ? (
               <p role="alert" className="rounded-pulse-md border border-pulse-crimson/40 bg-pulse-crimson/10 px-3 py-2 text-sm text-pulse-crimson">
                 {error}
@@ -223,14 +246,14 @@ function CohortCheckbox({
   checked,
   disabled,
   onToggle,
-  emphasis,
+  hint,
 }: {
   id: string;
   label: string;
   checked: boolean;
   disabled?: boolean;
   onToggle: (id: string) => void;
-  emphasis?: boolean;
+  hint?: string;
 }) {
   return (
     <label
@@ -238,7 +261,6 @@ function CohortCheckbox({
         'flex cursor-pointer items-center gap-2.5 rounded-pulse-md border px-3 py-2 text-sm transition-colors',
         checked ? 'border-pulse-indigo/60 bg-pulse-indigo/10' : 'border-pulse-border-subtle hover:border-pulse-border',
         disabled && 'cursor-not-allowed opacity-60',
-        emphasis && 'font-semibold',
       )}
     >
       <input
@@ -248,7 +270,8 @@ function CohortCheckbox({
         disabled={disabled}
         onChange={() => onToggle(id)}
       />
-      {label}
+      <span className="min-w-0 flex-1">{label}</span>
+      {hint ? <span className="pulse-metric shrink-0 text-xs text-pulse-muted">{hint}</span> : null}
     </label>
   );
 }

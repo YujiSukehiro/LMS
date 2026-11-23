@@ -34,7 +34,9 @@ export const TRAINING_POLICY: TrainingPolicyConfig = {
   certificationRequiresRuleRecall: false,
   // GATE-04 approved by Connor 2026-11-20: production runs Gemini, so hosted_ai sessions may certify.
   allowHostedAiForCertification: true,
-  enforceLearnerDivisionVisibility: false,
+  // GATE-05 decided 2026-11-23 (QA fix plan decision 1, recommended option): a Track shows only to learners whose
+  // divisionIds include its Division, on top of Cohort assignment.
+  enforceLearnerDivisionVisibility: true,
 };
 
 export interface ApprovalGateEntry {
@@ -83,8 +85,8 @@ export const APPROVAL_GATES: readonly ApprovalGateEntry[] = [
   {
     id: 'GATE-05',
     title: 'Learner Track visibility by divisionIds',
-    status: 'PENDING_CONNOR',
-    currentDefault: 'enforceLearnerDivisionVisibility = false (visibility filtered by assignedCohortIds)',
+    status: 'APPROVED',
+    currentDefault: 'enforceLearnerDivisionVisibility = true (2026-11-23 QA fix plan: Cohort assignment AND matching divisionIds)',
     pausedScope: 'Filtering learner tracks by user.divisionIds alongside partnerCohortId',
     codeLocation: 'src/lib/policy/training-policy.ts, src/lib/services/track-loader.ts',
   },

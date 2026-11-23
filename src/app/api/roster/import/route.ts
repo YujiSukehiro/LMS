@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { assignableRoles, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
+import { assignableRoles, manageDeniedReason, roleCohortFitError, rolesWith } from '@/lib/auth/rbac';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminAuth, adminDb, firebaseErrorCode } from '@/lib/firebase/admin';
 import { requireAuth } from '@/lib/firebase/auth-guard';
@@ -50,6 +50,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   const cohortSnaps = await adminDb.collection('cohorts').get();
   const cohortIds = new Set(cohortSnaps.docs.map((doc) => doc.id));
+  const internalCohortIds = new Set(cohortSnaps.docs.filter((doc) => doc.get('isInternal') === true).map((doc) => doc.id));
 
   const errors: RosterImportResponse['errors'] = [];
   const credentials: CreatedCredential[] = [];
@@ -66,6 +67,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
     if (!cohortIds.has(row.partnerCohortId)) {
       fail(`Cohort "${row.partnerCohortId}" does not exist.`);
+      continue;
+    }
+    const fitError = roleCohortFitError(row.role, internalCohortIds.has(row.partnerCohortId));
+    if (fitError) {
+      fail(fitError);
       continue;
     }
 

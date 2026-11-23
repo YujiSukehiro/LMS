@@ -189,21 +189,50 @@ export function CreateCohortDialog() {
   );
 }
 
+type JoinCodeAction = 'rotate' | 'disable' | 'enable';
+
+/**
+ * Join-code controls. Rotate and Disable break a code that may already be printed or sent to a partner, so both
+ * ask first (QA M4). After a rotate the new code is shown with a Copy button.
+ */
 export function CohortCardActions({
   cohortId,
   cohortName,
+  joinCode,
   joinCodeEnabled,
 }: {
   cohortId: string;
   cohortName: string;
+  joinCode: string | null;
   joinCodeEnabled: boolean;
 }) {
   const router = useRouter();
-  const [pendingAction, setPendingAction] = useState<'rotate' | 'toggle' | null>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const [confirming, setConfirming] = useState<JoinCodeAction | null>(null);
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [newCode, setNewCode] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  async function mutate(payload: { action: 'rotate_join_code' } | { action: 'toggle_join_code'; enabled: boolean }) {
-    setPendingAction(payload.action === 'rotate_join_code' ? 'rotate' : 'toggle');
+  function ask(action: JoinCodeAction): void {
+    setConfirming(action);
+    setError(null);
+    setNewCode(null);
+    setCopied(false);
+    dialogRef.current?.showModal();
+  }
+
+  function close(): void {
+    dialogRef.current?.close();
+    setConfirming(null);
+  }
+
+  async function confirm(): Promise<void> {
+    if (!confirming) return;
+    const payload =
+      confirming === 'rotate' ? { action: 'rotate_join_code' as const } : { action: 'toggle_join_code' as const, enabled: confirming === 'enable' };
+    setPending(true);
     setError(null);
     try {
       const response = await fetch(`/api/roster/cohorts/${encodeURIComponent(cohortId)}`, {
@@ -214,14 +243,42 @@ export function CohortCardActions({
       if (!response.ok) {
         throw new Error(await readApiError(response, 'The Cohort setting could not be updated.'));
       }
-      RosterCohortResponseSchema.parse(await response.json());
+      const parsed = RosterCohortResponseSchema.parse(await response.json());
       router.refresh();
+      if (confirming === 'rotate') setNewCode(parsed.cohort.joinCode);
+      else close();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Update failed.');
     } finally {
-      setPendingAction(null);
+      setPending(false);
     }
   }
+
+  async function copyCode(): Promise<void> {
+    if (!newCode) return;
+    try {
+      await navigator.clipboard.writeText(newCode);
+      setCopied(true);
+    } catch {
+      window.prompt('Copy the new join code:', newCode);
+    }
+  }
+
+  const oldCode = joinCode ?? 'the current code';
+  const title =
+    newCode !== null
+      ? `New join code for ${cohortName}`
+      : confirming === 'rotate'
+        ? `Rotate the join code for ${cohortName}?`
+        : confirming === 'disable'
+          ? `Turn off joining for ${cohortName}?`
+          : `Turn on joining for ${cohortName}?`;
+  const body =
+    confirming === 'rotate'
+      ? `Agents with the old code ${oldCode} won't be able to join. Anyone who already joined keeps their account. Share the new code with the partner after rotating.`
+      : confirming === 'disable'
+        ? `Nobody can join with ${oldCode} until you turn joining back on. Anyone who already joined keeps their account.`
+        : `Agents can join with ${oldCode} again.`;
 
   return (
     <div className="space-y-1">
@@ -230,31 +287,69 @@ export function CohortCardActions({
           type="button"
           className="pulse-btn pulse-btn-ghost px-2 py-1 text-xs"
           aria-label={`Rotate code for ${cohortName}`}
-          disabled={pendingAction !== null}
-          onClick={() => void mutate({ action: 'rotate_join_code' })}
+          onClick={() => ask('rotate')}
         >
-          {pendingAction === 'rotate' ? (
-            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-          ) : (
-            <RefreshCw className="h-3 w-3" aria-hidden="true" />
-          )}
+          <RefreshCw className="h-3 w-3" aria-hidden="true" />
           Rotate code
         </button>
         <button
           type="button"
           className="pulse-btn pulse-btn-ghost px-2 py-1 text-xs"
           aria-label={`${joinCodeEnabled ? 'Disable join' : 'Enable join'} for ${cohortName}`}
-          disabled={pendingAction !== null}
-          onClick={() => void mutate({ action: 'toggle_join_code', enabled: !joinCodeEnabled })}
+          onClick={() => ask(joinCodeEnabled ? 'disable' : 'enable')}
         >
           {joinCodeEnabled ? 'Disable join' : 'Enable join'}
         </button>
       </div>
-      {error ? (
-        <p role="alert" className="text-xs text-pulse-crimson">
-          {error}
-        </p>
-      ) : null}
+      <dialog ref={dialogRef} className="pulse-dialog text-left" aria-labelledby={titleId} onClose={() => setConfirming(null)}>
+        <div className="p-6">
+          <h2 id={titleId} className="text-lg font-semibold">
+            {title}
+          </h2>
+          {newCode !== null ? (
+            <div className="mt-4 space-y-3">
+              <p className="text-sm text-pulse-secondary">Share this code with the partner. The old code no longer works.</p>
+              <div className="flex items-center gap-2">
+                <span className="pulse-metric select-all rounded-md border border-pulse-border bg-pulse-surface-2 px-3 py-2 text-lg font-semibold">
+                  {newCode}
+                </span>
+                <button type="button" className="pulse-btn" onClick={() => void copyCode()}>
+                  {copied ? <Check className="h-4 w-4 text-pulse-emerald" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <div className="flex justify-end pt-2">
+                <button type="button" className="pulse-btn pulse-btn-primary" autoFocus onClick={close}>
+                  Done
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="mt-2 text-sm text-pulse-secondary">{body}</p>
+              {error ? (
+                <p role="alert" className="mt-3 text-sm text-pulse-crimson">
+                  {error}
+                </p>
+              ) : null}
+              <div className="mt-6 flex justify-end gap-2">
+                <button type="button" className="pulse-btn pulse-btn-ghost" autoFocus onClick={close} disabled={pending}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={confirming === 'enable' ? 'pulse-btn pulse-btn-primary' : 'pulse-btn pulse-btn-danger'}
+                  onClick={() => void confirm()}
+                  disabled={pending}
+                >
+                  {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                  {confirming === 'rotate' ? 'Rotate code' : confirming === 'disable' ? 'Disable join' : 'Enable join'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </dialog>
     </div>
   );
 }
