@@ -142,3 +142,60 @@ export function isPositionLabel(text: string): boolean {
   return /^\s*(step\s*\d+|\d+[.):]|(first|second|third|fourth|fifth|last)\b\s*[:.\-–—])/i.test(text);
 }
 
+
+export interface DrillRepeat {
+  unitIndex: number;
+  drillIndex: number;
+  /** The earlier Drill (in an earlier Checkpoint) that already tests this rule. */
+  earlier: DrillItem;
+  earlierUnitIndex: number;
+}
+
+const normRule = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Source quotes long enough to stand for one rule (short phrases like "licensed provider" are shared by many). */
+function ruleQuotes(drill: DrillItem): Set<string>[] {
+  return (drill.evidence ?? [])
+    .flatMap((evidence) => evidence.excerpts.map((excerpt) => normRule(excerpt.exactText)))
+    .filter((quote) => quote.length >= 30)
+    .map((quote) => contentWords(quote));
+}
+
+/** Two quotes state the same rule when most content words of the shorter one are in the longer one. */
+function sameRuleQuote(left: Set<string>[], right: Set<string>[]): boolean {
+  return left.some((a) => right.some((b) => {
+    const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+    if (small.size < 4) return false;
+    const shared = [...small].filter((word) => large.has(word)).length;
+    return shared / small.size >= 0.8;
+  }));
+}
+
+/**
+ * Drills that retest a rule an earlier Checkpoint already tests (review 2026-11-23: "verbal OK never replaces the
+ * e-signature" in Checkpoints 3 and 6; "licensed provider" as the fill-in answer in 3 and 5). A repeat is a close
+ * rewording of the same kind, a fill-in with the same answer, or a Drill grounded in the same source quote.
+ * Pure; at most `limit` repeats, earliest first.
+ */
+export function findCrossUnitRepeats(units: ReadonlyArray<{ drills: readonly DrillItem[] }>, limit = 8): DrillRepeat[] {
+  const repeats: DrillRepeat[] = [];
+  units.forEach((unit, unitIndex) => {
+    unit.drills.forEach((drill, drillIndex) => {
+      if (repeats.length >= limit) return;
+      const quotes = ruleQuotes(drill);
+      for (let earlierUnitIndex = 0; earlierUnitIndex < unitIndex; earlierUnitIndex += 1) {
+        const earlier = units[earlierUnitIndex].drills.find((other) =>
+          drillOverlap(drill, other) >= REPEAT_OVERLAP ||
+          (drill.kind === 'FILL_BLANK_CHOICE' && other.kind === 'FILL_BLANK_CHOICE' && normRule(drill.correctWord) === normRule(other.correctWord)) ||
+          // Match Pairs cite several rules at once, so a shared quote there is not a repeat.
+          (drill.kind !== 'MATCH_PAIRS' && other.kind !== 'MATCH_PAIRS' && sameRuleQuote(quotes, ruleQuotes(other))),
+        );
+        if (earlier) {
+          repeats.push({ unitIndex, drillIndex, earlier, earlierUnitIndex });
+          return;
+        }
+      }
+    });
+  });
+  return repeats;
+}
