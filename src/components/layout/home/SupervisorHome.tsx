@@ -109,13 +109,13 @@ export async function SupervisorHome({ user, showOffboarded = false }: { user: S
           <EmptyState icon={<Users aria-hidden className="size-6" />} title="No agents in this Cohort yet" />
         ) : (
           <div className="relative overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
+            <table className="w-full text-sm sm:min-w-[560px]">
               <thead>
                 <tr className="border-b border-pulse-border-subtle text-left">
                   <th scope="col" className="pulse-label py-2 pr-3">Agent</th>
                   <th scope="col" className="pulse-label py-2 pr-3">Status by Track</th>
-                  <th scope="col" className="pulse-label py-2 pr-3 text-right">Skill score</th>
-                  <th scope="col" className="pulse-label py-2 text-right">Last activity</th>
+                  <th scope="col" className="pulse-label hidden py-2 pr-3 text-right sm:table-cell">Skill score</th>
+                  <th scope="col" className="pulse-label hidden py-2 text-right sm:table-cell">Last activity</th>
                 </tr>
               </thead>
               <tbody>
@@ -155,10 +155,10 @@ export async function SupervisorHome({ user, showOffboarded = false }: { user: S
                           </ul>
                         )}
                       </td>
-                      <td className={cn('pulse-metric py-2.5 pr-3 text-right font-semibold', BAND_TEXT_CLASS[band])}>
+                      <td className={cn('pulse-metric hidden py-2.5 pr-3 text-right font-semibold sm:table-cell', BAND_TEXT_CLASS[band])}>
                         {band === 'none' ? '—' : formatPct(agent.stats.overallReadinessScore)}
                       </td>
-                      <td className="py-2.5 text-right text-xs text-pulse-muted">
+                      <td className="hidden py-2.5 text-right text-xs text-pulse-muted sm:table-cell">
                         {lastActivity > 0 ? relativeTime(lastActivity, now) : 'No activity'}
                       </td>
                     </tr>

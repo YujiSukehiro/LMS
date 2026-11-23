@@ -10,7 +10,7 @@ import {
   simPassRate,
 } from '@/components/analytics/server-data';
 import { EmptyState, KpiStrip, ProgressBar, SectionHeader } from '@/components/analytics/KpiStrip';
-import { BAND_TEXT_CLASS, bandFor, formatPct } from '@/components/analytics/strength';
+import { BAND_BAR_TONE, BAND_TEXT_CLASS, bandFor, formatPct } from '@/components/analytics/strength';
 import { cn } from '@/lib/utils';
 import { DivisionPill } from '../DivisionPill';
 import { cohortLabel } from '../labels';
@@ -136,7 +136,7 @@ export async function AdminHome({ user }: { user: SessionUser }) {
                     <span className="truncate font-medium">{cohortLabel(row.cohortId)}</span>
                     <ProgressBar
                       value={row.readiness ?? 0}
-                      tone={band === 'strong' ? 'emerald' : band === 'borderline' ? 'amber' : 'indigo'}
+                      tone={BAND_BAR_TONE[band]}
                       label={`${cohortLabel(row.cohortId)} readiness`}
                     />
                     <span className={cn('pulse-metric text-right font-semibold', BAND_TEXT_CLASS[band])}>{formatPct(row.readiness)}</span>

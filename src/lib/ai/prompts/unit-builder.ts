@@ -5,6 +5,7 @@
  * Also holds the single-item regeneration prompts for one BriefingCard or one Drill.
  */
 import { z } from 'zod';
+import { isConditionalStep } from '@/lib/services/drill-label';
 import {
   BriefingCardSchema,
   DRILL_KINDS,
@@ -375,6 +376,12 @@ export function explanationProblems(drill: DrillGeneration): string[] {
   const problems: string[] = [];
   const folded = ` ${normWords(explanation)} `;
   if (drill.kind === 'SEQUENCE_ORDER') {
+    const branches = drill.orderedSteps.filter((step) => isConditionalStep(step.text));
+    if (branches.length > 0) {
+      problems.push(
+        `Step "${branches[0].text}" is an option for a situation, not a step in a fixed order. Use only steps of one procedure the Playbook gives in order.`,
+      );
+    }
     // "The correct order is 1, 3, 2, 4": any listed order other than 1..n contradicts the stored steps.
     for (const match of explanation.matchAll(/\b\d(?:\s*(?:,|->|→|then|and)\s*\d){2,}\b/g)) {
       const numbers = match[0].match(/\d/g)!.map(Number);
@@ -738,6 +745,7 @@ const DRILL_KIND_GUIDE = [
   `MULTIPLE_CHOICE: "prompt" is a realistic call situation or a rule check. "options" has exactly 4 objects {"id","text"} with ids "a","b","c","d". "correctOptionId" is the id of the one correct option. Wrong options must be plausible mistakes an agent could make. All 4 options have about the same length and level of detail: the correct option is never the only long, specific or Playbook-worded one.`,
   'TRUE_FALSE_SPOT: "statement" describes what an agent said or did on a call. "isCompliant" is true when it follows the Playbook and false when it breaks the Playbook. "prompt" asks the agent to decide.',
   'SEQUENCE_ORDER: "orderedSteps" has 3 to 5 steps {"text"} in the CORRECT order from the Playbook. "prompt" asks the agent to put the steps in order. The "explanation" says why that order is right; it never lists step numbers.',
+  'SEQUENCE_ORDER is ONLY for a procedure the Playbook itself gives in a fixed order (numbered steps, a call flow, or "first / then / after"). Every step is one action the agent takes at one point in the same call, and swapping two steps would be wrong. Never use it for a list of separate rules, options for different situations, or "if ..." branches (for example "Stop sharing if uncertain" next to "Limit records to assigned duties"); test those with MULTIPLE_CHOICE or TRUE_FALSE_SPOT ideas inside a sequence about the one procedure the pages do give.',
   'MATCH_PAIRS: "pairs" has 3 or 4 objects {"leftPrompt","rightMatch"} (for example a caller situation and the required action). Each side is a SHORT phrase of at most 80 characters, never a full script. Every right side matches only one left side.',
   `FILL_BLANK_CHOICE: "sentenceTemplate" is a Playbook rule with the token ${FILL_BLANK_TOKEN} exactly once where the key word goes. "wordBank" has exactly 4 different words or short phrases. "correctWord" is one of them, written exactly the same.`,
 ].join('\n');

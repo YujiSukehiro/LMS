@@ -270,18 +270,6 @@ export function RetentionRunner({
           <ArrowLeft aria-hidden className="size-4" />
           Back to Home
         </Link>
-        {phase !== 'idle' ? (
-          <button
-            type="button"
-            onClick={() => {
-              setActiveBatch(null);
-              setPhase('idle');
-            }}
-            className="text-xs font-medium text-pulse-muted hover:text-pulse-primary"
-          >
-            Exit to queue
-          </button>
-        ) : null}
       </div>
 
       <header className="pulse-card px-4 py-3">

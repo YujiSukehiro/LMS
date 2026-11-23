@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { SIM_COPY } from '@/lib/policy/training-policy';
 import { NextResponse } from 'next/server';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { SimSessionDocSchema, type SimSessionDoc } from '@/lib/schemas/analytics';
@@ -65,7 +66,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       return jsonError(
         429,
         'SIM_DAILY_LIMIT',
-        `You started the maximum of ${limit} Simulations today. Try again tomorrow (UTC).`,
+        // The browser rewrites this with the local reset time (QA L17); the limit day is the UTC day.
+        `You started the maximum of ${limit} ${SIM_COPY.plural} today. The limit resets at midnight UTC.`,
       );
     }
 

@@ -38,6 +38,7 @@ import { CanonicalDispositionSchema } from '@/lib/schemas/source-truth';
 import { readSseStream } from '@/lib/sse-client';
 import { cn } from '@/lib/utils';
 import { describeApiError, describeNetworkError, readApiFailure } from '../_lib/api-errors';
+import { dailyLimitMessage } from '../_lib/daily-limit';
 import { z } from 'zod';
 
 export interface SimulationRunnerProps {
@@ -179,7 +180,7 @@ export function SimulationRunner({
       });
       if (!response.ok) {
         const failure = await readApiFailure(response, 'simulation');
-        setError(failure.message);
+        setError(failure.code === 'SIM_DAILY_LIMIT' ? dailyLimitMessage(failure.message) : failure.message);
         if (failure.code === AI_UNAVAILABLE_CODE) setRetryAction({ label: 'Try again', run: () => void startRef.current() });
         setPhase('intro');
         return;

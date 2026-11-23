@@ -2,10 +2,19 @@ import { strengthBand } from '@/lib/services/scoring';
 
 export type StrengthBand = 'strong' | 'borderline' | 'weak' | 'none';
 
+/** Band the value people see: 69.6 shows as "70%", so it bands as 70 (QA L4: a red "70%"). */
 export function bandFor(score: number | null | undefined): StrengthBand {
   if (score === null || score === undefined || !Number.isFinite(score)) return 'none';
-  return strengthBand(score);
+  return strengthBand(Math.round(score));
 }
+
+/** One bar color per band, used by every leaderboard and progress bar. */
+export const BAND_BAR_TONE: Record<StrengthBand, 'emerald' | 'amber' | 'crimson' | 'indigo'> = {
+  strong: 'emerald',
+  borderline: 'amber',
+  weak: 'crimson',
+  none: 'indigo',
+};
 
 /** Heatmap cell classes: emerald = mastery, amber = borderline, crimson = breach risk, muted = no data. */
 export const BAND_CELL_CLASS: Record<StrengthBand, string> = {

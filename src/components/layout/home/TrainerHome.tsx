@@ -85,7 +85,8 @@ export async function TrainerHome({ user }: { user: SessionUser }) {
                     className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-pulse-sm px-1 py-2.5 hover:bg-pulse-surface-2/50"
                   >
                     <DivisionPill divisionId={track.divisionId} short />
-                    <span className="min-w-0 flex-1 truncate font-medium">{track.title}</span>
+                    {/* QA L14: wrap to two lines instead of cutting to "Ne…" on a phone. */}
+                    <span className="line-clamp-2 min-w-0 flex-1 basis-40 font-medium">{track.title}</span>
                     <TrackStatusPill status={trackDisplayStatus(track)} />
                     <span className="pulse-metric w-20 text-right text-xs text-pulse-muted">{relativeTime(track.updatedAt, now)}</span>
                   </Link>

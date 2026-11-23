@@ -38,25 +38,28 @@ export function AiRuntimePill({ runtime, role, className }: { runtime: AiRuntime
   }, [checkHealth]);
 
   const baseLabel = runtime.runtimeLabel ?? PROVIDER_LABELS[runtime.provider];
-  const label = health?.status === 'blocked'
-    ? `${baseLabel} blocked`
-    : health?.status === 'degraded'
-      ? `${baseLabel} degraded`
-      : health?.status === 'not_configured'
-        ? `${baseLabel} not configured`
-        : health?.status === 'ready'
-          ? `${baseLabel} ready · ${runtime.heavyModel}`
-          : runtime.provider === 'replay' || runtime.provider === 'manual_chat'
-            ? baseLabel
-            : `${baseLabel} · ${runtime.heavyModel}`;
+  // Plain words (QA L2). A slow health check while a build keeps the model busy reads as "busy", not "degraded";
+  // the provider and model id stay in the tooltip.
+  const label =
+    runtime.provider === 'replay' || runtime.provider === 'manual_chat'
+      ? baseLabel
+      : health?.status === 'blocked' || health?.status === 'not_configured'
+        ? 'AI unavailable'
+        : health?.status === 'degraded'
+          ? 'AI busy'
+          : health?.status === 'ready'
+            ? 'AI ready'
+            : 'AI';
   const capabilityTitle = health?.capabilities?.map((capability) =>
     `${capability.capability}: ${capability.status}${capability.nextStep ? ` — ${capability.nextStep}` : ''}`,
   ).join('\n');
 
   return (
     <span
-      className={cn('pulse-pill font-mono text-[0.7rem]', className)}
-      title={capabilityTitle || health?.error || `${baseLabel}: heavy tier ${runtime.heavyModel}, fast tier ${runtime.fastModel}`}
+      className={cn('pulse-pill text-[0.7rem]', className)}
+      title={[`${baseLabel}: heavy tier ${runtime.heavyModel}, fast tier ${runtime.fastModel}`, capabilityTitle || health?.error]
+        .filter(Boolean)
+        .join('\n')}
       data-runtime-status={health?.status ?? (runtime.provider === 'replay' ? 'demo' : runtime.provider === 'manual_chat' ? 'manual' : 'unknown')}
     >
       <Cpu
