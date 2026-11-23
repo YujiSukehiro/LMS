@@ -835,6 +835,7 @@ export function buildUnitSystemPrompt(divisionId: DivisionId): string {
     `- Use at least ${MIN_DISTINCT_DRILL_KINDS} DIFFERENT Drill kinds in the Unit. Available kinds: ${DRILL_KINDS.join(', ')}.`,
     '- Every Drill has "competencyPillarId" set to one of the CompetencyPillar ids given in the request.',
     '- Teach what an agent says or does on a call. Skip internal testing steps, URL parameters, screenshot or page-layout details and metric definitions unless an agent uses them on a call.',
+    '- Skip background trivia an agent never acts on: penalty amounts, fines, legal history, regulation names or dates, and comparisons between company policy and the law. Teach the action the rule requires instead (for example "report immediately", not the size of a fine).',
     '- A "Never", "Do not" or compliance rule in the GLOBAL CAMPAIGN SUMMARY or the SOURCE PAGES wins over any script, example or step. Never write a card, a "doList" item, a takeaway or a correct Drill answer that tells the agent to do a forbidden action (for example sending a link after reaching voicemail). When a script on the pages seems to allow it, teach the script words but not the forbidden action.',
     '- Do not re-teach a rule that one of the "Other Units" listed in the request already covers. Focus on what is new on this Unit\'s pages.',
     '- Every wrong option, wrong word or false statement must be a mistake a new agent could plausibly make. Never use an absurd or joke option that nobody would pick.',

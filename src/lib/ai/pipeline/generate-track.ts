@@ -58,6 +58,9 @@ import {
   buildUnitCardsSchema,
   buildUnitCardsUserPrompt,
   unitContextPrefix,
+  buildDrillGenerationSchema,
+  buildRegenerateDrillUserPrompt,
+  DRILL_SCHEMA_NAME,
   buildUnitDrillBatchSchema,
   buildUnitDrillsUserPrompt,
   buildUnitGenerationSchema,
@@ -142,7 +145,7 @@ import {
   type GenerationStageResult,
 } from '@/lib/ai/pipeline/generation-reliability';
 import { LocalRuntimeLimiter } from '@/lib/ai/local-runtime';
-import { drillSummary } from '@/lib/services/drill-label';
+import { drillSummary, findCrossUnitRepeats } from '@/lib/services/drill-label';
 
 const generationLimiter = new LocalRuntimeLimiter();
 /** Hosted providers (Gemini) serve parallel builds; only a single-slot local runtime needs serializing. */
@@ -336,6 +339,8 @@ function pagesByOutline(outlines: ReadonlyArray<{ sourcePages: number[] }>, page
 
 /** Checkpoints written at the same time on hosted models (local models stay one at a time). */
 export const UNIT_BUILD_CONCURRENCY = 3;
+/** At most this many repeated Drills are rewritten per build (each is one small call). */
+export const MAX_REPEAT_REWRITES = 8;
 
 type Settled<T> = { ok: true; value: T } | { ok: false; error: unknown };
 /** Run now, collect the result later: a rejection is held, never left unhandled while other work runs. */
@@ -935,6 +940,7 @@ export async function runTrackGeneration(
     const units: TrackUnit[] = [];
     const flaggedItems: string[] = [];
     let unitsDone = 0;
+    const unitContexts = new Map<string, { ctx: UnitBuildContext; promptInput: UnitPromptInput; stageInput: Record<string, unknown> }>();
     const buildUnit = async (index: number, rawOutline: (typeof blueprint.units)[number], earlierUnits: readonly TrackUnit[]): Promise<TrackUnit> => {
       const outline: UnitOutline = rawOutline.contentPlan
         ? { ...rawOutline, contentPlan: clampPlanToLimits(rawOutline.contentPlan, limits) }
@@ -979,6 +985,7 @@ export async function runTrackGeneration(
         otherUnitTitles,
         sourceCharBudget: unitCharBudget ?? null,
       };
+      unitContexts.set(outline.id, { ctx, promptInput, stageInput });
       const progressAt = (fraction: number) => 30 + ((index + fraction) * 45) / unitTotal;
       let unit: TrackUnit;
       let allCached = true;
@@ -1256,6 +1263,62 @@ export async function runTrackGeneration(
         throw (wave[failedAt] as PromiseRejectedResult).reason;
       }
     }
+    // Repeat pass (Connor 2026-11-23): Checkpoints are written separately, so a later one can retest a rule an earlier
+    // one already tests. Rewrite each such Drill once to test something new; a failed rewrite keeps the original.
+    if (parallel && unitMode === 'split') {
+      const repeats = findCrossUnitRepeats(units, MAX_REPEAT_REWRITES);
+      if (repeats.length > 0) {
+        stageLabel = 'Repeat check';
+        await report('BUILDING_UNITS', 76, `Rewriting ${repeats.length} Drill${repeats.length === 1 ? '' : 's'} that retest an earlier Checkpoint...`);
+        const rewrites = await Promise.allSettled(repeats.map(async (repeat) => {
+          const unit = units[repeat.unitIndex];
+          const current = unit.drills[repeat.drillIndex];
+          const context = unitContexts.get(unit.id);
+          if (!context) return null;
+          const others = units.flatMap((other) => other.drills).filter((drill) => drill.id !== current.id);
+          const ctx: UnitBuildContext = { ...context.ctx, replacing: current, avoidDrills: others };
+          const hint = `This Drill retests a rule Checkpoint ${repeat.earlierUnitIndex + 1} already tests (${drillSummary(repeat.earlier)}). Test a different rule from this Checkpoint's SOURCE PAGES that no other Drill tests.`;
+          const stageKey = `unit:${unit.id}:repeat:${current.id}`;
+          const result = await executor.executeStage({
+            ...stageConfig(drillsMaxOutputTokens(1)),
+            stageKey,
+            input: { ...context.stageInput, part: 'repeat', current, earlier: drillSummary(repeat.earlier) },
+            schema: DrillItemSchema,
+            task: async (_input, { signal }) => {
+              const generated = await gateway.generateStructured({
+                tier: 'heavy',
+                systemPrompt: buildUnitSystemPrompt(track.divisionId),
+                userPrompt: buildRegenerateDrillUserPrompt({
+                  ...context.promptInput,
+                  current,
+                  siblingPrompts: unit.drills.filter((drill) => drill.id !== current.id).map((drill) => drillSummary(drill)),
+                  trainerHint: hint,
+                }),
+                schema: buildDrillGenerationSchema(current.kind, ctx),
+                schemaName: DRILL_SCHEMA_NAME,
+                maxOutputTokens: drillsMaxOutputTokens(1),
+                signal,
+              });
+              return { output: finalizeDrill(generated, current.id, ctx) };
+            },
+          });
+          await recordBudget(stageKey, result.budget);
+          return { unitIndex: repeat.unitIndex, drillIndex: repeat.drillIndex, drill: result.output };
+        }));
+        for (const outcome of rewrites) {
+          if (outcome.status === 'rejected') {
+            if (isGenerationPausedError(outcome.reason)) throw outcome.reason;
+            logStageFailure(trackId, stageLabel, outcome.reason);
+            continue;
+          }
+          if (!outcome.value) continue;
+          const { unitIndex, drillIndex, drill } = outcome.value;
+          units[unitIndex] = { ...units[unitIndex], drills: units[unitIndex].drills.map((existing, index) => (index === drillIndex ? drill : existing)) };
+        }
+        await saveDraft(units, []);
+      }
+    }
+
     stageLabel = 'Live Call Sims';
     await report('BUILDING_SIMS', 80, simsRun ? 'Finishing Live Call Simulation personas & grading rubrics...' : 'Creating Live Call Simulation personas & grading rubrics...');
     const simsResult = simsRun ? await simsRun : await settle(buildSims());

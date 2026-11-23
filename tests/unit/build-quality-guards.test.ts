@@ -53,3 +53,19 @@ describe('promisedStepCount', () => {
     expect(promisedStepCount('Put these steps in order.')).toBeNull();
   });
 });
+
+describe('findCrossUnitRepeats', () => {
+  it('finds a later Checkpoint retesting a rule by answer or by source quote, not by Match Pairs', async () => {
+    const { findCrossUnitRepeats } = await import('@/lib/services/drill-label');
+    const quote = (text: string) => [{ id: 'e', claim: 'c', ruleIds: [], excerpts: [{ documentId: 'd', revisionId: 'r', pageNumber: 1, exactText: text }] }];
+    const fill = (id: string, answer: string) => ({ id, kind: 'FILL_BLANK_CHOICE', prompt: 'Complete the rule.', sentenceTemplate: `Say {{BLANK}} ${id}`, wordBank: [answer, 'x', 'y', 'z'], correctWord: answer, evidence: [] });
+    const tf = (id: string, statement: string, text: string) => ({ id, kind: 'TRUE_FALSE_SPOT', prompt: 'Decide.', statement, evidence: quote(text) });
+    const mc = (id: string, prompt: string, text: string) => ({ id, kind: 'MULTIPLE_CHOICE', prompt, options: [], correctOptionId: 'a', evidence: quote(text) });
+    const units = [
+      { drills: [fill('u1-d1', 'licensed provider'), tf('u1-d2', 'Agent signs for Rosa.', 'Verbal confirmation does not replace a required patient electronic signature, attestation,')] },
+      { drills: [fill('u2-d1', 'licensed provider'), mc('u2-d2', 'Can a verbal yes replace the signature?', 'A verbal confirmation does not replace a required signature.'), mc('u2-d3', 'Different rule', 'Lock the screen whenever you step away from the workstation.')] },
+    ] as never;
+    const repeats = findCrossUnitRepeats(units);
+    expect(repeats.map((repeat) => `${repeat.unitIndex}:${repeat.drillIndex}`)).toEqual(['1:0', '1:1']);
+  });
+});

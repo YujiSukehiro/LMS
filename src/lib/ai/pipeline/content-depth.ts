@@ -11,7 +11,7 @@
  */
 
 /** Part of the stage cache identity: change it when the sizing rules change. */
-export const CONTENT_SIZING_VERSION = 'content-depth-v3';
+export const CONTENT_SIZING_VERSION = 'content-depth-v4';
 
 /** Hard limits. The Track schema and Studio UI are sized for these. */
 export const DEPTH_LIMITS = {
@@ -176,11 +176,34 @@ export function unitCountNote(built: number, requested: number | null | undefine
   return `${built} checkpoints built (you asked for ${requested}; the Playbook's rules fit ${built}).`;
 }
 
-/** Rough learner time for a Track: ~40 s per card, ~45 s per Drill, ~6 min per Live Call Sim. */
+/**
+ * Cards and Drills of a whole Track should take about this long (Connor 2026-11-23: aim for 45 to 60 minutes; an
+ * 8-page PHI policy filled every Checkpoint to the maximum and took ~78 minutes, retesting rules along the way).
+ * Practice calls come on top.
+ */
+export const TRACK_LEARNING_MINUTES = 45;
+const CARD_SECONDS = 40;
+const DRILL_SECONDS = 45;
+
+/** Rough learner time for a Track: ~40 s per card, ~45 s per Drill (capped by the Track budget), ~6 min per Live Call Sim. */
 export function estimateTrackMinutes(units: number, ruleSignals: number, sims = 2): number {
   const perUnit = planForRuleSignals(units > 0 ? ruleSignals / units : 0);
-  const unitSeconds = perUnit.cards.target * 40 + perUnit.drills.target * 45;
-  return Math.round((units * unitSeconds) / 60 + sims * 6);
+  const unitSeconds = perUnit.cards.target * CARD_SECONDS + perUnit.drills.target * DRILL_SECONDS;
+  return Math.round(Math.min((units * unitSeconds) / 60, TRACK_LEARNING_MINUTES) + sims * 6);
+}
+
+/** Scale every Unit's card and Drill targets down together until the Track fits TRACK_LEARNING_MINUTES. */
+export function fitPlansToTrackBudget(plans: UnitContentPlan[], limits: DepthLimits = DEPTH_LIMITS): UnitContentPlan[] {
+  const seconds = (list: UnitContentPlan[]) => list.reduce((sum, plan) => sum + plan.cards.target * CARD_SECONDS + plan.drills.target * DRILL_SECONDS, 0);
+  const budget = TRACK_LEARNING_MINUTES * 60;
+  const total = seconds(plans);
+  if (total <= budget) return plans;
+  const factor = budget / total;
+  return plans.map((plan) => {
+    const cards = rangeAround(plan.cards.target * factor, limits.minCards, limits.maxCards);
+    const drills = rangeAround(Math.max(cards.target, plan.drills.target * factor), limits.minDrills, limits.maxDrills);
+    return { ...plan, cards, drills };
+  });
 }
 
 /** Card and Drill range for a Unit with this many rule signals. */
@@ -218,7 +241,7 @@ export function planUnitContent(
   const byPage = new Map(depth.pages.map((page) => [page.pageNumber, page]));
   const citeCount = new Map<number, number>();
   for (const pages of unitPages) for (const page of new Set(pages)) citeCount.set(page, (citeCount.get(page) ?? 0) + 1);
-  return unitPages.map((pages) => {
+  const plans = unitPages.map((pages) => {
     let signals = 0;
     for (const page of new Set(pages)) {
       const measured = byPage.get(page);
@@ -226,6 +249,7 @@ export function planUnitContent(
     }
     return planForRuleSignals(signals, limits);
   });
+  return fitPlansToTrackBudget(plans, limits);
 }
 
 export function describeRange(range: Pick<CountRange, 'min' | 'max'>): string {
