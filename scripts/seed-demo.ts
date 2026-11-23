@@ -571,6 +571,7 @@ const SCENARIOS: PublicSimScenario[] = [
     counterpartyRoleLabel: 'Inbound Member',
     contextTicketSummary:
       'Queue: MVP Retention · Campaign: MVP · Channel: Inbound voice · Plan: Plus (39 USD per month) · Member since 2025 · Reason on IVR: Cancel membership',
+    accountOnFile: ['Name: Dana Whitfield', 'DOB: 03/14/1988', 'ZIP: 78704', 'Plan: Plus, 39 USD per month'],
     openingMessage:
       "Hi, I need to cancel my MVP membership today. Honestly it's just too expensive right now and I'm not really using it.",
     // Only canonical dispositions (CanonicalDispositionSchema); the wrap-up rejects anything else.
@@ -585,6 +586,7 @@ const SCENARIOS: PublicSimScenario[] = [
     counterpartyRoleLabel: 'Upset Member',
     contextTicketSummary:
       'Queue: MVP Retention · Campaign: MVP · Channel: Inbound voice · Plan: Plus with supplement pack · Last charge on file: 39 USD · Reason on IVR: Billing inquiry',
+    accountOnFile: ['Name: Marcus Reyes', 'DOB: 11/02/1979', 'ZIP: 30318', 'Last charge: 39 USD, 9 days ago'],
     openingMessage:
       "I've had headaches every single day since I started your supplement pack. I want all of my money back right now, or I'm calling my bank to reverse the charge.",
     // Only canonical dispositions (CanonicalDispositionSchema); the wrap-up rejects anything else.
@@ -618,7 +620,7 @@ const SECRET_SCENARIOS: SecretSimScenarioConfig[] = [
     rubricCriteria: [
       { id: 'crit_price_verify', competencyPillarId: 'pillar_verification', criterionLabel: 'Verified 3 identity points before account talk', evaluationRule: 'Full name, date of birth, and ZIP code are verified before any plan, price, or billing detail is discussed (page 2).', weight: 25, sourcePages: [2] },
       { id: 'crit_price_discovery', competencyPillarId: 'pillar_save_offer', criterionLabel: 'Discovered the real reason before offering', evaluationRule: 'The agent asks an open-ended discovery probe and learns about the travel before making the matching offer (pages 4-5).', weight: 35, sourcePages: [4, 5] },
-      { id: 'crit_price_offer_terms', competencyPillarId: 'pillar_compliance', criterionLabel: 'Stated exact ladder terms only', evaluationRule: 'Every offer matches the ladder terms exactly (50% off 2 cycles, pause up to 60 days, Basic at 19 USD). No invented offers (page 5).', weight: 20, sourcePages: [5] },
+      { id: 'crit_price_offer_terms', competencyPillarId: 'pillar_save_offer', criterionLabel: 'Stated exact ladder terms only', evaluationRule: 'Every offer matches the ladder terms exactly (50% off 2 cycles, pause up to 60 days, Basic at 19 USD). No invented offers (page 5).', weight: 20, sourcePages: [5] },
       { id: 'crit_price_close', competencyPillarId: 'pillar_verification', criterionLabel: 'Confirmed the outcome and next billing date', evaluationRule: 'The agent confirms the accepted outcome, when billing restarts, and that it is noted in Atlas (pages 3 and 12).', weight: 20, sourcePages: [3, 12] },
     ],
   },
@@ -1830,6 +1832,7 @@ function buildVerbalDemoTrackDocs(trainerUid: string): {
       difficulty: 'STANDARD',
       counterpartyRoleLabel: 'Existing Patient',
       contextTicketSummary: 'Verbal role-play · Patient calling about a NeuroCalmRx refill and mild dizziness.',
+      accountOnFile: ['Name: Taylor Bennett', 'DOB: 1984-07-12', 'ZIP: 60611', 'Callback number: 555-0194'],
       openingMessage: 'Hi, I got my NeuroCalmRx refill yesterday and felt a little dizzy this morning—should I take half a dose tonight or get a refund?',
       dispositionOptions: ['Callback scheduled', 'Escalated', 'Recovered'],
       maxTurns: 6,

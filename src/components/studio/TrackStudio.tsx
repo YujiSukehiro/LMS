@@ -48,20 +48,26 @@ export function TrackStudio({
   draft,
   initialSecrets,
   cohorts,
+  focusDrillId,
 }: {
   track: TrackDoc;
   draft: TrackVersionDoc;
   initialSecrets: SecretSimScenarioConfig[];
   cohorts: PublishCohortOption[];
+  /** Open the Checkpoint that holds this Drill in Edit mode (links from "Top missed items"). */
+  focusDrillId?: string | null;
 }) {
+  const focusUnitId = focusDrillId ? draft.units.find((unit) => unit.drills.some((drill) => drill.id === focusDrillId))?.id ?? null : null;
   const [title, setTitle] = useState(track.title);
   const [units, setUnits] = useState<TrackUnit[]>(() => [...draft.units].sort((a, b) => a.orderIndex - b.orderIndex));
   const [scenarios, setScenarios] = useState<PublicSimScenario[]>(draft.simScenarios);
   const [secrets, setSecrets] = useState<SecretSimScenarioConfig[]>(initialSecrets);
   const [dirty, setDirty] = useState(false);
-  const [mode, setMode] = useState<'play' | 'edit' | 'source'>('play');
+  const [mode, setMode] = useState<'play' | 'edit' | 'source'>(focusUnitId ? 'edit' : 'play');
   const [selection, setSelection] = useState<StudioSelection | null>(() =>
-    draft.units.length > 0
+    focusUnitId
+      ? { kind: 'unit', unitId: focusUnitId }
+      : draft.units.length > 0
       ? { kind: 'unit', unitId: [...draft.units].sort((a, b) => a.orderIndex - b.orderIndex)[0].id }
       : draft.simScenarios[0]
         ? { kind: 'scenario', scenarioId: draft.simScenarios[0].id }

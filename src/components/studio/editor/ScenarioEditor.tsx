@@ -120,6 +120,20 @@ export function ScenarioEditor({
           onChange={(v) => setPublic('contextTicketSummary', v)}
         />
         <TextAreaField
+          label="Account on file"
+          value={(scenario.accountOnFile ?? []).join('\n')}
+          max={400}
+          rows={3}
+          hint="One line each, for example Name: Taylor Bennett / DOB: 1984-07-12 / ZIP: 60611. Agents can open it to verify the caller. Use synthetic values that match the hidden facts."
+          onChange={(v) => {
+            const lines = v
+              .split('\n')
+              .map((line) => line.slice(0, 100))
+              .slice(0, 6);
+            setPublic('accountOnFile', lines.some((line) => line.trim()) ? lines : undefined);
+          }}
+        />
+        <TextAreaField
           label="Opening message from the caller"
           value={scenario.openingMessage}
           max={350}

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ChartColumn, CircleAlert, CircleCheck, Layers, LoaderCircle, Pencil, Plus } from 'lucide-react';
 import type { SessionUser } from '@/lib/schemas/domain';
-import { loadAllTracks, loadRollup, rankMissedItems } from '@/components/analytics/server-data';
+import { loadAllTracks, loadRollup, rankMissedItems, relabelMissedItems } from '@/components/analytics/server-data';
 import { rollupIdForGlobal } from '@/lib/schemas/analytics';
 import { EmptyState, KpiStrip, SectionHeader } from '@/components/analytics/KpiStrip';
 import { MissedRulesTable } from '@/components/analytics/MissedRulesTable';
@@ -15,7 +15,8 @@ export async function TrainerHome({ user }: { user: SessionUser }) {
   const counts = trackStatusCounts(tracks);
   const recent = tracks.slice(0, 6);
   const trackTitles = Object.fromEntries(tracks.map((t) => [t.id, t.title]));
-  const missed = rankMissedItems([global], 6);
+  const missed = await relabelMissedItems(rankMissedItems([global], 6), tracks);
+  const trackCodes = Object.fromEntries(tracks.map((t) => [t.id, t.campaignCode]));
   const now = Date.now();
   const firstName = user.displayName.split(/\s+/)[0] ?? user.displayName;
 
@@ -96,7 +97,7 @@ export async function TrainerHome({ user }: { user: SessionUser }) {
 
         <section className="pulse-card flex min-w-0 flex-col gap-4 p-4 md:p-5 xl:col-span-2">
           <SectionHeader title="Top missed items" description="All Cohorts, first-try misses." />
-          <MissedRulesTable rows={missed} trackTitles={trackTitles} linkToStudio />
+          <MissedRulesTable rows={missed} trackTitles={trackTitles} trackCodes={trackCodes} linkToStudio />
         </section>
       </div>
     </div>

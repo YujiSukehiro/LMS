@@ -1,5 +1,6 @@
 'use client';
 
+import { AccountOnFile } from '@/components/simulation/AccountOnFile';
 import { ClipboardCheck, Headset, UserRound } from 'lucide-react';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import type { PublicSimScenario } from '@/lib/schemas/curriculum';
@@ -79,6 +80,9 @@ export function CallTicketHeader({ scenario, campaignCode, divisionId, turnCount
         <span className="pulse-label mr-2">{verbalOnly ? 'Scenario Brief' : 'Ticket'}</span>
         {scenario.contextTicketSummary}
       </p>
+      {scenario.accountOnFile && scenario.accountOnFile.length > 0 ? (
+        <AccountOnFile lines={scenario.accountOnFile} className="border-t border-pulse-border-subtle bg-pulse-surface-1 px-4 py-2" />
+      ) : null}
       <progress
         className="pulse-progress block h-1 rounded-none"
         aria-label="Conversation turn progress"

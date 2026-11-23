@@ -4,6 +4,8 @@
  * here with the pure rules in ./scoring.
  */
 import { createHash } from 'node:crypto';
+import { isEchoOf, quotedFragments } from '@/lib/services/feedback-text';
+import { scanSensitiveData } from '@/lib/security/synthetic-data';
 import { adminDb } from '@/lib/firebase/admin';
 import { getActiveAiRuntime, getLLMGateway } from '@/lib/ai/gateway';
 import { createProvenance, type ProvenanceRecord } from '@/lib/ai/provenance';
@@ -218,6 +220,27 @@ function cleanList(items: string[]): string[] {
     .slice(0, MAX_FEEDBACK_ITEMS);
 }
 
+/**
+ * Strengths must point at something the agent really said (QA M6: "noted the pause in Atlas" when Atlas never came
+ * up). Keep a strength only when it quotes 3+ words found in an agent turn. When none survive, credit the met
+ * rubric criteria that have a verified quote instead. Pure; exported for tests.
+ */
+export function groundedStrengths(
+  strengths: string[],
+  agentMessages: SimMessage[],
+  criterionResults: ReadonlyArray<Pick<SimCriterionResult, 'score' | 'criterionLabel' | 'agentQuoteEvidence'>>,
+): string[] {
+  const kept = cleanList(strengths).filter(
+    (item) => scanSensitiveData(item).length === 0 && quotedFragments(item).some((fragment) => verifyAgentQuote(fragment, agentMessages)),
+  );
+  if (kept.length > 0) return kept;
+  return criterionResults
+    // Never echo sensitive data a learner typed (card or ID numbers) into a strength line.
+    .filter((result) => Number(result.score) >= 100 && result.agentQuoteEvidence && scanSensitiveData(result.agentQuoteEvidence).length === 0)
+    .slice(0, 2)
+    .map((result) => `${result.criterionLabel}: "${result.agentQuoteEvidence}"`);
+}
+
 function normalizeId(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -335,7 +358,13 @@ export function assembleSimEvaluation(input: {
       agentQuoteEvidence: quote,
       evidenceEventIds,
       coachingNote: note || fallbackCoachingNote(score, criterion.criterionLabel),
-      betterResponseExample: score === 100 ? null : result.betterResponseExample?.trim() || fallbackExample,
+      // A suggestion that only repeats the agent's own words teaches nothing (QA M6); use the Playbook rule instead.
+      betterResponseExample:
+        score === 100
+          ? null
+          : result.betterResponseExample?.trim() && !isEchoOf(result.betterResponseExample, result.agentQuoteEvidence) && !isEchoOf(result.betterResponseExample, quote)
+            ? result.betterResponseExample.trim()
+            : fallbackExample,
       ...(uncertainProhibitionDeduction ? { needsTrainerReview: true } : {}),
     };
   });
@@ -373,7 +402,7 @@ export function assembleSimEvaluation(input: {
       (overallScorePct >= (scenario.passScoreThreshold ?? DEFAULT_SIM_PASS_THRESHOLD)
         ? 'You met most of the Playbook rules on this call. Review the notes below to keep it consistent.'
         : 'Review each rule below and practice the better responses before your next call.'),
-    strengthsHighlighted: cleanList(judge.strengthsHighlighted),
+    strengthsHighlighted: groundedStrengths(judge.strengthsHighlighted, agentMessages, criterionResults),
     coachingImprovements,
     criterionResults,
     provenance: input.provenance,
