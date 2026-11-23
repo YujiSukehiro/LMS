@@ -33,6 +33,10 @@ export interface RetentionTrackSummary {
   scheduledCount: number;
   masteredCount: number;
   nextDueAt: string | null;
+  /** Reviews not due yet (the "Practice upcoming" pool before the reinforce cap). */
+  upcomingCount: number;
+  /** Earliest due time still in the future, for "next review in 2 days". */
+  nextUpcomingAt: string | null;
 }
 
 export interface RetentionSummary {
@@ -41,6 +45,8 @@ export interface RetentionSummary {
   scheduledCount: number;
   masteredCount: number;
   nextDueAt: string | null;
+  upcomingCount: number;
+  nextUpcomingAt: string | null;
 }
 
 export interface RetentionQueueResult {
@@ -184,6 +190,8 @@ export function buildRetentionQueue(args: {
       scheduledCount: bucket.length,
       masteredCount: bucket.filter((item) => item.intervalIndex >= 3 && item.lastResult === 'correct').length,
       nextDueAt: sortedDates[0]?.dueAt ?? null,
+      upcomingCount: bucket.filter((item) => Date.parse(item.dueAt) > args.nowMs).length,
+      nextUpcomingAt: firstUpcoming(sortedDates, args.nowMs),
     });
   }
   trackSummaries.sort((a, b) => b.dueCount - a.dueCount || a.trackTitle.localeCompare(b.trackTitle));
@@ -195,7 +203,14 @@ export function buildRetentionQueue(args: {
     scheduledCount: allItems.length,
     masteredCount: allItems.filter((item) => item.intervalIndex >= 3 && item.lastResult === 'correct').length,
     nextDueAt: sortedAll[0]?.dueAt ?? null,
+    upcomingCount: allItems.filter((item) => Date.parse(item.dueAt) > args.nowMs).length,
+    nextUpcomingAt: firstUpcoming(sortedAll, args.nowMs),
   };
 
   return { dueItems, reinforceItems, summary, trackSummaries };
+}
+
+/** Earliest due time after `nowMs` in a list sorted by due time, or null. */
+function firstUpcoming(sorted: readonly RetentionQueueItem[], nowMs: number): string | null {
+  return sorted.find((item) => Date.parse(item.dueAt) > nowMs)?.dueAt ?? null;
 }

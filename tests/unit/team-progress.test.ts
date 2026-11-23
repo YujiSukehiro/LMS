@@ -92,6 +92,11 @@ describe('team progress status ladder', () => {
     expect(Object.values(summary).reduce((sum, s) => sum + s.count, 0)).toBe(1);
   });
 
+  it('does not flag a Track assigned under 3 days ago that the agent has not opened yet (QA L7)', () => {
+    expect(deriveProgressCell({ ...base, enrollment: undefined, assignedAt: NOW - 1 * DAY }).flag).toEqual({ tone: 'info', text: 'Not opened yet' });
+    expect(deriveProgressCell({ ...base, enrollment: undefined, assignedAt: NOW - 5 * DAY }).flag).toEqual({ tone: 'warning', text: 'Not opened in 5 days' });
+  });
+
   it('puts one plain problem flag on each card that needs attention', () => {
     expect(deriveProgressCell({ ...base, enrollment: undefined }).flag).toEqual({ tone: 'warning', text: 'Not opened yet' });
     const stuck = deriveProgressCell({ ...base, enrollment: enrollment({ completedUnitIds: ['u1'], lastActivityAt: NOW - 8 * DAY }) });

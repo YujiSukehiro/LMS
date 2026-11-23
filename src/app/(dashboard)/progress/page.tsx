@@ -4,10 +4,8 @@ import { isInternalOps, requirePageUser } from '@/lib/firebase/auth-guard';
 import { ANALYTICS_ROLES, DIVISION_LABELS } from '@/lib/schemas/constants';
 import { EnrollmentDocSchema, type EnrollmentDoc } from '@/lib/schemas/analytics';
 import { DivisionIdSchema, type DivisionId } from '@/lib/schemas/domain';
-import { CertificationDocSchema, type CertificationDoc } from '@/lib/schemas/learning';
-import { selectCurrentCertification } from '@/lib/services/learning-evidence';
-import { loadVersion } from '@/lib/services/track-loader';
-import { deriveProgressCell, describeIdle, type ProgressTrackShape } from '@/lib/services/team-progress';
+import { describeIdle } from '@/lib/services/team-progress';
+import { buildProgressCells, loadCurrentCertifications, loadProgressTracks } from '@/components/analytics/progress-cells';
 import {
   isTrackAssignedToCohort,
   loadAllAgents,
@@ -77,19 +75,7 @@ export default async function TeamProgressPage({
     .filter((t) => (!division || t.divisionId === division) && (!selectedTrack || t.id === selectedTrack.id))
     .slice(0, MAX_TRACKS);
 
-  const versions = await Promise.all(tracks.map((t) => loadVersion(t.id, t.publishedVersionId as string).catch(() => null)));
-  const shapes = new Map<string, ProgressTrackShape>(
-    tracks.map((track, index) => {
-      const version = versions[index];
-      return [
-        track.id,
-        {
-          units: [...(version?.units ?? [])].sort((a, b) => a.orderIndex - b.orderIndex).map((u) => ({ id: u.id, title: u.title })),
-          scenarios: (version?.simScenarios ?? []).map((s) => ({ id: s.id, title: s.title, passScoreThreshold: s.passScoreThreshold })),
-        },
-      ];
-    }),
-  );
+  const progressTracks = await loadProgressTracks(tracks);
 
   const [rawAgents, rawEnrollments] = await Promise.all([
     cohort ? loadUsersInCohort(cohort) : loadAllAgents(),
@@ -100,55 +86,24 @@ export default async function TeamProgressPage({
     .filter((a) => internal || a.partnerCohortId === user.partnerCohortId)
     .filter((a) => !division || a.divisionIds.includes(division))
     .slice(0, MAX_AGENTS);
-  const enrollmentByKey = new Map(
-    rawEnrollments
-      .filter((e) => internal || e.partnerCohortId === user.partnerCohortId)
-      .map((e) => [`${e.userId}::${e.trackId}`, e]),
+  const enrollments = rawEnrollments.filter((e) => internal || e.partnerCohortId === user.partnerCohortId);
+  const certifications = await loadCurrentCertifications(
+    tracks.map((t) => t.id),
+    new Set(agents.map((a) => a.uid)),
+    internal ? null : user.partnerCohortId,
   );
-
-  const certificationSnaps = await Promise.all(
-    tracks.map((track) => adminDb.collection('certifications').where('trackId', '==', track.id).get()),
-  );
-  const agentIds = new Set(agents.map((a) => a.uid));
-  const certificationsByKey = new Map<string, CertificationDoc[]>();
-  for (const doc of certificationSnaps.flatMap((snap) => snap.docs)) {
-    const parsed = CertificationDocSchema.safeParse({ ...doc.data(), id: doc.id });
-    if (!parsed.success) continue;
-    const certification = parsed.data;
-    if (!agentIds.has(certification.learnerId) || (!internal && certification.partnerCohortId !== user.partnerCohortId)) continue;
-    const key = `${certification.learnerId}::${certification.trackId}`;
-    certificationsByKey.set(key, [...(certificationsByKey.get(key) ?? []), certification]);
-  }
-
   const now = Date.now();
-  const boardTracks: BoardTrack[] = tracks.map((t) => {
-    const shape = shapes.get(t.id)!;
-    return {
-      id: t.id,
-      title: t.title,
-      campaignCode: t.campaignCode,
-      versionLabel: t.publishedVersionId ?? '',
-      unitCount: shape.units.length,
-      simCount: shape.scenarios.length,
-    };
-  });
+  const cellsByAgent = buildProgressCells({ tracks: progressTracks, agents, enrollments, certifications, now });
+  const boardTracks: BoardTrack[] = progressTracks.map(({ track: t, shape }) => ({
+    id: t.id,
+    title: t.title,
+    campaignCode: t.campaignCode,
+    versionLabel: t.publishedVersionId ?? '',
+    unitCount: shape.units.length,
+    simCount: shape.scenarios.length,
+  }));
   const boardAgents: BoardAgent[] = agents.map((agent) => {
-    const cells = Object.fromEntries(
-      tracks.map((track) => {
-        const key = `${agent.uid}::${track.id}`;
-        return [
-          track.id,
-          deriveProgressCell({
-            track: shapes.get(track.id)!,
-            enrollment: enrollmentByKey.get(key),
-            certification: selectCurrentCertification(certificationsByKey.get(key) ?? []),
-            assigned: isTrackAssignedToCohort(track, agent.partnerCohortId),
-            agentActive: agent.active,
-            now,
-          }),
-        ];
-      }),
-    );
+    const cells = cellsByAgent.get(agent.uid) ?? {};
     const lastActivity = Math.max(0, ...Object.values(cells).map((c) => c.lastActivityAt ?? 0)) || null;
     return {
       uid: agent.uid,

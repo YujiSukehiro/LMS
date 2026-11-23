@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { Award, BookOpen, Headset, Target } from 'lucide-react';
-import { adminDb } from '@/lib/firebase/admin';
 import { isInternalOps, requirePageUser } from '@/lib/firebase/auth-guard';
-import { CertificationDocSchema, type CertificationDoc } from '@/lib/schemas/learning';
-import { selectCurrentCertification } from '@/lib/services/learning-evidence';
 import { ANALYTICS_ROLES, CANONICAL_PILLARS, DIVISION_LABELS } from '@/lib/schemas/constants';
 import { DivisionIdSchema, type DivisionId } from '@/lib/schemas/domain';
 import {
@@ -12,9 +10,7 @@ import {
   rollupIdForGlobal,
   rollupIdForTrack,
   type AnalyticsRollupDoc,
-  type EnrollmentDoc,
 } from '@/lib/schemas/analytics';
-import type { TrackDoc } from '@/lib/schemas/curriculum';
 import {
   isTrackAssignedToCohort,
   loadAllAgents,
@@ -33,11 +29,8 @@ import {
 } from '@/components/analytics/server-data';
 import { AnalyticsFilterBar } from '@/components/analytics/AnalyticsFilterBar';
 import { CohortStrengthHeatmap, type HeatmapRow } from '@/components/analytics/CohortStrengthHeatmap';
-import {
-  CertificationMatrix,
-  type CertificationCell,
-  type CertificationMatrixAgent,
-} from '@/components/analytics/CertificationMatrix';
+import { CertificationMatrix, type CertificationMatrixAgent } from '@/components/analytics/CertificationMatrix';
+import { buildProgressCells, loadCurrentCertifications, loadProgressTracks } from '@/components/analytics/progress-cells';
 import { MissedRulesTable } from '@/components/analytics/MissedRulesTable';
 import { EmptyState, KpiStrip, SectionHeader } from '@/components/analytics/KpiStrip';
 import { formatPct } from '@/components/analytics/strength';
@@ -83,43 +76,6 @@ function agentRow(agent: UserSummary): HeatmapRow {
       }),
     ),
   };
-}
-
-function certificationCell(
-  track: TrackDoc,
-  agent: UserSummary,
-  enrollment: EnrollmentDoc | undefined,
-  certification: CertificationDoc | null,
-): CertificationCell {
-  if (certification) {
-    if (
-      certification.status === 'certified' && certification.expiresAt &&
-      Date.parse(certification.expiresAt) <= Date.now()
-    ) {
-      return { status: 'EXPIRED', pct: enrollment?.progressPct ?? null };
-    }
-    const status = {
-      certified: 'CERTIFIED',
-      in_progress: 'IN_PROGRESS',
-      ready_for_trainer_review: 'READY_FOR_TRAINER_REVIEW',
-      recertification_required: 'RECERTIFICATION_REQUIRED',
-      expired: 'EXPIRED',
-      revoked: 'REVOKED',
-      not_started: 'NOT_STARTED',
-    } as const;
-    return { status: status[certification.status], pct: enrollment?.progressPct ?? null };
-  }
-  if (enrollment) {
-    if (enrollment.status === 'CERTIFIED' && enrollment.certificationEvidenceLabel === 'current_verified') {
-      return { status: 'CERTIFIED', pct: enrollment.bestSimScorePct };
-    }
-    if (enrollment.status === 'CERTIFIED') return { status: 'HISTORICAL_UNVERIFIED', pct: null };
-    if (enrollment.status === 'IN_PROGRESS') return { status: 'IN_PROGRESS', pct: enrollment.progressPct };
-    return { status: 'NOT_STARTED', pct: null };
-  }
-  return isTrackAssignedToCohort(track, agent.partnerCohortId)
-    ? { status: 'NOT_STARTED', pct: null }
-    : { status: 'NOT_ASSIGNED', pct: null };
 }
 
 export default async function AnalyticsPage({
@@ -186,38 +142,40 @@ export default async function AnalyticsPage({
     .filter((a) => !division || a.divisionIds.includes(division))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
   const enrollments = rawEnrollments.filter((e) => internal || e.partnerCohortId === user.partnerCohortId);
-  const enrollmentByKey = new Map(enrollments.map((e) => [`${e.userId}::${e.trackId}`, e]));
+  const offboardedCount = agents.filter((a) => !a.active).length;
+  const showOffboarded = firstString(sp.offboarded) === '1';
+  const listedAgents = showOffboarded ? agents : agents.filter((a) => a.active);
 
   // ---------- Widget 1: heatmap ----------
   const heatmapRows: HeatmapRow[] = heatmapCohortRollups.map(({ cohortId, rollup }) => cohortRow(rollup, cohortId));
-  if (cohort) heatmapRows.push(...agents.map(agentRow));
+  if (cohort) heatmapRows.push(...listedAgents.map(agentRow));
 
-  // ---------- Widget 2: certification matrix ----------
-  const certificationSnaps = await Promise.all(matrixTracks.map((track) =>
-    adminDb.collection('certifications').where('trackId', '==', track.id).get()));
-  const visibleAgentIds = new Set(agents.map((agent) => agent.uid));
-  const certificationsByKey = new Map<string, CertificationDoc[]>();
-  for (const doc of certificationSnaps.flatMap((snap) => snap.docs)) {
-    const certification = CertificationDocSchema.parse({ ...doc.data(), id: doc.id });
-    if (!visibleAgentIds.has(certification.learnerId) || (!internal && certification.partnerCohortId !== user.partnerCohortId)) continue;
-    const key = `${certification.learnerId}::${certification.trackId}`;
-    certificationsByKey.set(key, [...(certificationsByKey.get(key) ?? []), certification]);
-  }
-  const matrixAgents: CertificationMatrixAgent[] = agents.slice(0, MAX_MATRIX_AGENTS).map((agent) => ({
+  // ---------- Widget 2: status by agent (same ladder as Team Progress) ----------
+  const matrixAgentList = listedAgents.slice(0, MAX_MATRIX_AGENTS);
+  const progressTracks = await loadProgressTracks(matrixTracks.filter((t) => t.publishedVersionId));
+  const certifications = await loadCurrentCertifications(
+    progressTracks.map((t) => t.track.id),
+    new Set(matrixAgentList.map((a) => a.uid)),
+    internal ? null : user.partnerCohortId,
+  );
+  const cellsByAgent = buildProgressCells({ tracks: progressTracks, agents: matrixAgentList, enrollments, certifications });
+  const matrixAgents: CertificationMatrixAgent[] = matrixAgentList.map((agent) => ({
     uid: agent.uid,
     displayName: agent.displayName,
     lcNumber: agent.lcNumber,
     cohortLabel: cohortLabel(agent.partnerCohortId),
-    cells: Object.fromEntries(matrixTracks.map((track) => {
-      const key = `${agent.uid}::${track.id}`;
-      return [track.id, certificationCell(
-        track,
-        agent,
-        enrollmentByKey.get(key),
-        selectCurrentCertification(certificationsByKey.get(key) ?? []),
-      )];
-    })),
+    cells: cellsByAgent.get(agent.uid) ?? {},
   }));
+  const offboardedHref = (() => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(sp)) {
+      const v = firstString(value);
+      if (v && key !== 'offboarded') params.set(key, v);
+    }
+    if (!showOffboarded) params.set('offboarded', '1');
+    const query = params.toString();
+    return query ? `/analytics?${query}` : '/analytics';
+  })();
 
   // ---------- Widget 3: Playbook Gap Detector ----------
   const missed = rankMissedItems([kpiRollup], 200)
@@ -302,17 +260,24 @@ export default async function AnalyticsPage({
 
       <section className="pulse-card flex flex-col gap-4 p-4 md:p-5">
         <SectionHeader
-          title="Certification by agent"
-          description="Training certification on the current Track version. Live-call sign-off is a separate decision."
+          title="Status by agent"
+          description="The same status as Team Progress, on the current Track version. Live-call sign-off is a separate decision."
+          actions={
+            offboardedCount > 0 ? (
+              <Link href={offboardedHref} className="pulse-btn text-xs" scroll={false}>
+                {showOffboarded ? 'Hide offboarded' : `Show offboarded (${offboardedCount})`}
+              </Link>
+            ) : null
+          }
         />
         <CertificationMatrix
           agents={matrixAgents}
-          tracks={matrixTracks.map((t) => ({ id: t.id, title: t.title, campaignCode: t.campaignCode }))}
+          tracks={progressTracks.map(({ track: t }) => ({ id: t.id, title: t.title, campaignCode: t.campaignCode }))}
           fileLabel={(cohort ?? division ?? 'all').toLowerCase()}
         />
-        {agents.length > MAX_MATRIX_AGENTS ? (
+        {listedAgents.length > MAX_MATRIX_AGENTS ? (
           <p className="text-xs text-pulse-muted">
-            Showing the first {MAX_MATRIX_AGENTS} of {agents.length} agents. Filter by Cohort to see the rest.
+            Showing the first {MAX_MATRIX_AGENTS} of {listedAgents.length} agents. Filter by Cohort to see the rest.
           </p>
         ) : null}
       </section>

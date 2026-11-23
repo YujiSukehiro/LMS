@@ -1,21 +1,44 @@
-import { Award, BookOpen, Eye, Sparkles, Target } from 'lucide-react';
+import { Award, BookOpen, Eye, Headset, Sparkles, Target } from 'lucide-react';
 import type { TrackDoc } from '@/lib/schemas/curriculum';
 import { DIVISION_LABELS } from '@/lib/schemas/constants';
 import { cn } from '@/lib/utils';
 import { DIVISION_PILL_CLASS } from '@/components/simulation/labels';
+import { SIM_COPY } from '@/lib/policy/training-policy';
+import { computeProgressPct } from '@/lib/services/scoring';
 
 export interface TrackHeaderProps {
   track: TrackDoc;
-  masteryPct: number | null;
+  checkpointsDone: number;
+  checkpointCount: number;
+  practicePassed: number;
+  practiceCount: number;
   xpEarned: number;
   certified: boolean;
   isPreview: boolean;
   versionNumber: number;
 }
 
-/** Track header on the Checkpoint map: Division, campaign code, mastery, XP and Playbook size. */
-export function TrackHeader({ track, masteryPct, xpEarned, certified, isPreview, versionNumber }: TrackHeaderProps) {
-  const pct = masteryPct === null ? null : Math.round(Math.max(0, Math.min(100, masteryPct)));
+/**
+ * Track header on the Checkpoint map: Division, campaign code, Checkpoints and Practice passed, XP and Playbook size.
+ * The bar is the same completion figure as everywhere else (computeProgressPct), worked out from these counts.
+ */
+export function TrackHeader({
+  track,
+  checkpointsDone,
+  checkpointCount,
+  practicePassed,
+  practiceCount,
+  xpEarned,
+  certified,
+  isPreview,
+  versionNumber,
+}: TrackHeaderProps) {
+  const pct = computeProgressPct({
+    completedUnitCount: checkpointsDone,
+    unitCount: checkpointCount,
+    passedScenarioCount: practicePassed,
+    scenarioCount: practiceCount,
+  });
   return (
     <header className="pulse-card overflow-hidden">
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 p-4">
@@ -45,10 +68,24 @@ export function TrackHeader({ track, masteryPct, xpEarned, certified, isPreview,
         <dl className="flex gap-5 text-sm">
           <div>
             <dt className="pulse-label flex items-center gap-1">
-              <Target aria-hidden className="size-3" /> Mastery
+              <Target aria-hidden className="size-3" /> Checkpoints
             </dt>
-            <dd className="pulse-metric mt-0.5 text-lg font-bold text-pulse-primary">{pct === null ? '—' : `${pct}%`}</dd>
+            <dd className="pulse-metric mt-0.5 text-lg font-bold text-pulse-primary">
+              {checkpointsDone}
+              <span className="font-sans text-xs font-normal text-pulse-muted"> / {checkpointCount}</span>
+            </dd>
           </div>
+          {practiceCount > 0 ? (
+            <div>
+              <dt className="pulse-label flex items-center gap-1">
+                <Headset aria-hidden className="size-3" /> {SIM_COPY.short}
+              </dt>
+              <dd className="pulse-metric mt-0.5 text-lg font-bold text-pulse-primary">
+                {practicePassed}
+                <span className="font-sans text-xs font-normal text-pulse-muted"> / {practiceCount}</span>
+              </dd>
+            </div>
+          ) : null}
           <div>
             <dt className="pulse-label flex items-center gap-1">
               <Sparkles aria-hidden className="size-3" /> XP
@@ -68,13 +105,13 @@ export function TrackHeader({ track, masteryPct, xpEarned, certified, isPreview,
       </div>
       <div
         role="progressbar"
-        aria-label="Track mastery"
+        aria-label="Track completion"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={pct ?? undefined}
+        aria-valuenow={pct}
         className="h-1 bg-pulse-surface-2"
       >
-        <div className={cn('h-full', certified ? 'bg-pulse-emerald' : 'bg-pulse-indigo')} style={{ width: `${pct ?? 0}%` }} />
+        <div className={cn('h-full', certified ? 'bg-pulse-emerald' : 'bg-pulse-indigo')} style={{ width: `${pct}%` }} />
       </div>
     </header>
   );

@@ -41,13 +41,14 @@ interface Outcome {
   firstTryCorrect: number;
   total: number;
   xpAwarded: number | null;
-  masteryPct: number | null;
+  /** Checkpoints done on this Track after saving, or null when unknown (preview, save error). */
+  checkpointsDone: number | null;
   certified: boolean;
   /** This sitting's score; shown instead of first-try accuracy on a replay. */
   round: DrillRoundSummary | null;
 }
 
-function localOutcome(results: DrillResult[]): Omit<Outcome, 'xpAwarded' | 'masteryPct' | 'certified' | 'round'> {
+function localOutcome(results: DrillResult[]): Omit<Outcome, 'xpAwarded' | 'checkpointsDone' | 'certified' | 'round'> {
   const firstTryCorrect = results.filter((r) => r.passedFirstTry).length;
   const total = results.length;
   return { firstTryCorrect, total, accuracyPct: total === 0 ? 100 : Math.round((firstTryCorrect / total) * 100) };
@@ -105,7 +106,7 @@ export function UnitRunner({
     async (drillResults: DrillResult[]) => {
       const local = { ...localOutcome(drillResults), round: roundRef.current };
       if (isPreview) {
-        setOutcome({ ...local, xpAwarded: null, masteryPct: null, certified: false });
+        setOutcome({ ...local, xpAwarded: null, checkpointsDone: null, certified: false });
         setPhase('complete');
         return;
       }
@@ -137,7 +138,7 @@ export function UnitRunner({
         setOutcome({
           ...local,
           xpAwarded: parsed.data.xpAwarded,
-          masteryPct: parsed.data.enrollment.progressPct,
+          checkpointsDone: parsed.data.enrollment.completedUnitIds.length,
           certified: parsed.data.enrollment.status === 'CERTIFIED' &&
             parsed.data.enrollment.certificationEvidenceLabel === 'current_verified',
         });
@@ -270,6 +271,7 @@ export function UnitRunner({
           isPreview={isPreview}
           estimatedXp={results ? estimateXp(results) : 0}
           unitNumber={unitNumber}
+          unitCount={unitCount}
           mapHref={mapHref}
           nextUnitHref={nextUnitHref}
           simHref={simHref}
@@ -284,6 +286,7 @@ function CompletionPanel({
   isPreview,
   estimatedXp,
   unitNumber,
+  unitCount,
   mapHref,
   nextUnitHref,
   simHref,
@@ -292,6 +295,7 @@ function CompletionPanel({
   isPreview: boolean;
   estimatedXp: number;
   unitNumber: number;
+  unitCount: number;
   mapHref: string;
   nextUnitHref: string | null;
   simHref: string | null;
@@ -325,8 +329,10 @@ function CompletionPanel({
           <dd className="pulse-metric mt-1 text-3xl font-bold text-pulse-amber">
             +{isPreview ? estimatedXp : (outcome.xpAwarded ?? 0)}
           </dd>
-          {outcome.masteryPct !== null ? (
-            <dd className="pulse-metric text-xs text-pulse-muted">Track completion {Math.round(outcome.masteryPct)}%</dd>
+          {outcome.checkpointsDone !== null ? (
+            <dd className="pulse-metric text-xs text-pulse-muted">
+              Checkpoint {Math.min(outcome.checkpointsDone, unitCount)} of {unitCount} done
+            </dd>
           ) : null}
         </div>
       </dl>

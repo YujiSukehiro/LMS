@@ -248,6 +248,17 @@ export function RetentionRunner({
     void finalizeSession(answered, sessionIdempotencyKey);
   };
 
+  // Header pills and the caught-up line follow the Track filter, so a filtered view never mixes in other Tracks' counts.
+  const selectedSummary = selectedTrackId ? queue.trackSummaries.find((t) => t.trackId === selectedTrackId) ?? null : null;
+  const activeSummary = selectedTrackId
+    ? {
+        dueCount: selectedSummary?.dueCount ?? 0,
+        scheduledCount: selectedSummary?.scheduledCount ?? 0,
+        masteredCount: selectedSummary?.masteredCount ?? 0,
+        nextUpcomingAt: selectedSummary?.nextUpcomingAt ?? null,
+      }
+    : queue.summary;
+
   const activeTrackTitle = selectedTrackId
     ? queue.trackSummaries.find((t) => t.trackId === selectedTrackId)?.trackTitle ?? 'Selected Track'
     : 'All Assigned Tracks';
@@ -283,11 +294,11 @@ export function RetentionRunner({
             <p className="text-xs text-pulse-muted">Short recall drills at 1, 3 and 7 days so Playbook rules stick.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <span className={cn('pulse-pill pulse-metric', queue.summary.dueCount > 0 && 'pulse-pill-amber')}>
-              {queue.summary.dueCount} Due Now
+            <span className={cn('pulse-pill pulse-metric', activeSummary.dueCount > 0 && 'pulse-pill-amber')}>
+              {activeSummary.dueCount} Due Now
             </span>
-            <span className="pulse-pill pulse-metric">{queue.summary.scheduledCount} Scheduled</span>
-            <span className="pulse-pill pulse-pill-emerald pulse-metric">{queue.summary.masteredCount} Mastered</span>
+            <span className="pulse-pill pulse-metric">{activeSummary.scheduledCount} Scheduled</span>
+            <span className="pulse-pill pulse-pill-emerald pulse-metric">{activeSummary.masteredCount} Mastered</span>
           </div>
         </div>
 
@@ -353,8 +364,8 @@ export function RetentionRunner({
                   <p className="pulse-label">{activeTrackTitle}</p>
                   <h2 className="text-xl font-bold text-pulse-primary">You&apos;re caught up on due reviews</h2>
                   <p className="text-sm text-pulse-secondary">
-                    {queue.summary.nextDueAt
-                      ? `${formatDueHint(queue.summary.nextDueAt, nowMs)}. Want extra reps? Practice upcoming Keep-Sharp items now.`
+                    {activeSummary.nextUpcomingAt
+                      ? `${formatDueHint(activeSummary.nextUpcomingAt, nowMs)}. Want extra reps? Practice upcoming Keep-Sharp items now.`
                       : 'Want extra reps? Practice upcoming Keep-Sharp items below.'}
                   </p>
                 </div>

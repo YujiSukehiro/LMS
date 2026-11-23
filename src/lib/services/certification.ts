@@ -603,6 +603,8 @@ export function evaluateCertificationEligibility(args: {
   verification?: EvidenceVerificationPolicy;
   trainerApprovalRequired?: boolean;
   trainerApproved?: boolean;
+  /** Override TRAINING_POLICY.certificationRequiresRuleRecall (tests). */
+  requireRuleRecall?: boolean;
 }): CertificationEligibility {
   const knowledge = evaluateKnowledgeMastery(args);
   const retention = evaluateRetention(args);
@@ -620,8 +622,12 @@ export function evaluateCertificationEligibility(args: {
     const missingUnits = args.blueprint.requiredUnitIds.filter((unitId) => !completed.has(unitId));
     if (missingUnits.length > 0) blockers.push(...missingUnits.map((unitId) => `required_unit_incomplete:${unitId}`));
   }
-  if (knowledge.outstandingRuleIds.length > 0) blockers.push(...knowledge.outstandingRuleIds.map((ruleId) => `knowledge_not_mastered:${ruleId}`));
-  if (retention.outstandingRuleIds.length > 0) blockers.push(...retention.outstandingRuleIds.map((ruleId) => `retention_not_demonstrated:${ruleId}`));
+  // GATE-03: rule recall on a later day is Keep-sharp, not a certification step, unless the policy asks for it.
+  const requiresRecall = args.requireRuleRecall ?? TRAINING_POLICY.certificationRequiresRuleRecall;
+  if (requiresRecall) {
+    if (knowledge.outstandingRuleIds.length > 0) blockers.push(...knowledge.outstandingRuleIds.map((ruleId) => `knowledge_not_mastered:${ruleId}`));
+    if (retention.outstandingRuleIds.length > 0) blockers.push(...retention.outstandingRuleIds.map((ruleId) => `retention_not_demonstrated:${ruleId}`));
+  }
   if (!scenarios.allPassed) blockers.push(...scenarios.missingScenarioIds.map((scenarioId) => `scenario_not_passed:${scenarioId}`));
   if (args.trainerApprovalRequired && args.trainerApproved !== true) blockers.push('trainer_approval_required');
   return {
