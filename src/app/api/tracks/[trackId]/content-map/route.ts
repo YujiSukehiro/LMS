@@ -1,7 +1,7 @@
 /**
  * Content map for a Track before the AI build.
  * GET  -> measured source depth: rules per page, recommended checkpoint range, page warnings.
- * POST -> { unitTarget: number | null } saves the trainer's checkpoint target for the next build.
+ * POST -> { unitTarget, learnerMinutes } saves the trainer's checkpoint and minutes targets for the next build.
  */
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -10,6 +10,8 @@ import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import { sourcePageExtractionFlags } from '@/lib/ai/pdf-extractor';
 import { DEPTH_LIMITS, estimateTrackMinutes, measureSourceDepth } from '@/lib/ai/pipeline/content-depth';
 import { isGenerationRunning, loadSourcePages, loadTrack, trackRef } from '@/lib/ai/pipeline/track-store';
+import { SIZING_MAX_MINUTES, SIZING_MIN_MINUTES } from '@/lib/ai/prompts/sizing-review';
+import { sizingSourceKey } from '@/lib/services/sizing-review';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,6 +48,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ trackId:
       recommended: depth.units,
       limits: { min: DEPTH_LIMITS.minUnits, max: DEPTH_LIMITS.maxUnits },
       unitTarget: track.unitTarget ?? null,
+      learnerMinutesTarget: track.learnerMinutesTarget ?? null,
+      // The AI review when it already ran for this source; the client asks for it separately otherwise.
+      aiReview: track.sizingReview?.sourceKey === sizingSourceKey(pages) ? track.sizingReview : null,
       estimatedMinutesByTarget: Object.fromEntries(
         Array.from({ length: DEPTH_LIMITS.maxUnits - DEPTH_LIMITS.minUnits + 1 }, (_, i) => {
           const units = DEPTH_LIMITS.minUnits + i;
@@ -60,6 +65,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ trackId:
 
 const BodySchema = z.object({
   unitTarget: z.number().int().min(DEPTH_LIMITS.minUnits).max(DEPTH_LIMITS.maxUnits).nullable(),
+  learnerMinutes: z.number().int().min(SIZING_MIN_MINUTES).max(SIZING_MAX_MINUTES).nullable().optional(),
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ trackId: string }> }): Promise<NextResponse> {
@@ -73,6 +79,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
   const track = await loadTrack(trackId);
   if (!track) return jsonError(404, 'NOT_FOUND', 'This Track does not exist.');
   if (isGenerationRunning(track)) return jsonError(409, 'GENERATION_RUNNING', 'A build is running for this Track. Wait for it to finish.');
-  await trackRef(trackId).update({ unitTarget: parsed.data.unitTarget, updatedAt: Date.now() });
-  return NextResponse.json({ trackId, unitTarget: parsed.data.unitTarget });
+  const learnerMinutesTarget = parsed.data.learnerMinutes ?? null;
+  await trackRef(trackId).update({ unitTarget: parsed.data.unitTarget, learnerMinutesTarget, updatedAt: Date.now() });
+  return NextResponse.json({ trackId, unitTarget: parsed.data.unitTarget, learnerMinutes: learnerMinutesTarget });
 }

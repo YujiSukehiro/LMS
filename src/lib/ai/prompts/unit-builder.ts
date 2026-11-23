@@ -998,6 +998,12 @@ const DRILL_NAMES = [
   'Yara Haddad', 'Zane Cooper', 'Alma Ortiz', 'Boris Klein', 'Cleo Grant', 'Dario Rossi', 'Ella Morgan', 'Felix Wu',
   'Gia Romano', 'Hugo Lambert', 'Iris Holt', 'Jonah Price', 'Kira Novak', 'Luis Moreno', 'Mina Cho', 'Nico Ferreira',
   'Olga Ivanova', 'Pedro Alves', 'Rhea Kapoor', 'Silas Boone', 'Tess Mahoney', 'Uri Levin', 'Viola Bennett', 'Wade Ellis',
+  'Abby Lowell', 'Bruno Silva', 'Celia Hart', 'Dmitri Volkov', 'Esme Quinn', 'Femi Adeyemi', 'Grace Tanaka', 'Hector Ramos',
+  'Ines Duarte', 'Jasper Cole', 'Keiko Mori', 'Leo Marchetti', 'Mara Lindgren', 'Nate Ortega', 'Odette Blanc', 'Pavel Novak',
+  'Ruth Adler', 'Sergio Pena', 'Talia Ward', 'Umberto Ricci', 'Vanessa Cruz', 'Will Hensley', 'Ximena Rojas', 'Yusuf Demir',
+  'Zoe Kaplan', 'Arjun Mehta', 'Bianca Ferraro', 'Colin Byrne', 'Daria Petrenko', 'Elias Haddad', 'Fiona Walsh', 'Gabe Turner',
+  'Holly Chen', 'Ibrahim Saleh', 'Janet Okoro', 'Kai Nakamura', 'Lucia Vega', 'Milo Grant', 'Nora Fitzgerald', 'Oscar Lund',
+  'Priya Raman', 'Reed Calloway', 'Sana Qureshi', 'Theo Lambert', 'Ursula Krebs', 'Victor Osei', 'Wren Doyle', 'Yasmin Farah',
 ];
 const NAMES_PER_BATCH = 4;
 

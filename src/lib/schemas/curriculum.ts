@@ -255,6 +255,13 @@ export const TrackDocSchema = z.object({
   unitCount: z.number().int().nonnegative(),
   /** Checkpoint count the trainer chose on the Content map. Null = use the measured target. */
   unitTarget: z.number().int().min(2).max(12).nullable().optional(),
+  /** Minutes of cards and Drills the trainer chose on the Content map (the build's time budget). Null = AI review or default. */
+  learnerMinutesTarget: z.number().int().min(15).max(120).nullable().optional(),
+  /** AI sizing review of the uploaded source (planning model): recommended Checkpoints, minutes and why. */
+  sizingReview: z
+    .object({ sourceKey: z.string(), checkpoints: z.number().int(), learnerMinutes: z.number().int(), reason: z.string(), reviewedAt: z.number() })
+    .nullable()
+    .optional(),
   simScenarioCount: z.number().int().nonnegative(),
   estimatedTotalMinutes: z.number().int().nonnegative(),
   createdByUid: z.string(),

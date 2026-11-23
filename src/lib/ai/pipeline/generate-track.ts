@@ -33,6 +33,7 @@ import { createProvenance, type ProvenanceRecord } from '@/lib/ai/provenance';
 import { selectPages } from '@/lib/ai/pdf-extractor';
 import {
   CONTENT_SIZING_VERSION,
+  TRACK_LEARNING_MINUTES,
   clampPlanToLimits,
   depthLimitsForProvider,
   unitCountNote,
@@ -701,7 +702,11 @@ export async function runTrackGeneration(
       ? undefined
       : track.unitTarget
         ? unitRangeForTarget(track.unitTarget)
-        : blueprintUnitRange(pages);
+        : track.sizingReview?.checkpoints
+          ? unitRangeForTarget(track.sizingReview.checkpoints)
+          : blueprintUnitRange(pages);
+    // Time budget for cards and Drills: the trainer's choice, else the AI sizing review, else the default.
+    const learnerMinutes = track.learnerMinutesTarget ?? track.sizingReview?.learnerMinutes ?? TRACK_LEARNING_MINUTES;
     const blueprintTokens = blueprintMaxOutputTokens(unitRange?.max ?? BLUEPRINT_MAX_UNITS);
     // Local prompts are budgeted against the 16k context window minus the planned output.
     const blueprintCharBudget = local
@@ -738,6 +743,7 @@ export async function runTrackGeneration(
         templateVersion: source ? 'v3' : 'v2',
         sizing: CONTENT_SIZING_VERSION,
         unitRange: unitRange ?? null,
+        learnerMinutes,
         trackTitle: track.title,
         campaignCode: track.campaignCode,
         divisionId: track.divisionId,
@@ -771,7 +777,7 @@ export async function runTrackGeneration(
           ),
           { trackId, stage: 'blueprint' },
         );
-        return { output: finalizeBlueprint(raw, pages.length, track.campaignCode, sizeFromDepth ? pages : undefined, limits) };
+        return { output: finalizeBlueprint(raw, pages.length, track.campaignCode, sizeFromDepth ? pages : undefined, limits, learnerMinutes) };
       },
     });
     const blueprint = blueprintResult.output;

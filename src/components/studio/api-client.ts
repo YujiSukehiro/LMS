@@ -191,6 +191,8 @@ export interface ContentMap {
   recommended: { min: number; target: number; max: number };
   limits: { min: number; max: number };
   unitTarget: number | null;
+  learnerMinutesTarget: number | null;
+  aiReview: SizingReview | null;
   estimatedMinutesByTarget: Record<string, number>;
   pages: Array<{ pageNumber: number; words: number; ruleSignals: number; needsTranscription: boolean }>;
 }
@@ -202,12 +204,25 @@ export async function fetchContentMap(trackId: string): Promise<ContentMap> {
   return (await response.json()) as ContentMap;
 }
 
-/** POST /api/tracks/{trackId}/content-map — save the trainer's checkpoint target (null = measured target). */
-export async function saveUnitTarget(trackId: string, unitTarget: number | null): Promise<void> {
+export interface SizingReview {
+  checkpoints: number;
+  learnerMinutes: number;
+  reason: string;
+}
+
+/** POST /api/tracks/{trackId}/sizing-review — the AI's recommended Track size (null when the model is unavailable). */
+export async function fetchSizingReview(trackId: string): Promise<SizingReview | null> {
+  const response = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/sizing-review`, { method: 'POST', cache: 'no-store' });
+  if (!response.ok) return null;
+  return ((await response.json()) as { review: SizingReview | null }).review;
+}
+
+/** POST /api/tracks/{trackId}/content-map — save the trainer's checkpoint and minutes targets for the build. */
+export async function saveUnitTarget(trackId: string, unitTarget: number | null, learnerMinutes: number | null = null): Promise<void> {
   const response = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/content-map`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ unitTarget }),
+    body: JSON.stringify({ unitTarget, learnerMinutes }),
   });
   if (!response.ok) throw await errorFrom(response, 'The checkpoint target was not saved.');
 }
