@@ -200,8 +200,9 @@ function issue(
   affectedType: PublicationGateIssue['affectedType'],
   affectedId: string,
   severity: PublicationGateIssue['severity'] = 'critical',
+  blocking = true,
 ): PublicationGateIssue {
-  return { code, message, severity, affectedType, affectedId, blocking: true };
+  return { code, message, severity, affectedType, affectedId, blocking };
 }
 
 export interface PublicationGateInput {
@@ -276,7 +277,8 @@ export function evaluatePublicationGates(input: PublicationGateInput): Publicati
       issues.push(issue('CLAIM_UNSUPPORTED', `${ownerId} has ${evidence.support.replaceAll('_', ' ')} evidence.`, 'claim', evidence.id, evidence.critical ? 'critical' : 'major'));
     }
     if (evidence.approvalStatus !== 'approved' || !evidence.reviewerUid || !evidence.reviewedAt) {
-      issues.push(issue('TRAINER_APPROVAL_REQUIRED', `${ownerId} requires trainer evidence approval.`, 'claim', evidence.id, evidence.critical ? 'critical' : 'major'));
+      // Suggested, not required (Connor 2026-11-23): an exact quote that matches the PDF can go live unapproved.
+      issues.push(issue('TRAINER_APPROVAL_REQUIRED', `${ownerId} has not been approved by a trainer yet (suggested).`, 'claim', evidence.id, 'coaching', false));
     }
   }
 
@@ -339,8 +341,10 @@ export function evaluatePublicationGates(input: PublicationGateInput): Publicati
       for (const original of criterion.evidence ?? []) {
         const evidence = verifyClaimEvidence(original, pages, conflicts);
         evidence.ruleIds.forEach((id) => coveredRuleIds.add(id));
-        if (evidence.support !== 'supported' || evidence.approvalStatus !== 'approved' || !evidence.reviewerUid || !evidence.reviewedAt) {
-          issues.push(issue('CLAIM_UNSUPPORTED', `Scenario rubric ${criterion.id} lacks approved exact supporting evidence.`, 'claim', evidence.id, evidence.critical ? 'critical' : 'major'));
+        if (evidence.support !== 'supported') {
+          issues.push(issue('CLAIM_UNSUPPORTED', `Scenario rubric ${criterion.id} lacks exact supporting evidence.`, 'claim', evidence.id, evidence.critical ? 'critical' : 'major'));
+        } else if (evidence.approvalStatus !== 'approved' || !evidence.reviewerUid || !evidence.reviewedAt) {
+          issues.push(issue('TRAINER_APPROVAL_REQUIRED', `Scenario rubric ${criterion.id} has not been approved by a trainer yet (suggested).`, 'claim', evidence.id, 'coaching', false));
         }
       }
     }
@@ -381,7 +385,8 @@ export function evaluatePublicationGates(input: PublicationGateInput): Publicati
   }
 
   return PublicationGateReportSchema.parse({
-    eligible: issues.length === 0,
+    // Non-blocking issues (trainer approval) are reported but never stop a publish.
+    eligible: issues.every((entry) => !entry.blocking),
     issues,
     checkedSourceRevision: sourceRevision,
     checkedAt: input.now ?? Date.now(),

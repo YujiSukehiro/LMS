@@ -150,6 +150,13 @@ export function publishReviewItems(units: TrackUnit[], pillarNames: Record<strin
     ...unit.notes.map((note) => `Checkpoint ${unit.unitNumber}: ${note}`),
     ...(unit.shortfall ? [`Checkpoint ${unit.unitNumber}: ${unit.shortfall}`] : []),
   ]);
+  const unapproved = units
+    .flatMap((unit) => [...unit.briefingCards, ...unit.drills])
+    .flatMap((item) => item.evidence ?? [])
+    .filter((evidence) => evidence.approvalStatus !== 'approved').length;
+  if (unapproved > 0) {
+    items.push(`${unapproved} source quote${unapproved === 1 ? ' has' : 's have'} not been approved by a trainer in Source Review. Each quote matches the PDF, so this is optional.`);
+  }
   const minutes = units.reduce((sum, unit) => sum + unit.estimatedMinutes, 0);
   const drills = units.reduce((sum, unit) => sum + unit.drills.length, 0);
   const cards = units.reduce((sum, unit) => sum + unit.briefingCards.length, 0);
