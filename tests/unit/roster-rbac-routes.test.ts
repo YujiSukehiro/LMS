@@ -437,6 +437,27 @@ describe('Roster RBAC & Cohort admin routes', () => {
     expect(((await invite.json()) as { error: string }).error).toBe('ROLE_COHORT_MISMATCH');
   });
 
+  it("lets a Trainer change an agent's access but not another Trainer's", async () => {
+    asActor('TRAINER', 'trainer-actor');
+    expect((await accessRequest('agent-1', 'AGENT', 'THS')).status).toBe(200);
+    seedUser('trainer-2', { role: 'TRAINER', partnerCohortId: 'INTERNAL', lcNumber: null, email: 't2@logicall.io' });
+    expect((await accessRequest('trainer-2', 'TRAINER', 'INTERNAL')).status).toBe(403);
+  });
+
+  it('lets a Trainer invite Trainers, supervisors and agents but not Admins', async () => {
+    activeActor.current = { ...activeActor.current, uid: 'trainer-1', role: 'TRAINER', partnerCohortId: 'INTERNAL' };
+    const invite = (role: string, email: string) =>
+      postCreateInvite(
+        new Request('http://localhost/api/roster/invites', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email, displayName: 'New Person', role, partnerCohortId: 'INTERNAL', divisionIds: ['TELEHEALTH'] }),
+        }),
+      );
+    expect((await invite('TRAINER', 'new.trainer@logicall.io')).status).toBe(200);
+    expect((await invite('ADMIN', 'new.admin@logicall.io')).status).toBe(403);
+  });
+
   it('creates pending email invites, rejects duplicates, and revokes invites cleanly', async () => {
     const createRes = await postCreateInvite(
       new Request('http://localhost/api/roster/invites', {
@@ -590,10 +611,11 @@ describe('Roster RBAC & Cohort admin routes', () => {
     expect((await accessRequest('admin-2', 'TRAINER')).status).toBe(200);
   });
 
-  it('keeps Trainers, Supervisors and Agents out of every roster mutation', async () => {
+  it('keeps Supervisors and Agents out of roster mutations, and everyone below Admin out of Cohort deletes', async () => {
     for (const role of ['TRAINER', 'PARTNER_SUPERVISOR', 'AGENT'] as const) {
       asActor(role, `${role.toLowerCase()}-actor`);
-      expect((await accessRequest('agent-1', 'AGENT', 'THS')).status).toBe(403);
+      // Connor 2026-11-23: Trainers may change access for agents; supervisors and agents may not.
+      if (role !== 'TRAINER') expect((await accessRequest('agent-1', 'AGENT', 'THS')).status).toBe(403);
       const del = await deleteCohort(new Request('http://localhost/api/roster/cohorts/DOZ', { method: 'DELETE' }), {
         params: Promise.resolve({ cohortId: 'DOZ' }),
       });

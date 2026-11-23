@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { assignableRoles, manageDeniedReason, roleCohortFitError, rolesWith } from '@/lib/auth/rbac';
+import { invitableRoles, manageDeniedReason, roleCohortFitError, rolesWith } from '@/lib/auth/rbac';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminAuth, adminDb, firebaseErrorCode } from '@/lib/firebase/admin';
 import { requireAuth } from '@/lib/firebase/auth-guard';
@@ -61,7 +61,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const row = rows[rowIndex];
     const fail = (message: string) => errors.push({ rowIndex, message });
 
-    if (!assignableRoles(actor.role).includes(row.role)) {
+    if (!invitableRoles(actor.role).includes(row.role)) {
       fail(manageDeniedReason(actor.role, row.role));
       continue;
     }
