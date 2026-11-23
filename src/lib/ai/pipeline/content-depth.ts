@@ -193,9 +193,9 @@ export function estimateTrackMinutes(units: number, ruleSignals: number, sims = 
 }
 
 /** Scale every Unit's card and Drill targets down together until the Track fits TRACK_LEARNING_MINUTES. */
-export function fitPlansToTrackBudget(plans: UnitContentPlan[], limits: DepthLimits = DEPTH_LIMITS): UnitContentPlan[] {
+export function fitPlansToTrackBudget(plans: UnitContentPlan[], limits: DepthLimits = DEPTH_LIMITS, minutes = TRACK_LEARNING_MINUTES): UnitContentPlan[] {
   const seconds = (list: UnitContentPlan[]) => list.reduce((sum, plan) => sum + plan.cards.target * CARD_SECONDS + plan.drills.target * DRILL_SECONDS, 0);
-  const budget = TRACK_LEARNING_MINUTES * 60;
+  const budget = minutes * 60;
   const total = seconds(plans);
   if (total <= budget) return plans;
   const factor = budget / total;
@@ -237,6 +237,7 @@ export function planUnitContent(
   depth: Pick<SourceDepth, 'pages'>,
   unitPages: ReadonlyArray<ReadonlyArray<number>>,
   limits: DepthLimits = DEPTH_LIMITS,
+  learnerMinutes: number = TRACK_LEARNING_MINUTES,
 ): UnitContentPlan[] {
   const byPage = new Map(depth.pages.map((page) => [page.pageNumber, page]));
   const citeCount = new Map<number, number>();
@@ -249,7 +250,7 @@ export function planUnitContent(
     }
     return planForRuleSignals(signals, limits);
   });
-  return fitPlansToTrackBudget(plans, limits);
+  return fitPlansToTrackBudget(plans, limits, learnerMinutes);
 }
 
 export function describeRange(range: Pick<CountRange, 'min' | 'max'>): string {

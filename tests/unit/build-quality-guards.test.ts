@@ -77,3 +77,24 @@ describe('isMetaPrompt', () => {
     expect(isMetaPrompt('When must the agent complete the recording disclosure?')).toBe(false);
   });
 });
+
+describe('AI sizing review and the minutes budget', () => {
+  it('parses the review and clamps nothing silently', async () => {
+    const { SizingReviewOutputSchema } = await import('@/lib/ai/prompts/sizing-review');
+    expect(SizingReviewOutputSchema.parse({ checkpoints: '6', learnerMinutes: 40, reason: 'Pages 3 and 6 repeat.' })).toEqual({ checkpoints: 6, learnerMinutes: 40, reason: 'Pages 3 and 6 repeat.' });
+    expect(SizingReviewOutputSchema.safeParse({ checkpoints: 30, learnerMinutes: 40, reason: 'x' }).success).toBe(false);
+  });
+
+  it('scales card and Drill targets to the chosen minutes', async () => {
+    const { fitPlansToTrackBudget } = await import('@/lib/ai/pipeline/content-depth');
+    const full = Array.from({ length: 6 }, () => ({ cards: { min: 7, target: 8, max: 8 }, drills: { min: 9, target: 10, max: 10 }, ruleSignals: 20 }));
+    const seconds = (plans: typeof full) => plans.reduce((sum, plan) => sum + plan.cards.target * 40 + plan.drills.target * 45, 0);
+    expect(seconds(fitPlansToTrackBudget(full, undefined, 30)) / 60).toBeLessThanOrEqual(33);
+    expect(seconds(fitPlansToTrackBudget(full, undefined, 60)) / 60).toBeGreaterThan(seconds(fitPlansToTrackBudget(full, undefined, 30)) / 60);
+  });
+
+  it('hands out different names for every batch of a 12-Checkpoint Track', () => {
+    const all = Array.from({ length: 12 }, (_, unit) => [0, 1].flatMap((batch) => drillBatchNames(unit, batch))).flat();
+    expect(new Set(all).size).toBe(all.length);
+  });
+});

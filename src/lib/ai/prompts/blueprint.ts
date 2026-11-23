@@ -320,6 +320,8 @@ export function finalizeBlueprint(
   trainerCampaignCode = '',
   pages?: ReadonlyArray<{ pageNumber: number; text: string }>,
   limits?: DepthLimits,
+  /** Minutes of cards and Drills for the whole Track (trainer choice or AI sizing review). */
+  learnerMinutes?: number,
 ): TrackBlueprint {
   const allPages = Array.from({ length: pageCount }, (_, i) => i + 1);
   const allowed = new Set(allPages);
@@ -342,7 +344,7 @@ export function finalizeBlueprint(
       pillarIds: ids.length > 0 ? ids : [competencyPillars[0].id],
     };
   });
-  const plans = pages ? planUnitContent(measureSourceDepth(pages), units.map((unit) => unit.sourcePages), limits) : null;
+  const plans = pages ? planUnitContent(measureSourceDepth(pages), units.map((unit) => unit.sourcePages), limits, learnerMinutes) : null;
   units.forEach((unit, index) => {
     unit.contentPlan = plans?.[index] ?? DEFAULT_UNIT_CONTENT_PLAN;
   });

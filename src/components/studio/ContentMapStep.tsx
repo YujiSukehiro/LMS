@@ -1,9 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowRight, LoaderCircle, Minus, Plus, RotateCcw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, ArrowRight, LoaderCircle, Minus, Plus, RotateCcw, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { fetchContentMap, saveUnitTarget, type ContentMap } from './api-client';
+import { fetchContentMap, fetchSizingReview, saveUnitTarget, type ContentMap, type SizingReview } from './api-client';
+
+const DEFAULT_MINUTES = 45;
+const MIN_MINUTES = 15;
+const MAX_MINUTES = 120;
+const MINUTE_STEP = 5;
 
 /**
  * Step 2 of Track creation: show how much the Playbook holds before the long AI build, and let
@@ -12,6 +17,11 @@ import { fetchContentMap, saveUnitTarget, type ContentMap } from './api-client';
 export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild: (unitTarget: number) => void }) {
   const [map, setMap] = useState<ContentMap | null>(null);
   const [target, setTarget] = useState<number | null>(null);
+  const [minutes, setMinutes] = useState<number>(DEFAULT_MINUTES);
+  const [review, setReview] = useState<SizingReview | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  // Once the trainer changes a number, a late AI review no longer overwrites it.
+  const touched = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -21,7 +31,24 @@ export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild:
       .then((loaded) => {
         if (cancelled) return;
         setMap(loaded);
-        setTarget(loaded.unitTarget ?? loaded.recommended.target);
+        setReview(loaded.aiReview);
+        setTarget(loaded.unitTarget ?? loaded.aiReview?.checkpoints ?? loaded.recommended.target);
+        setMinutes(loaded.learnerMinutesTarget ?? loaded.aiReview?.learnerMinutes ?? DEFAULT_MINUTES);
+        if (loaded.aiReview) return;
+        // The AI reads the whole Playbook (about half a minute); the measured numbers show until it answers.
+        setReviewing(true);
+        fetchSizingReview(trackId)
+          .then((fresh) => {
+            if (cancelled || !fresh) return;
+            setReview(fresh);
+            if (!touched.current && loaded.unitTarget === null) {
+              setTarget(fresh.checkpoints);
+              setMinutes(fresh.learnerMinutes);
+            }
+          })
+          .finally(() => {
+            if (!cancelled) setReviewing(false);
+          });
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'The content map did not load.');
@@ -31,13 +58,22 @@ export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild:
     };
   }, [trackId]);
 
+  function changeTarget(next: number) {
+    touched.current = true;
+    setTarget(next);
+  }
+
+  function changeMinutes(next: number) {
+    touched.current = true;
+    setMinutes(Math.min(MAX_MINUTES, Math.max(MIN_MINUTES, next)));
+  }
+
   async function build() {
     if (!map || target === null) return;
     setSaving(true);
     setError(null);
     try {
-      // Save null when the trainer kept the measured target, so later rebuilds re-measure.
-      await saveUnitTarget(trackId, target === map.recommended.target ? null : target);
+      await saveUnitTarget(trackId, target, minutes);
       onBuild(target);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The checkpoint target was not saved.');
@@ -70,8 +106,9 @@ export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild:
   const imageOnly = map.pages.filter((p) => p.needsTranscription);
   const noRules = map.pages.filter((p) => p.ruleSignals === 0 && !p.needsTranscription);
   const current = target ?? map.recommended.target;
-  const minutes = map.estimatedMinutesByTarget[String(current)];
-  const outsideRecommended = current < map.recommended.min || current > map.recommended.max;
+  const recommendedTarget = review?.checkpoints ?? map.recommended.target;
+  const recommendedMinutes = review?.learnerMinutes ?? DEFAULT_MINUTES;
+  const outsideRecommended = !review && (current < map.recommended.min || current > map.recommended.max);
 
   return (
     <div className="flex flex-col gap-4">
@@ -125,11 +162,25 @@ export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild:
           <div>
             <p className="pulse-label">Checkpoints</p>
             <h2 id="size-heading" className="mt-1 text-lg font-semibold">
-              Recommended: {map.recommended.target} checkpoints
+              Recommended: {recommendedTarget} checkpoints, about {recommendedMinutes} min
             </h2>
-            <p className="text-sm text-pulse-muted">
-              Measured range {map.recommended.min}–{map.recommended.max}. Dense sections get their own checkpoint; light sections share one.
-              Each checkpoint gets 2–8 Briefing Cards and 4–10 Drills, sized to the rules on its pages.
+            {review ? (
+              <p className="mt-1 flex gap-2 text-sm text-pulse-secondary">
+                <Sparkles aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo-text" />
+                <span>AI review of the whole Playbook: {review.reason}</span>
+              </p>
+            ) : reviewing ? (
+              <p className="mt-1 flex items-center gap-2 text-sm text-pulse-muted" aria-live="polite">
+                <LoaderCircle aria-hidden className="size-4 animate-spin" />
+                The AI is reading the whole Playbook for repetition and density (about half a minute)…
+              </p>
+            ) : (
+              <p className="text-sm text-pulse-muted">
+                Measured range {map.recommended.min}–{map.recommended.max}. Dense sections get their own checkpoint; light sections share one.
+              </p>
+            )}
+            <p className="mt-1 text-xs text-pulse-muted">
+              Minutes cover Briefing Cards and Drills; practice calls come on top. Change either number if you know better.
             </p>
           </div>
           <div className="flex flex-col items-center gap-1">
@@ -139,7 +190,7 @@ export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild:
                 className="pulse-btn size-9 p-0"
                 aria-label="Fewer checkpoints"
                 disabled={current <= map.limits.min || saving}
-                onClick={() => setTarget(current - 1)}
+                onClick={() => changeTarget(current - 1)}
               >
                 <Minus aria-hidden className="size-4" />
               </button>
@@ -151,14 +202,45 @@ export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild:
                 className="pulse-btn size-9 p-0"
                 aria-label="More checkpoints"
                 disabled={current >= map.limits.max || saving}
-                onClick={() => setTarget(current + 1)}
+                onClick={() => changeTarget(current + 1)}
               >
                 <Plus aria-hidden className="size-4" />
               </button>
             </div>
-            <span className="text-xs text-pulse-muted">{minutes ? `about ${minutes} min for learners` : null}</span>
-            {current !== map.recommended.target ? (
-              <button type="button" className="flex items-center gap-1 text-xs font-semibold text-pulse-indigo-text hover:underline" onClick={() => setTarget(map.recommended.target)}>
+            <span className="text-xs text-pulse-muted">checkpoints</span>
+            <div className="mt-2 flex items-center gap-2" role="group" aria-label="Learner minutes">
+              <button
+                type="button"
+                className="pulse-btn size-9 p-0"
+                aria-label="Fewer minutes"
+                disabled={minutes <= MIN_MINUTES || saving}
+                onClick={() => changeMinutes(minutes - MINUTE_STEP)}
+              >
+                <Minus aria-hidden className="size-4" />
+              </button>
+              <output aria-live="polite" className="pulse-metric w-12 text-center text-2xl font-bold text-pulse-indigo-text">
+                {minutes}
+              </output>
+              <button
+                type="button"
+                className="pulse-btn size-9 p-0"
+                aria-label="More minutes"
+                disabled={minutes >= MAX_MINUTES || saving}
+                onClick={() => changeMinutes(minutes + MINUTE_STEP)}
+              >
+                <Plus aria-hidden className="size-4" />
+              </button>
+            </div>
+            <span className="text-xs text-pulse-muted">minutes for learners</span>
+            {current !== recommendedTarget || minutes !== recommendedMinutes ? (
+              <button
+                type="button"
+                className="flex items-center gap-1 text-xs font-semibold text-pulse-indigo-text hover:underline"
+                onClick={() => {
+                  setTarget(recommendedTarget);
+                  setMinutes(recommendedMinutes);
+                }}
+              >
                 <RotateCcw aria-hidden className="size-3" />
                 Use recommended
               </button>
