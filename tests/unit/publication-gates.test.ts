@@ -220,6 +220,16 @@ describe('publication gates', () => {
     ]));
   });
 
+  it('lets an exact, unapproved quote publish with a non-blocking approval suggestion (Connor 2026-11-23)', () => {
+    const current = draft();
+    const firstCard = current.units[0].briefingCards[0];
+    firstCard.evidence = [{ ...firstCard.evidence![0], approvalStatus: 'draft', reviewerUid: null, reviewedAt: null }];
+    const report = evaluatePublicationGates(input({ draft: current }));
+    expect(report.issues).toContainEqual(expect.objectContaining({ code: 'TRAINER_APPROVAL_REQUIRED', blocking: false }));
+    expect(report.issues.filter((entry) => entry.blocking)).toEqual([]);
+    expect(report.eligible).toBe(true);
+  });
+
   it('blocks critical omissions of inherited shared-rule knowledge coverage', () => {
     const current = draft();
     current.units[0].briefingCards = current.units[0].briefingCards.map((card) => ({
