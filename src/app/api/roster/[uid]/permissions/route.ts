@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { assignableRoles, canManageRole, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
+import { assignableRoles, canManageRole, manageDeniedReason, roleCohortFitError, rolesWith } from '@/lib/auth/rbac';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminAuth, adminDb, firebaseErrorCode } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
@@ -67,6 +67,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ uid: s
       if (!nextCohortSnap.exists) {
         throw new PermissionsError(400, 'INVALID_COHORT', `Cohort "${input.partnerCohortId}" does not exist.`);
       }
+      const fitError = roleCohortFitError(input.role, nextCohortSnap.get('isInternal') === true);
+      if (fitError) throw new PermissionsError(400, 'ROLE_COHORT_MISMATCH', fitError);
 
       const cohortChanged = existing.partnerCohortId !== input.partnerCohortId;
       const oldCohortRef = adminDb.collection('cohorts').doc(existing.partnerCohortId);

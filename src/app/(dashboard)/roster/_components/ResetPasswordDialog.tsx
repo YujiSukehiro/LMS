@@ -89,7 +89,8 @@ export function ResetPasswordDialog({
           {credentials ? (
             <div className="mt-4 space-y-3">
               <p className="text-sm text-pulse-secondary">
-                Share this one-time temporary password securely. Existing sessions for this account were revoked.
+                Share this one-time temporary password securely. They&apos;ll choose their own password when they sign in with it.
+                Existing sessions for this account were revoked.
               </p>
               <div className="space-y-1.5 rounded-md border border-pulse-border bg-pulse-surface-2 p-3 text-sm">
                 <div>

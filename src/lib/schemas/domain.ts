@@ -124,5 +124,7 @@ export const SessionUserSchema = z.object({
   partnerCohortId: z.string(),
   divisionIds: z.array(DivisionIdSchema),
   active: z.literal(true),
+  /** Signed in with a temporary password and must choose a new one before using the app. */
+  mustChangePassword: z.boolean().optional(),
 });
 export type SessionUser = z.infer<typeof SessionUserSchema>;

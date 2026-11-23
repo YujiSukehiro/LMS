@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { canManageUser, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { adminAuth, adminDb, firebaseErrorCode } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
-import { generateTemporaryPassword, parseStoredUserDoc } from '@/lib/firebase/users';
+import { generateTemporaryPassword, parseStoredUserDoc, setMustChangePassword } from '@/lib/firebase/users';
+import { recordAuditEvent } from '@/lib/services/audit';
 import { RosterResetPasswordRequestSchema, RosterResetPasswordResponseSchema } from '@/lib/schemas/api';
 
 export const runtime = 'nodejs';
@@ -26,8 +27,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ uid: st
   if (!snap.exists) return jsonError(404, 'NOT_FOUND', 'This user does not exist.');
   const user = parseStoredUserDoc(uid, snap.data() ?? {});
 
-  if (!canManageUser(actor, { uid, role: user.role }, 'users.resetPassword')) {
-    return jsonError(403, 'FORBIDDEN', uid === actor.uid ? 'Change your own password from the sign-in page.' : manageDeniedReason(actor.role, user.role));
+  if (!canManageUser(actor, { uid, role: user.role, partnerCohortId: user.partnerCohortId, active: user.active }, 'users.resetPassword')) {
+    const reason =
+      uid === actor.uid
+        ? 'Change your own password from the sign-in page.'
+        : actor.role === 'PARTNER_SUPERVISOR'
+          ? 'You can reset passwords only for active agents in your own Cohort.'
+          : manageDeniedReason(actor.role, user.role);
+    return jsonError(403, 'FORBIDDEN', reason);
   }
   if (user.authMethod === 'GOOGLE_SSO') {
     return jsonError(
@@ -41,6 +48,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ uid: st
 
   try {
     await adminAuth.updateUser(uid, { password: temporaryPassword });
+    // The agent must choose their own password at the next sign-in (the claim sends them to /account/new-password).
+    await setMustChangePassword(uid, true);
     await adminAuth.revokeRefreshTokens(uid);
     await userRef.update({ updatedAt: Date.now() });
   } catch (error) {
@@ -50,6 +59,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ uid: st
     console.error('[roster/reset-password] password update failed', error);
     return jsonError(500, 'RESET_FAILED', 'The temporary password could not be set. Try again.');
   }
+  await recordAuditEvent({
+    type: 'password.reset_by_staff',
+    actorUid: actor.uid,
+    actorRole: actor.role,
+    targetUid: uid,
+    partnerCohortId: user.partnerCohortId,
+  }).catch((error) => console.error('[roster/reset-password] audit write failed', error));
 
   return NextResponse.json(
     RosterResetPasswordResponseSchema.parse({

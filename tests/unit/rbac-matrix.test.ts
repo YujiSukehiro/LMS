@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_ROLES, PERMISSIONS, assignableRoles, can, canManageRole, canManageUser } from '@/lib/auth/rbac';
+import { ALL_ROLES, PERMISSIONS, assignableRoles, can, canManageRole, canManageUser, roleCohortFitError } from '@/lib/auth/rbac';
 import { ANALYTICS_ROLES, INTERNAL_OPS_ROLES, ROSTER_ADMIN_ROLES } from '@/lib/schemas/constants';
 import { NAV_BY_ROLE } from '@/components/layout/nav-config';
 
@@ -12,9 +12,11 @@ describe('RBAC matrix', () => {
 
   it('lets everyone learn but only admins manage people and Cohorts', () => {
     for (const role of ALL_ROLES) expect(can(role, 'learn.take')).toBe(true);
-    for (const permission of ['users.editAccess', 'users.resetPassword', 'users.deactivate', 'users.invite', 'cohorts.create', 'cohorts.edit', 'cohorts.delete'] as const) {
+    for (const permission of ['users.editAccess', 'users.deactivate', 'users.invite', 'cohorts.create', 'cohorts.edit', 'cohorts.delete'] as const) {
       expect(PERMISSIONS[permission].roles).toEqual(['SUPER_ADMIN', 'ADMIN']);
     }
+    // Supervisors can issue temporary passwords, scoped by canManageUser to active agents in their own Cohort.
+    expect(PERMISSIONS['users.resetPassword'].roles).toEqual(['SUPER_ADMIN', 'ADMIN', 'PARTNER_SUPERVISOR']);
     expect(can('PARTNER_SUPERVISOR', 'analytics.viewAllCohorts')).toBe(false);
     expect(can(undefined, 'learn.take')).toBe(false);
   });
@@ -30,6 +32,23 @@ describe('RBAC matrix', () => {
     const actor = { uid: 'a', role: 'SUPER_ADMIN' as const };
     expect(canManageUser(actor, { uid: 'a', role: 'AGENT' }, 'users.editAccess')).toBe(false);
     expect(canManageUser({ uid: 't', role: 'TRAINER' }, { uid: 'x', role: 'AGENT' }, 'users.editAccess')).toBe(false);
+  });
+
+  it('scopes supervisor password resets to active agents in their own Cohort', () => {
+    const sup = { uid: 's', role: 'PARTNER_SUPERVISOR' as const, partnerCohortId: 'THS' };
+    expect(canManageUser(sup, { uid: 'a', role: 'AGENT', partnerCohortId: 'THS', active: true }, 'users.resetPassword')).toBe(true);
+    expect(canManageUser(sup, { uid: 'a', role: 'AGENT', partnerCohortId: 'DOZ', active: true }, 'users.resetPassword')).toBe(false);
+    expect(canManageUser(sup, { uid: 'a', role: 'AGENT', partnerCohortId: 'THS', active: false }, 'users.resetPassword')).toBe(false);
+    expect(canManageUser(sup, { uid: 'a', role: 'AGENT' }, 'users.resetPassword')).toBe(false);
+    expect(canManageUser(sup, { uid: 'a', role: 'AGENT', partnerCohortId: 'THS', active: true }, 'users.editAccess')).toBe(false);
+  });
+
+  it('keeps staff roles in an internal Cohort', () => {
+    expect(roleCohortFitError('TRAINER', false)).not.toBeNull();
+    expect(roleCohortFitError('ADMIN', false)).not.toBeNull();
+    expect(roleCohortFitError('TRAINER', true)).toBeNull();
+    expect(roleCohortFitError('AGENT', false)).toBeNull();
+    expect(roleCohortFitError('PARTNER_SUPERVISOR', true)).toBeNull();
   });
 
   it('derives navigation from permissions', () => {
