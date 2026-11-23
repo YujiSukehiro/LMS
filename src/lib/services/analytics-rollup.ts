@@ -297,6 +297,7 @@ function reconcileEnrollment(
     completedUnitCount: completedUnitIds.length,
     unitCount: version.units.length,
     passedScenarioCount: passedScenarioIds.length,
+    scenarioCount: version.simScenarios.length,
   });
   next.status = enrollmentStatus(next);
   return next;

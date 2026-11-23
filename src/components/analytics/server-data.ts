@@ -28,7 +28,7 @@ import {
   type TrackDoc,
   type TrackVersionDoc,
 } from '@/lib/schemas/curriculum';
-import { CohortDocSchema, DivisionIdSchema, UserDocSchema, type DivisionId } from '@/lib/schemas/domain';
+import { CohortDocSchema, DivisionIdSchema, TimestampOrEpochMsSchema, UserDocSchema, type DivisionId } from '@/lib/schemas/domain';
 import { ALL_COHORTS_ID, DEFAULT_COHORTS } from '@/lib/schemas/constants';
 
 /** The subset of `users/{uid}` that dashboards read (timestamps and preferences are not needed). */
@@ -43,6 +43,9 @@ export const UserSummarySchema = UserDocSchema.pick({
   active: true,
   stats: true,
   skillScoresByPillar: true,
+}).extend({
+  /** Optional here so an older user doc without it still loads. */
+  createdAt: TimestampOrEpochMsSchema.optional(),
 });
 export type UserSummary = z.infer<typeof UserSummarySchema>;
 

@@ -60,9 +60,13 @@ export interface ProgressCell {
 }
 
 export interface ProgressFlag {
-  tone: 'danger' | 'warning';
+  /** info = worth knowing, not a problem (for example a Track assigned today that is not opened yet). */
+  tone: 'danger' | 'warning' | 'info';
   text: string;
 }
+
+/** A Track assigned fewer days ago than this is not flagged when the agent has not opened it yet. */
+export const NOT_STARTED_GRACE_DAYS = 3;
 
 /** Certificates expiring within this many days get a warning. */
 export const EXPIRY_WARNING_DAYS = 14;
@@ -73,6 +77,8 @@ export interface DeriveProgressInput {
   certification: CertificationDoc | null;
   assigned: boolean;
   agentActive: boolean;
+  /** When the agent could first see this Track version (later of publish and the agent joining), if known. */
+  assignedAt?: number | null;
   now?: number;
 }
 
@@ -204,8 +210,14 @@ function progressFlag(
   switch (cell.stage) {
     case 'needs_recert':
       return { tone: 'danger', text: cell.detail };
-    case 'not_started':
-      return { tone: 'warning', text: 'Not opened yet' };
+    case 'not_started': {
+      const assignedAt = input.assignedAt ?? null;
+      if (assignedAt === null) return { tone: 'warning', text: 'Not opened yet' };
+      const days = Math.floor((now - assignedAt) / DAY_MS);
+      return days < NOT_STARTED_GRACE_DAYS
+        ? { tone: 'info', text: 'Not opened yet' }
+        : { tone: 'warning', text: `Not opened in ${days} days` };
+    }
     case 'learning':
       return cell.stalledDays !== null
         ? { tone: 'danger', text: `Stuck ${cell.stalledDays} days on Checkpoint ${(nextUnitIndex ?? 0) + 1}` }

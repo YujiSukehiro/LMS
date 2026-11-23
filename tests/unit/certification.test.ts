@@ -40,6 +40,8 @@ function eligibilityInput() {
     enrollment: learningEnrollment(),
     ruleIdsByDrillId: RULE_IDS_BY_DRILL,
     ...passingEvidenceWithVariedMastery(),
+    // Most tests check the strict mode where rule recall also gates certification; the default (GATE-03) is tested below.
+    requireRuleRecall: true,
   };
 }
 
@@ -190,6 +192,21 @@ describe('assessment blueprints and certification eligibility', () => {
       ],
     });
     expect(withRetention.eligible).toBe(true);
+  });
+
+  it('by default (GATE-03) certifies on Checkpoints + every scenario; rule recall is Keep-sharp only', () => {
+    const evidence = passingEvidenceWithVariedMastery();
+    const noRecall = evidence.drillAttempts.map((attempt) => ({ ...attempt, attemptKind: 'immediate_retry' as const, firstIndependent: false }));
+    const defaults = { ...eligibilityInput(), requireRuleRecall: undefined };
+    const result = evaluateCertificationEligibility({ ...defaults, drillAttempts: noRecall, blueprint: learningBlueprint({ retentionRequired: true }) });
+    expect(result.knowledge.outstandingRuleIds.length).toBeGreaterThan(0);
+    expect(result.blockers).toEqual([]);
+    expect(result.eligible).toBe(true);
+
+    // A missing scenario still blocks.
+    const oneScenario = evaluateCertificationEligibility({ ...defaults, scenarioCoverage: [evidence.scenarioCoverage[0]] });
+    expect(oneScenario.eligible).toBe(false);
+    expect(oneScenario.blockers).toContain('scenario_not_passed:s-critical');
   });
 
   it('requires required customer concerns in learner dialogue', () => {

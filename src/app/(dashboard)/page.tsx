@@ -8,13 +8,18 @@ import { AdminHome } from '@/components/layout/home/AdminHome';
 export const metadata: Metadata = { title: 'Home' };
 export const dynamic = 'force-dynamic';
 
-export default async function DashboardHomePage() {
+export default async function DashboardHomePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requirePageUser();
+  const sp = await searchParams;
   switch (user.role) {
     case 'AGENT':
       return <AgentHome user={user} />;
     case 'PARTNER_SUPERVISOR':
-      return <SupervisorHome user={user} />;
+      return <SupervisorHome user={user} showOffboarded={sp.offboarded === '1'} />;
     case 'TRAINER':
       return <TrainerHome user={user} />;
     case 'ADMIN':

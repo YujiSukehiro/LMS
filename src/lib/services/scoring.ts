@@ -14,7 +14,7 @@ import { utcDateKey } from '@/lib/utils';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Weight of Unit completion in `progressPct`. The remaining weight is for one passed Simulation. */
+/** Weight of Unit completion in `progressPct`. The remaining weight is shared across the Simulation scenarios. */
 const UNIT_PROGRESS_WEIGHT = 80;
 const SIM_PROGRESS_WEIGHT = 100 - UNIT_PROGRESS_WEIGHT;
 
@@ -135,15 +135,19 @@ export function computeProgressPct(input: {
   completedUnitCount: number;
   unitCount: number;
   passedScenarioCount: number;
+  /** Scenarios in the Track. Each passed one adds its share of the practice weight. */
+  scenarioCount: number;
 }): number {
   const unitFraction =
     input.unitCount > 0 ? clamp(input.completedUnitCount / input.unitCount, 0, 1) : 0;
-  const simPart = input.passedScenarioCount > 0 ? SIM_PROGRESS_WEIGHT : 0;
-  const raw = UNIT_PROGRESS_WEIGHT * unitFraction + simPart;
-  // Never show 100 unless every Unit is complete and a scenario is passed.
+  const simFraction = input.scenarioCount > 0 ? clamp(input.passedScenarioCount / input.scenarioCount, 0, 1) : 0;
+  // A Track with no scenarios puts all the weight on its Checkpoints.
+  const raw = input.scenarioCount > 0 ? UNIT_PROGRESS_WEIGHT * unitFraction + SIM_PROGRESS_WEIGHT * simFraction : 100 * unitFraction;
+  // Never show 100 unless every Unit is complete and every scenario is passed.
   const allUnitsDone = input.unitCount > 0 && input.completedUnitCount >= input.unitCount;
+  const allScenariosPassed = input.passedScenarioCount >= input.scenarioCount;
   const pct = Math.round(raw);
-  if (pct >= 100 && !(allUnitsDone && input.passedScenarioCount > 0)) return 99;
+  if (pct >= 100 && !(allUnitsDone && allScenariosPassed)) return 99;
   return clamp(pct, 0, 100);
 }
 

@@ -125,9 +125,14 @@ describe('retention queue and canonical review schedule IDs', () => {
       scheduledCount: 3,
       masteredCount: 1,
       nextDueAt: '2026-11-15T12:00:00.000Z',
+      upcomingCount: 1,
+      nextUpcomingAt: '2026-11-24T12:00:00.000Z',
     });
     expect(queue.trackSummaries).toHaveLength(1);
     expect(queue.trackSummaries[0]!.dueCount).toBe(2);
+    // QA M2: a Track's caught-up line uses its next FUTURE review, not an already-due one.
+    expect(queue.trackSummaries[0]!.upcomingCount).toBe(1);
+    expect(queue.trackSummaries[0]!.nextUpcomingAt).toBe('2026-11-24T12:00:00.000Z');
 
     // Ensure answer keys and rationales never leak into queue DTOs.
     expect('correctOptionId' in queue.dueItems[0]!.drill).toBe(false);
