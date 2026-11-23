@@ -62,6 +62,16 @@ env:
     value: "15"
     availability:
       - RUNTIME
+  # Background Track builds: each build runs as short Cloud Tasks steps (src/lib/services/track-build-driver.ts).
+  # The queue and IAM grants must exist first; without them builds fall back to running in-process.
+  - variable: TRACK_BUILD_QUEUE
+    value: projects/telehealthlms/locations/us-central1/queues/track-builds
+    availability:
+      - RUNTIME
+  - variable: TRACK_BUILD_TASK_SA
+    value: firebase-app-hosting-compute@telehealthlms.iam.gserviceaccount.com
+    availability:
+      - RUNTIME
   # New Track builds (not Retries or resumes) one trainer can start per UTC day.
   - variable: MAX_TRACK_BUILDS_PER_USER_PER_DAY
     value: "10"

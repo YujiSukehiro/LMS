@@ -237,6 +237,8 @@ export const TrackDocSchema = z.object({
     message: z.string(),
   }),
   generationBudgets: z.record(z.string(), GenerationBudgetReportSchema).optional(),
+  /** Set when a build step stopped at its time budget and handed off to the next step; null while a step runs. */
+  generationPausedAt: z.number().nullable().optional(),
   sourcePdfStoragePath: z.string(),
   sourcePdfFileName: z.string(),
   sourcePageCount: z.number().int().positive(),

@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { z } from 'zod';
-import { runTrackGeneration, generationStageTimeoutMs, isLocalProvider } from '@/lib/ai/pipeline/generate-track';
+import { GenerationPausedError, runTrackGeneration, generationStageTimeoutMs, isLocalProvider } from '@/lib/ai/pipeline/generate-track';
 import { DEPTH_LIMITS, LOCAL_DEPTH_LIMITS, depthLimitsForProvider } from '@/lib/ai/pipeline/content-depth';
 import { localSourceCharBudget, UNIT_OVERHEAD_TOKENS } from '@/lib/ai/pipeline/source-budget';
 import {
@@ -322,5 +322,38 @@ describe('hosted (Gemini) generation path', () => {
     expect(draft.provenance?.source).toBe('hosted_ai');
     expect(draft.provenance?.provider).toBe('gemini');
     expect(mocks.secretWrites).toHaveLength(1);
+  });
+
+  it('pauses at a stage boundary when the step deadline passes, then resumes from checkpoints', async () => {
+    // Deadline already past: nothing runs, nothing is written, and it is a pause, not a failure.
+    const none: RecordedCall[] = [];
+    await expect(runTrackGeneration('HOSTED', () => undefined, hostedGateway(none), { deadlineAt: Date.now() - 1 })).rejects.toBeInstanceOf(GenerationPausedError);
+    expect(none).toHaveLength(0);
+    expect(mocks.draftWrites).toHaveLength(0);
+
+    // The clock passes the deadline after 3 model calls: the step pauses before its next stage.
+    const realNow = Date.now.bind(Date);
+    const first: RecordedCall[] = [];
+    const base = hostedGateway(first);
+    const clockJumper: LLMGateway = {
+      ...base,
+      generateStructured: async (opts) => {
+        const out = await base.generateStructured(opts);
+        if (first.length >= 3) vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 10 * 60_000);
+        return out;
+      },
+    };
+    await expect(runTrackGeneration('HOSTED', () => undefined, clockJumper, { deadlineAt: realNow() + 60_000 })).rejects.toBeInstanceOf(GenerationPausedError);
+    vi.restoreAllMocks();
+    expect(first.length).toBeGreaterThanOrEqual(3);
+    expect(mocks.draftWrites.filter((draft) => draft.simScenarios.length > 0)).toHaveLength(0);
+
+    // The next step (no deadline) finishes; the stages saved before the pause are not asked again.
+    const second: RecordedCall[] = [];
+    await runTrackGeneration('HOSTED', () => undefined, hostedGateway(second));
+    const full: RecordedCall[] = [];
+    mocks.checkpoints.clear();
+    await runTrackGeneration('HOSTED', () => undefined, hostedGateway(full));
+    expect(second.length).toBe(full.length - first.length);
   });
 });

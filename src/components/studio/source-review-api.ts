@@ -223,3 +223,9 @@ export async function runSourceContradictionCheck(trackId: string, bundleId: str
   if (!response.ok) await throwResponseError(response, 'The contradiction check did not finish. You can still approve the source');
   return response.json().catch(() => null);
 }
+
+/** Start the background build right away (it keeps running if the trainer closes the page). */
+export async function startTrackBuild(trackId: string): Promise<void> {
+  const response = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/generate`, { method: 'POST' });
+  if (!response.ok) await throwResponseError(response, 'The Track build did not start');
+}

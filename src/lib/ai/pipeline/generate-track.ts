@@ -137,6 +137,8 @@ import {
   type GenerationCheckpoint,
   type GenerationCheckpointIdentity,
   type GenerationCheckpointStore,
+  type GenerationStageOptions,
+  type GenerationStageResult,
 } from '@/lib/ai/pipeline/generation-reliability';
 import { LocalRuntimeLimiter } from '@/lib/ai/local-runtime';
 
@@ -560,7 +562,47 @@ function logStageFailure(trackId: string, stage: string, error: unknown): void {
  * Run the full build for a Track whose generation lock the caller already holds.
  * Emits progress events and persists them on the Track. Throws on failure after it marks the Track FAILED.
  */
-export async function runTrackGeneration(trackId: string, onProgress: ProgressListener, gateway: LLMGateway = getLLMGateway()): Promise<void> {
+/** Thrown when a build step reaches its time budget at a stage boundary. Not a failure: the next step resumes. */
+export class GenerationPausedError extends Error {
+  constructor() {
+    super('The build step reached its time budget; the next step continues from saved checkpoints.');
+    this.name = 'GenerationPausedError';
+  }
+}
+
+export function isGenerationPausedError(error: unknown): error is GenerationPausedError {
+  return error instanceof GenerationPausedError;
+}
+
+/** Executor that refuses to START a stage after the step's deadline (a running stage always finishes). */
+class DeadlineExecutor extends GenerationReliabilityExecutor {
+  constructor(
+    store: ConstructorParameters<typeof GenerationReliabilityExecutor>[0],
+    limiter: ConstructorParameters<typeof GenerationReliabilityExecutor>[1],
+    private readonly deadlineAt: number | undefined,
+  ) {
+    super(store, limiter);
+  }
+
+  override async executeStage<TInput, TSchema extends z.ZodTypeAny>(
+    options: GenerationStageOptions<TInput, TSchema>,
+  ): Promise<GenerationStageResult<z.output<TSchema>>> {
+    if (this.deadlineAt !== undefined && Date.now() >= this.deadlineAt) throw new GenerationPausedError();
+    return super.executeStage(options);
+  }
+}
+
+export interface RunTrackGenerationOptions {
+  /** Epoch ms. No new stage starts after it; the build pauses (generationPausedAt) for the next step to resume. */
+  deadlineAt?: number;
+}
+
+export async function runTrackGeneration(
+  trackId: string,
+  onProgress: ProgressListener,
+  gateway: LLMGateway = getLLMGateway(),
+  options: RunTrackGenerationOptions = {},
+): Promise<void> {
   let lastPercent = 0;
   let stageLabel = 'Preparing the build';
   const heartbeat = setInterval(() => {
@@ -619,7 +661,7 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
       drillBatchSize,
       depthLimits: limits,
     };
-    const executor = new GenerationReliabilityExecutor(new FirestoreGenerationCheckpointStore(), limiterFor(runtime.provider));
+    const executor = new DeadlineExecutor(new FirestoreGenerationCheckpointStore(), limiterFor(runtime.provider), options.deadlineAt);
     const runId = `track-${trackId}`;
     const budgets: Record<string, GenerationBudgetReport> = { ...(track.generationBudgets ?? {}) };
     const stageConfig = (maxOutputTokens: number) => {
@@ -1188,6 +1230,11 @@ export async function runTrackGeneration(trackId: string, onProgress: ProgressLi
     lastPercent = 100;
     onProgress({ step: 'READY', percent: 100, message: readyMessage(flaggedItems.length) });
   } catch (error) {
+    if (isGenerationPausedError(error)) {
+      // Keep the progress the trainer sees; the next step clears generationPausedAt when it takes over.
+      await trackRef(trackId).update({ generationPausedAt: Date.now(), updatedAt: Date.now() }).catch(() => undefined);
+      throw error;
+    }
     logStageFailure(trackId, stageLabel, error);
     const message = describeGenerationError(error, stageLabel);
     await trackRef(trackId)

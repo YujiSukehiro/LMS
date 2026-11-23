@@ -1,7 +1,8 @@
 /**
  * GET /api/tracks/[trackId]/generate — SSE stream of the staged Track build.
  * Events: `progress` {step, percent, message}, `complete` {trackId, versionId}, `error` {message}.
- * Only one build runs per Track: a second connection follows the running build's progress.
+ * The build itself runs in the background as short steps (src/lib/services/track-build-driver.ts): this route
+ * only starts or re-queues it and streams progress from Firestore, so closing the page never stops a build.
  */
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { adminDb } from '@/lib/firebase/admin';
@@ -9,10 +10,10 @@ import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import { DRAFT_VERSION_ID, type TrackDoc } from '@/lib/schemas/curriculum';
 import type { GenerateCompleteEvent, GenerateProgressEvent, SseErrorEvent } from '@/lib/schemas/api';
 import { sseFrame } from '@/lib/utils';
-import { describeGenerationError, runTrackGeneration } from '@/lib/ai/pipeline/generate-track';
+import { describeGenerationError } from '@/lib/ai/pipeline/generate-track';
+import { kickTrackBuild } from '@/lib/services/track-build-driver';
 import { buildLimitMessage, claimBuildSlot, isFreshBuildStart } from '@/lib/services/build-quota';
 import {
-  GENERATION_STALE_MS,
   draftRef,
   isGenerationRunning,
   loadTrack,
@@ -31,9 +32,21 @@ type LockResult =
   | { kind: 'ready' }
   | { kind: 'running' }
   | { kind: 'limited'; limit: number }
-  | { kind: 'acquired' };
+  | { kind: 'queued' };
 
-/** Take the generation lock in a transaction, or report that the Track is ready or already building. */
+/** A paused build that no step picked up within this time is queued again (lost task, deploy, restart). */
+const PAUSED_REKICK_MS = 60_000;
+
+/** True when the build has no live step and nothing queued that is about to take it. */
+function needsKick(track: TrackDoc, now: number): boolean {
+  if (track.generationPausedAt) return now - track.generationPausedAt >= PAUSED_REKICK_MS;
+  return !isGenerationRunning(track, now);
+}
+
+/**
+ * Decide in a transaction: the Track is ready, a build is live (follow it), or it must be (re)queued. Queuing marks
+ * the Track paused-now, so a second page that connects at the same moment follows instead of queuing again.
+ */
 async function acquireGenerationLock(trackId: string, uid: string): Promise<LockResult> {
   return adminDb.runTransaction(async (tx) => {
     const trackSnap = await tx.get(trackRef(trackId));
@@ -44,17 +57,32 @@ async function acquireGenerationLock(trackId: string, uid: string): Promise<Lock
     if (track.generationProgress.step === 'READY' && track.status !== 'GENERATING' && draftSnap.exists) {
       return { kind: 'ready' } as const;
     }
-    if (isGenerationRunning(track, now)) return { kind: 'running' } as const;
+    if (!needsKick(track, now)) return { kind: 'running' } as const;
     // A new build counts toward the trainer's daily limit; a Retry or resume does not.
     if (isFreshBuildStart(track.generationProgress.step)) {
       const slot = await claimBuildSlot(tx, uid, trackId, now);
       if (!slot.ok) return { kind: 'limited', limit: slot.limit } as const;
     }
+    const running = isGenerationRunning(track, now) || track.generationPausedAt;
     tx.update(trackRef(trackId), {
-      generationProgress: { step: 'BLUEPRINTING', percent: 12, message: 'Starting the Track build...' },
+      ...(running ? {} : { generationProgress: { step: 'BLUEPRINTING', percent: 12, message: 'Starting the Track build...' } }),
+      generationPausedAt: now,
       updatedAt: now,
     });
-    return { kind: 'acquired' } as const;
+    return { kind: 'queued' } as const;
+  });
+}
+
+/** Re-queue a build whose step was lost, at most once per PAUSED_REKICK_MS across all connected pages. */
+async function claimRekick(trackId: string): Promise<boolean> {
+  return adminDb.runTransaction(async (tx) => {
+    const snap = await tx.get(trackRef(trackId));
+    if (!snap.exists) return false;
+    const track = parseTrack(snap.data());
+    const now = Date.now();
+    if (track.generationProgress.step === 'READY' || track.generationProgress.step === 'FAILED' || !needsKick(track, now)) return false;
+    tx.update(trackRef(trackId), { generationPausedAt: now, updatedAt: now });
+    return true;
   });
 }
 
@@ -70,6 +98,24 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
       { once: true },
     );
   });
+}
+
+/**
+ * POST /api/tracks/[trackId]/generate — start (or re-queue) the background build without opening a stream, so a
+ * trainer who approves the source and closes the page still gets a Track. 202 queued, 200 already running or ready.
+ */
+export async function POST(req: Request, { params }: { params: Promise<{ trackId: string }> }): Promise<Response> {
+  const auth = await requireAuth(req, INTERNAL_OPS_ROLES);
+  if (!auth.ok) return auth.response;
+  const { trackId } = await params;
+  const lock = await acquireGenerationLock(trackId, auth.user.uid);
+  if (lock.kind === 'missing') return jsonError(404, 'NOT_FOUND', 'This Track does not exist.');
+  if (lock.kind === 'limited') return jsonError(429, 'TRACK_BUILD_DAILY_LIMIT', buildLimitMessage(lock.limit));
+  if (lock.kind === 'queued') {
+    await kickTrackBuild(trackId);
+    return Response.json({ status: 'queued' }, { status: 202 });
+  }
+  return Response.json({ status: lock.kind });
 }
 
 export async function GET(req: Request, { params }: { params: Promise<{ trackId: string }> }): Promise<Response> {
@@ -140,10 +186,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ trackId:
             fail(message);
             return;
           }
-          if (Date.now() - track.updatedAt > GENERATION_STALE_MS) {
-            fail('The Track build stopped responding. Select Retry to build the Track again.');
-            return;
-          }
+          // A step lost to a deploy or restart: queue the build again (it resumes from saved checkpoints).
+          if (needsKick(track, Date.now()) && (await claimRekick(trackId))) await kickTrackBuild(trackId);
           await sleep(FOLLOW_POLL_MS, disconnect.signal);
         }
       };
@@ -161,9 +205,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ trackId:
           } else if (lock.kind === 'running') {
             await follow();
           } else {
-            // The build continues to the end even if the trainer closes the page; a new connection follows it.
-            await runTrackGeneration(trackId, progress);
-            complete();
+            // Queued: the build runs in background steps; this page only follows it and may close at any time.
+            await kickTrackBuild(trackId);
+            await follow();
           }
         } catch (error) {
           fail(describeGenerationError(error));

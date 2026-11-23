@@ -57,6 +57,25 @@ export function isGenerationRunning(track: Pick<TrackDoc, 'generationProgress' |
   return RUNNING_GENERATION_STEPS.includes(track.generationProgress.step) && now - track.updatedAt < GENERATION_STALE_MS;
 }
 
+/**
+ * A step that runs the build without a live heartbeat for this long is treated as gone, so the next step may
+ * take over. Shorter than GENERATION_STALE_MS: the heartbeat runs every minute.
+ */
+export const BUILD_STEP_STALE_MS = 90 * 1000;
+
+/**
+ * True when a new build step may take this Track: no build yet, a failed or stopped build, a step that paused at
+ * its time budget, or a step that stopped writing its heartbeat. A READY Track is the caller's concern.
+ */
+export function canTakeBuildStep(
+  track: Pick<TrackDoc, 'generationProgress' | 'updatedAt' | 'generationPausedAt'>,
+  now = Date.now(),
+): boolean {
+  if (!RUNNING_GENERATION_STEPS.includes(track.generationProgress.step)) return true;
+  if (track.generationPausedAt) return true;
+  return now - track.updatedAt >= BUILD_STEP_STALE_MS;
+}
+
 export function parseTrack(data: unknown): TrackDoc {
   return TrackDocSchema.parse(data);
 }

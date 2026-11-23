@@ -12,7 +12,7 @@ import {
 } from '@/lib/schemas/api';
 import type { GenerationStep } from '@/lib/schemas/curriculum';
 import { cn } from '@/lib/utils';
-import { fetchSourceReview, isNoActiveSourceBundle, postSourceReview, runSourceContradictionCheck, type SourceReviewData } from './source-review-api';
+import { fetchSourceReview, isNoActiveSourceBundle, postSourceReview, runSourceContradictionCheck, startTrackBuild, type SourceReviewData } from './source-review-api';
 import type { SourceConflict } from '@/lib/schemas/source-truth';
 
 type ContradictionCheckState = { kind: 'idle' } | { kind: 'checking' } | { kind: 'done' } | { kind: 'failed'; message: string };
@@ -254,7 +254,8 @@ export function GenerationStepper({
           style={{ width: `${percent}%` }}
         />
       </div>
-      {state.kind === 'running' || state.kind === 'connecting' ? (
+      {/* Only once the build is queued: before that, closing the page could leave it unstarted. */}
+      {state.kind === 'running' ? (
         <EtaLine eta={eta} checkpointTotal={unitCounter?.total ?? null} />
       ) : null}
 
@@ -367,7 +368,10 @@ export function GenerationStepper({
               void postSourceReview(trackId, 'bundle', {
                 bundleId: sourceReview.bundle!.id,
                 expectedRevisionHash: sourceReview.bundle!.revisionHash,
-              }).then(() => setAttempt((n) => n + 1)).catch((error: unknown) => {
+              })
+                .then(() => startTrackBuild(trackId))
+                .then(() => setAttempt((n) => n + 1))
+                .catch((error: unknown) => {
                 setState({ kind: 'error', message: error instanceof Error ? error.message : 'Source approval failed.' });
               });
             }}
