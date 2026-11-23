@@ -511,6 +511,9 @@ function checkDrill(drill: DrillGeneration, ctx: UnitBuildContext, path: (string
     report([...path, 'prompt'], 'This is the current Drill unchanged. Write a NEW Drill that follows the TRAINER REQUIREMENT.');
   }
   for (const problem of explanationProblems(drill)) report([...path, 'explanation'], problem);
+  if (isMetaPrompt(drill.prompt)) {
+    report([...path, 'prompt'], 'The prompt talks about the Drill itself. Ask a plain question about the caller situation or the rule, without explaining the Drill kind or call-flow logic.');
+  }
   // Checked in lenient mode too: lenient relaxes excerpt matching only, and an invented price taught to
   // learners is worse than a dropped Drill (the R2d build let "$129.00" through the lenient fallback).
   if (ctx.evidenceSource && drill.explanation) {
@@ -587,6 +590,14 @@ function checkDrill(drill: DrillGeneration, ctx: UnitBuildContext, path: (string
       }
       break;
   }
+}
+
+/**
+ * A prompt that narrates the Drill instead of asking ("Because call-flow actions depend on situational outcomes ...,
+ * answer this rule check:", review 2026-11-23). Exported for tests.
+ */
+export function isMetaPrompt(prompt: string): boolean {
+  return /\b(rule check|drill kind|this slot|this drill (type|kind|format)|call-flow actions depend|instead of (a |an )?(sequence|ordering|matching|match pairs))\b/i.test(prompt);
 }
 
 const NUMBER_WORDS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
@@ -1008,7 +1019,7 @@ export function buildUnitDrillsUserPrompt(input: DrillBatchPromptInput): string 
     '',
     `TASK (Drill batch ${input.batchIndex + 1} of ${input.batchCount}): Write exactly ${input.kinds.length} Drills, one of each kind in this order: ${input.kinds.join(', ')}.`,
     ...(input.kinds.some((kind) => FLEXIBLE_DRILL_KINDS.has(kind))
-      ? ['If these pages give no fixed-order procedure (for SEQUENCE_ORDER) or no natural pairs (for MATCH_PAIRS), write a MULTIPLE_CHOICE scenario Drill in that slot instead. Never invent an order or pairing.']
+      ? ['If these pages give no fixed-order procedure (for SEQUENCE_ORDER) or no natural pairs (for MATCH_PAIRS), write a MULTIPLE_CHOICE scenario Drill in that slot instead. Never invent an order or pairing. Write that Drill\'s prompt as a plain question about a caller situation; never mention the swap, the Drill kind, or why.']
       : []),
     'Each Drill tests a different rule from the cards above with one clear correct answer.',
     'Return {"drills": [ ... ]} only.',

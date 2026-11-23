@@ -69,3 +69,11 @@ describe('findCrossUnitRepeats', () => {
     expect(repeats.map((repeat) => `${repeat.unitIndex}:${repeat.drillIndex}`)).toEqual(['1:0', '1:1']);
   });
 });
+
+describe('isMetaPrompt', () => {
+  it('flags prompts that narrate the Drill instead of asking', async () => {
+    const { isMetaPrompt } = await import('@/lib/ai/prompts/unit-builder');
+    expect(isMetaPrompt('Because call-flow actions depend on situational outcomes such as consent or privacy availability, answer this rule check: When must recording disclosure be completed?')).toBe(true);
+    expect(isMetaPrompt('When must the agent complete the recording disclosure?')).toBe(false);
+  });
+});
