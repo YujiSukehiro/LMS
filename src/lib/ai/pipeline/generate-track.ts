@@ -327,13 +327,20 @@ function itemsNeedingEvidenceReview(
 }
 
 /** Page numbers ordered by how often the Units cite them (most cited first). */
-function pagesByCitation(units: TrackUnit[], pageNumbers: number[]): number[] {
+/** Pages most cited by the planned Checkpoints first, so a trimmed scenario prompt keeps the busiest pages. */
+function pagesByOutline(outlines: ReadonlyArray<{ sourcePages: number[] }>, pageNumbers: number[]): number[] {
   const counts = new Map<number, number>();
-  for (const unit of units) {
-    for (const card of unit.briefingCards) card.sourcePages.forEach((page) => counts.set(page, (counts.get(page) ?? 0) + 1));
-    for (const drill of unit.drills) drill.sourcePages.forEach((page) => counts.set(page, (counts.get(page) ?? 0) + 1));
-  }
+  for (const outline of outlines) outline.sourcePages.forEach((page) => counts.set(page, (counts.get(page) ?? 0) + 1));
   return [...pageNumbers].sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || a - b);
+}
+
+/** Checkpoints written at the same time on hosted models (local models stay one at a time). */
+export const UNIT_BUILD_CONCURRENCY = 3;
+
+type Settled<T> = { ok: true; value: T } | { ok: false; error: unknown };
+/** Run now, collect the result later: a rejection is held, never left unhandled while other work runs. */
+function settle<T>(promise: Promise<T>): Promise<Settled<T>> {
+  return promise.then((value) => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error }));
 }
 
 /**
@@ -796,10 +803,139 @@ export async function runTrackGeneration(
     const unitTotal = blueprint.units.length;
     await report('BUILDING_UNITS', 30, `Mapped ${unitTotal} Checkpoints. Writing Checkpoint 1 of ${unitTotal}...`);
 
-    // Pass 2: persist each finalized, evidence-resolved Unit before starting the next one.
+    const simPerScenario = local;
+    const plannedSims = simPerScenario ? MIN_SIM_SCENARIOS : MAX_SIM_SCENARIOS;
+    const buildSims = async (): Promise<SimScenarioPair[]> => {
+      // Pass 3: cache only fully finalized scenarios with server-resolved evidence.
+      const allPageNumbers = sourceLabels ?? [...new Set(pages.map((page) => page.pageNumber))];
+      const simCtx = {
+        pillarIds,
+        allowedPages: allPageNumbers,
+        requireEvidence: source !== null,
+        scenarioDefaults: {
+          divisionId: track.divisionId,
+          product: blueprint.campaignCode || track.title,
+          ...(source ? { sourceRevision: source.sourceRevision } : {}),
+        },
+      };
+      const simPromptBase = {
+        trackTitle: track.title,
+        campaignCode: blueprint.campaignCode,
+        divisionId: track.divisionId,
+        globalSummary: blueprint.globalSummary,
+        pillars: blueprint.competencyPillars,
+        unitTitles: blueprint.units.map((outline) => outline.title),
+        pages,
+        sourceReview: source ?? undefined,
+        preferredPageOrder: pagesByOutline(blueprint.units, allPageNumbers),
+      };
+      // Local models write one scenario per call (smaller answers, budgeted to the 16k context).
+      const simTokens = simPerScenario ? SIM_SINGLE_SCENARIO_MAX_OUTPUT_TOKENS : SIM_BUILDER_MAX_OUTPUT_TOKENS;
+      const simCharBudget = local
+        ? localSourceCharBudget({ plannedOutputTokens: simTokens, overheadTokens: UNIT_OVERHEAD_TOKENS })
+        : undefined;
+      const lenientSimCtx = { ...simCtx, requireEvidence: false };
+      const simStageInput = {
+        cacheIdentity,
+        templateVersion: source ? 'v4' : 'v3',
+        ...simPromptBase,
+        sourceReview: source,
+        sourceCharBudget: simCharBudget ?? null,
+      };
+      const pairSchema = z.array(z.object({ publicScenario: PublicSimScenarioSchema, secretConfig: SecretSimScenarioConfigSchema }));
+      const groundScenario = (pair: SimScenarioPair): SimScenarioPair =>
+        evidenceSource ? groundScenarioEvidence(pair, evidenceSource, allPageNumbers) : pair;
+      const scenarios: SimScenarioPair[] = [];
+
+      if (simPerScenario) {
+        for (let index = 0; index < plannedSims; index++) {
+          const stageKey = `simulations:${index + 1}`;
+          const scenarioId = `s${index + 1}`;
+          const otherScenarioTitles = scenarios.map((pair) => pair.publicScenario.title);
+          stageLabel = `Live Call Sim ${index + 1} of ${plannedSims}`;
+          await report('BUILDING_SIMS', 80 + (index * 15) / plannedSims, `Creating Live Call Sim ${index + 1} of ${plannedSims}...`);
+          try {
+            const result = await executor.executeStage({
+              ...stageConfig(simTokens),
+              stageKey,
+              input: { ...simStageInput, index, plannedSims, otherScenarioTitles },
+              schema: pairSchema.min(1),
+              task: async (_input, { signal }) => {
+                const { items } = await generateOrSalvage(
+                  gateway,
+                  {
+                    tier: 'heavy',
+                    systemPrompt: buildSimSystemPrompt(track.divisionId),
+                    userPrompt: buildOneScenarioUserPrompt({ ...simPromptBase, sourceCharBudget: simCharBudget, index, count: plannedSims, otherScenarioTitles }),
+                    schema: withRubricEvidenceCheck(buildSingleScenarioSchema(simCtx), evidenceSource, allPageNumbers, false),
+                    schemaName: SINGLE_SIM_SCHEMA_NAME,
+                    maxOutputTokens: simTokens,
+                    signal,
+                  },
+                  {
+                    lenient: buildSingleScenarioSchema(lenientSimCtx),
+                    finalize: (output) => [finalizeScenario(output, scenarioId, simCtx, track.divisionId)],
+                    salvage: (raw) => salvageScenarios(raw, simCtx, () => scenarioId, track.divisionId, 1),
+                    allowEmpty: false,
+                    log: { trackId, stage: stageKey },
+                  },
+                );
+                return { output: items.slice(0, 1).map(groundScenario) };
+              },
+            });
+            await recordBudget(stageKey, result.budget);
+            scenarios.push(...result.output);
+          } catch (error) {
+            // One unusable scenario does not sink the Track; it is retried on the next build.
+            if (!isSkippableItemError(error)) throw error;
+            logStageFailure(trackId, stageLabel, error);
+          }
+        }
+      } else {
+        const simResult = await executor.executeStage({
+          ...stageConfig(simTokens),
+          stageKey: 'simulations',
+          input: simStageInput,
+          schema: pairSchema.min(1),
+          task: async (_input, { signal }) => {
+            const { items } = await generateOrSalvage(
+              gateway,
+              {
+                tier: 'heavy',
+                systemPrompt: buildSimSystemPrompt(track.divisionId),
+                userPrompt: buildSimUserPrompt({ ...simPromptBase, sourceCharBudget: simCharBudget }),
+                schema: withRubricEvidenceCheck(buildSimGenerationSchema(simCtx), evidenceSource, allPageNumbers, true),
+                schemaName: SIM_SCHEMA_NAME,
+                maxOutputTokens: simTokens,
+                signal,
+              },
+              {
+                lenient: buildSimGenerationSchema(lenientSimCtx),
+                finalize: (output) => finalizeScenarios(output, simCtx, track.divisionId),
+                salvage: (raw) => salvageScenarios(raw, simCtx, (index) => `s${index + 1}`, track.divisionId),
+                allowEmpty: false,
+                log: { trackId, stage: 'simulations' },
+              },
+            );
+            return { output: items.map(groundScenario) };
+          },
+        });
+        await recordBudget('simulations', simResult.budget);
+        scenarios.push(...simResult.output);
+      }
+      if (scenarios.length === 0) {
+        throw new Error('The AI model wrote no usable Live Call Simulation. Select Retry; finished Checkpoints are kept.');
+      }
+      return scenarios;
+    };
+
+    // Pass 2: Checkpoints are written in waves of UNIT_BUILD_CONCURRENCY (Connor 2026-11-23: a 6-Checkpoint build
+    // spent 5.7 of 7.5 minutes waiting on Checkpoints one at a time). Inside a Checkpoint the order stays cards,
+    // then Drill batches. Each wave sees the Drills of earlier waves for the cross-Checkpoint repeat check.
     const units: TrackUnit[] = [];
     const flaggedItems: string[] = [];
-    for (const [index, rawOutline] of blueprint.units.entries()) {
+    let unitsDone = 0;
+    const buildUnit = async (index: number, rawOutline: (typeof blueprint.units)[number], earlierUnits: readonly TrackUnit[]): Promise<TrackUnit> => {
       const outline: UnitOutline = rawOutline.contentPlan
         ? { ...rawOutline, contentPlan: clampPlanToLimits(rawOutline.contentPlan, limits) }
         : rawOutline;
@@ -987,7 +1123,7 @@ export async function runTrackGeneration(
           const drillId = (drillIndex: number) => `${outline.id}-d${offset + drillIndex + 1}`;
           // Earlier Checkpoints' Drills are checked after the call, not listed in the prompt: the live R2d build
           // showed Qwen2.5-7B copying listed prompts verbatim into every later Checkpoint (31 near-duplicate pairs).
-          const earlierDrills = units.flatMap((done) => done.drills);
+          const earlierDrills = earlierUnits.flatMap((done) => done.drills);
           // Labels, not prompts: a True/False prompt ("Decide whether the agent's action follows the Playbook.") is the
           // same for every Drill, so batch 2 rewrote batch 1's situations (review 2026-11-23).
           const previousDrillPrompts = drills.map((drill) => drillSummary(drill));
@@ -1090,139 +1226,42 @@ export async function runTrackGeneration(
 
       const flagged = source ? itemsNeedingEvidenceReview([...unit.briefingCards, ...unit.drills], source) : [];
       flaggedItems.push(...flagged, ...(unit.reviewNotes ?? []).map((note) => `${unit.id}: ${note}`));
-      units.push(unit);
-      await saveDraft(units, []);
+      unitsDone += 1;
       await report(
         'BUILDING_UNITS',
-        progressAt(1),
+        30 + (unitsDone * 45) / unitTotal,
         `${allCached ? 'Resumed' : 'Built'} ${checkpointLabel}: ${outline.title}${flagged.length > 0 ? ` (${flagged.length} item${flagged.length === 1 ? '' : 's'} need evidence review)` : ''}${unit.reviewNotes?.length ? ` (${unit.reviewNotes.join(' ')})` : ''}`,
       );
-    }
+      return unit;
+    };
 
-    // Pass 3: cache only fully finalized scenarios with server-resolved evidence.
-    stageLabel = 'Live Call Sims';
-    await report('BUILDING_SIMS', 80, 'Creating Live Call Simulation personas & grading rubrics...');
-    const allPageNumbers = sourceLabels ?? [...new Set(pages.map((page) => page.pageNumber))];
-    const simCtx = {
-      pillarIds,
-      allowedPages: allPageNumbers,
-      requireEvidence: source !== null,
-      scenarioDefaults: {
-        divisionId: track.divisionId,
-        product: blueprint.campaignCode || track.title,
-        ...(source ? { sourceRevision: source.sourceRevision } : {}),
-      },
-    };
-    const simPromptBase = {
-      trackTitle: track.title,
-      campaignCode: blueprint.campaignCode,
-      divisionId: track.divisionId,
-      globalSummary: blueprint.globalSummary,
-      pillars: blueprint.competencyPillars,
-      unitTitles: units.map((unit) => unit.title),
-      pages,
-      sourceReview: source ?? undefined,
-      preferredPageOrder: pagesByCitation(units, allPageNumbers),
-    };
-    // Local models write one scenario per call (smaller answers, budgeted to the 16k context).
-    const simPerScenario = local;
-    const simTokens = simPerScenario ? SIM_SINGLE_SCENARIO_MAX_OUTPUT_TOKENS : SIM_BUILDER_MAX_OUTPUT_TOKENS;
-    const simCharBudget = local
-      ? localSourceCharBudget({ plannedOutputTokens: simTokens, overheadTokens: UNIT_OVERHEAD_TOKENS })
-      : undefined;
-    const plannedSims = simPerScenario ? MIN_SIM_SCENARIOS : MAX_SIM_SCENARIOS;
-    const lenientSimCtx = { ...simCtx, requireEvidence: false };
-    const simStageInput = {
-      cacheIdentity,
-      templateVersion: source ? 'v4' : 'v3',
-      ...simPromptBase,
-      sourceReview: source,
-      sourceCharBudget: simCharBudget ?? null,
-    };
-    const pairSchema = z.array(z.object({ publicScenario: PublicSimScenarioSchema, secretConfig: SecretSimScenarioConfigSchema }));
-    const groundScenario = (pair: SimScenarioPair): SimScenarioPair =>
-      evidenceSource ? groundScenarioEvidence(pair, evidenceSource, allPageNumbers) : pair;
-    const scenarios: SimScenarioPair[] = [];
-
-    if (simPerScenario) {
-      for (let index = 0; index < plannedSims; index++) {
-        const stageKey = `simulations:${index + 1}`;
-        const scenarioId = `s${index + 1}`;
-        const otherScenarioTitles = scenarios.map((pair) => pair.publicScenario.title);
-        stageLabel = `Live Call Sim ${index + 1} of ${plannedSims}`;
-        await report('BUILDING_SIMS', 80 + (index * 15) / plannedSims, `Creating Live Call Sim ${index + 1} of ${plannedSims}...`);
-        try {
-          const result = await executor.executeStage({
-            ...stageConfig(simTokens),
-            stageKey,
-            input: { ...simStageInput, index, plannedSims, otherScenarioTitles },
-            schema: pairSchema.min(1),
-            task: async (_input, { signal }) => {
-              const { items } = await generateOrSalvage(
-                gateway,
-                {
-                  tier: 'heavy',
-                  systemPrompt: buildSimSystemPrompt(track.divisionId),
-                  userPrompt: buildOneScenarioUserPrompt({ ...simPromptBase, sourceCharBudget: simCharBudget, index, count: plannedSims, otherScenarioTitles }),
-                  schema: withRubricEvidenceCheck(buildSingleScenarioSchema(simCtx), evidenceSource, allPageNumbers, false),
-                  schemaName: SINGLE_SIM_SCHEMA_NAME,
-                  maxOutputTokens: simTokens,
-                  signal,
-                },
-                {
-                  lenient: buildSingleScenarioSchema(lenientSimCtx),
-                  finalize: (output) => [finalizeScenario(output, scenarioId, simCtx, track.divisionId)],
-                  salvage: (raw) => salvageScenarios(raw, simCtx, () => scenarioId, track.divisionId, 1),
-                  allowEmpty: false,
-                  log: { trackId, stage: stageKey },
-                },
-              );
-              return { output: items.slice(0, 1).map(groundScenario) };
-            },
-          });
-          await recordBudget(stageKey, result.budget);
-          scenarios.push(...result.output);
-        } catch (error) {
-          // One unusable scenario does not sink the Track; it is retried on the next build.
-          if (!isSkippableItemError(error)) throw error;
-          logStageFailure(trackId, stageLabel, error);
-        }
+    // Practice scenarios need only the plan and the pages, so hosted builds write them alongside the Checkpoints.
+    // Local models share one GPU, and demo replay serves recorded answers in order: both stay one at a time.
+    const parallel = !local && runtime.provider !== 'replay';
+    const simsRun = parallel ? settle(buildSims()) : null;
+    const concurrency = parallel ? UNIT_BUILD_CONCURRENCY : 1;
+    for (let start = 0; start < unitTotal; start += concurrency) {
+      const earlier = [...units];
+      const wave = await Promise.allSettled(
+        blueprint.units.slice(start, start + concurrency).map((outline, offset) => buildUnit(start + offset, outline, earlier)),
+      );
+      // Wait for the whole wave before failing, so no Checkpoint keeps writing after the build stopped.
+      // Keep the finished Checkpoints before the first failure in the working draft (the stage cache keeps them all).
+      const failedAt = wave.findIndex((result) => result.status === 'rejected');
+      const finished = (failedAt === -1 ? wave : wave.slice(0, failedAt)) as PromiseFulfilledResult<TrackUnit>[];
+      units.push(...finished.map((result) => result.value));
+      if (finished.length > 0) await saveDraft(units, []);
+      if (failedAt !== -1) {
+        if (simsRun) await simsRun;
+        throw (wave[failedAt] as PromiseRejectedResult).reason;
       }
-    } else {
-      const simResult = await executor.executeStage({
-        ...stageConfig(simTokens),
-        stageKey: 'simulations',
-        input: simStageInput,
-        schema: pairSchema.min(1),
-        task: async (_input, { signal }) => {
-          const { items } = await generateOrSalvage(
-            gateway,
-            {
-              tier: 'heavy',
-              systemPrompt: buildSimSystemPrompt(track.divisionId),
-              userPrompt: buildSimUserPrompt({ ...simPromptBase, sourceCharBudget: simCharBudget }),
-              schema: withRubricEvidenceCheck(buildSimGenerationSchema(simCtx), evidenceSource, allPageNumbers, true),
-              schemaName: SIM_SCHEMA_NAME,
-              maxOutputTokens: simTokens,
-              signal,
-            },
-            {
-              lenient: buildSimGenerationSchema(lenientSimCtx),
-              finalize: (output) => finalizeScenarios(output, simCtx, track.divisionId),
-              salvage: (raw) => salvageScenarios(raw, simCtx, (index) => `s${index + 1}`, track.divisionId),
-              allowEmpty: false,
-              log: { trackId, stage: 'simulations' },
-            },
-          );
-          return { output: items.map(groundScenario) };
-        },
-      });
-      await recordBudget('simulations', simResult.budget);
-      scenarios.push(...simResult.output);
     }
-    if (scenarios.length === 0) {
-      throw new Error('The AI model wrote no usable Live Call Simulation. Select Retry; finished Checkpoints are kept.');
-    }
+    stageLabel = 'Live Call Sims';
+    await report('BUILDING_SIMS', 80, simsRun ? 'Finishing Live Call Simulation personas & grading rubrics...' : 'Creating Live Call Simulation personas & grading rubrics...');
+    const simsResult = simsRun ? await simsRun : await settle(buildSims());
+    if (!simsResult.ok) throw simsResult.error;
+    const scenarios = simsResult.value;
+
     const draftNotes = simShortfallNotes(scenarios.length, plannedSims, simPerScenario);
     flaggedItems.push(...draftNotes);
     if (source) {
