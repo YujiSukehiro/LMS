@@ -24,6 +24,16 @@ env:
     value: "1024"
     availability:
       - RUNTIME
+  # Connor 2026-11-23: Gemini 4 Neon writes Tracks (planning, cards, Drills, scenarios, contradiction check);
+  # Verbal Practice keeps the Flash models above. The Track-planning call gets more thinking room.
+  - variable: GEMINI_BUILD_MODEL
+    value: gemini-4-neon
+    availability:
+      - RUNTIME
+  - variable: GEMINI_PLANNING_THINKING_BUDGET
+    value: "8192"
+    availability:
+      - RUNTIME
   - variable: NEXT_PUBLIC_USE_FIREBASE_EMULATOR
     value: "false"
     availability:

@@ -7,7 +7,7 @@
  */
 import { createHash } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
-import { getLLMGateway } from '@/lib/ai/gateway';
+import { getBuildGateway } from '@/lib/ai/gateway';
 import type { LLMGateway } from '@/lib/ai/types';
 import { pageLabelMap } from '@/lib/ai/prompts/evidence';
 import {
@@ -129,7 +129,7 @@ export function groundContradictions(
 export async function runContradictionCheck(
   trackId: string,
   bundleId: string,
-  gateway: LLMGateway = getLLMGateway(),
+  gateway: LLMGateway = getBuildGateway(),
 ): Promise<ContradictionCheckResult> {
   const review = await loadSourceReview(trackId, bundleId);
   const revisionHash = review.bundle.revisionHash;
