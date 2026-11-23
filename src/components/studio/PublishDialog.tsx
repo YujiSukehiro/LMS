@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Copy, LoaderCircle, Send, X } from 'lucide-react';
+import { Check, Copy, LoaderCircle, Send, TriangleAlert, X } from 'lucide-react';
 import { ALL_COHORTS_ID } from '@/lib/schemas/constants';
 import { cn } from '@/lib/utils';
 import { PublicationGatesError, publishTrack } from './api-client';
@@ -27,6 +27,7 @@ export function PublishDialog({
   divisionLabel,
   beforePublish,
   onOpenSourceReview,
+  reviewItems = [],
   disabled,
 }: {
   trackId: string;
@@ -38,6 +39,8 @@ export function PublishDialog({
   /** Saves pending edits. Return false to stop the publish. */
   beforePublish: () => Promise<boolean>;
   onOpenSourceReview: () => void;
+  /** Suggested checks before going live (publishReviewItems). Shown as a warning; never blocks Publish. */
+  reviewItems?: string[];
   disabled?: boolean;
 }) {
   const router = useRouter();
@@ -170,6 +173,20 @@ export function PublishDialog({
               Select the Cohorts that must take this Track. Only agents with the {divisionLabel} Division see it. Publishing freezes
               the current draft as a new TrackVersion; earlier records stay intact.
             </p>
+            {reviewItems.length > 0 ? (
+              <section className="rounded-pulse-md border border-pulse-amber/40 bg-pulse-amber/5 p-3" aria-label="Suggested review before going live">
+                <p className="flex items-center gap-1.5 text-sm font-semibold text-pulse-amber">
+                  <TriangleAlert aria-hidden className="size-4" />
+                  Suggested review before going live ({reviewItems.length})
+                </p>
+                <p className="mt-1 text-xs text-pulse-secondary">
+                  AI-built Tracks can repeat a situation or give away an answer. A trainer should play the Track once first. You can still publish now.
+                </p>
+                <ul className="mt-2 flex max-h-44 list-disc flex-col gap-1 overflow-y-auto pl-4 text-xs text-pulse-secondary">
+                  {reviewItems.map((item, index) => <li key={index}>{item}</li>)}
+                </ul>
+              </section>
+            ) : null}
             <fieldset className="flex flex-col gap-1.5">
               <legend className="pulse-label mb-2">Target Cohorts</legend>
               <div className="grid gap-1.5 sm:grid-cols-2">
