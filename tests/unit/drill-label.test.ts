@@ -38,3 +38,33 @@ describe('drillLabel', () => {
     expect(drillLabel(drill)).toBe('A member says the Plus plan is too expensive. What is the first save offer?');
   });
 });
+
+describe('ordering Drills with options instead of steps (feedback 2026-11-23)', () => {
+  it('spots steps that only apply in some situations', async () => {
+    const { isConditionalStep } = await import('@/lib/services/drill-label');
+    expect(isConditionalStep('Stop and withhold sharing if uncertain whether disclosure is permitted.')).toBe(true);
+    expect(isConditionalStep('If the caller is a third party, end the call.')).toBe(true);
+    expect(isConditionalStep('Greet the member with your first name.')).toBe(false);
+    expect(isConditionalStep('Consult a supervisor or designated privacy contact for guidance.')).toBe(false);
+  });
+
+  it('makes the build repair loop and Studio flag such a Drill', async () => {
+    const { explanationProblems } = await import('@/lib/ai/prompts/unit-builder');
+    const { drillQualityNotes } = await import('@/components/studio/unit-review');
+    const steps = [
+      'Limit handling of patient records to assigned duties under the BAA.',
+      'Consult a supervisor or designated privacy contact for guidance.',
+      'Stop and withhold sharing if uncertain whether disclosure is permitted.',
+      'Assist the patient with approved administrative steps without clinical advice.',
+    ];
+    const drill = {
+      kind: 'SEQUENCE_ORDER' as const,
+      prompt: 'Order the key steps an agent must follow when handling patient information.',
+      explanation: 'Privacy comes first.',
+      orderedSteps: steps.map((text) => ({ text })),
+    };
+    expect(explanationProblems(drill as never).join(' ')).toContain('is an option for a situation, not a step in a fixed order');
+    const stored = { ...drill, id: 'd', competencyPillarId: 'p', sourcePages: [1], orderedSteps: steps.map((text, i) => ({ id: `s${i}`, text })) };
+    expect(drillQualityNotes({ briefingCards: [], drills: [stored as never] }).join(' ')).toContain('some steps are options for different situations');
+  });
+});

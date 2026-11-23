@@ -8,6 +8,7 @@
 import { DEPTH_LIMITS, thinUnitProblems } from '@/lib/ai/pipeline/content-depth';
 import type { DrillItem, TrackUnit, TrackVersionDoc } from '@/lib/schemas/curriculum';
 import type { ClaimEvidence } from '@/lib/schemas/source-truth';
+import { isConditionalStep } from '@/lib/services/drill-label';
 
 /** Most Drills a Unit may hold (TrackUnitSchema). */
 export const MAX_UNIT_DRILLS = 10;
@@ -60,6 +61,9 @@ export function drillQualityNotes(unit: Pick<TrackUnit, 'drills' | 'briefingCard
       if (correct && others.length > 0 && correct.text.trim().length >= Math.max(...others) * LONGEST_ANSWER_RATIO) {
         notes.push(`${label}: the right answer is clearly the longest option. Shorten it or lengthen the others.`);
       }
+    }
+    if (drill.kind === 'SEQUENCE_ORDER' && drill.orderedSteps.some((step) => isConditionalStep(step.text))) {
+      notes.push(`${label} asks for an order, but some steps are options for different situations. Rewrite it as one ordered procedure or change the Drill kind.`);
     }
     const drillRules = drill.ruleIds ?? [];
     if (taughtRules.size > 0 && drillRules.length > 0 && !drillRules.some((ruleId) => taughtRules.has(ruleId))) {

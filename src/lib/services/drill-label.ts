@@ -35,3 +35,12 @@ export function drillLabel(drill: DrillItem): string {
       return clip(drill.prompt);
   }
 }
+
+/**
+ * A step that only applies in some situations ("If unsure…", "Stop sharing if uncertain whether…") cannot sit in a
+ * fixed order (feedback 2026-11-23: a "Call-Flow Order" Drill mixed privacy options with steps). Exported for tests.
+ */
+export function isConditionalStep(text: string): boolean {
+  const flat = text.trim();
+  return /^(if|when|whenever|unless|only if|in case|otherwise)\b/i.test(flat) || /\b(if|when) (you are |you're |it is |it's )?(uncertain|unsure|not sure|in doubt)\b|\bwhether\b/i.test(flat);
+}
