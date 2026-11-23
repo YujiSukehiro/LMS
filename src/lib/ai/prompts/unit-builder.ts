@@ -30,6 +30,7 @@ import {
   type EvidenceSource,
 } from '@/lib/ai/prompts/evidence';
 import { formatSourcePages, type ExtractedPage } from '@/lib/ai/pdf-extractor';
+import { formatConflictDecisions } from '@/lib/ai/prompts/contradiction-check';
 import { parseStructuredOutput } from '@/lib/ai/pipeline/structured-output';
 import type { ClaimEvidence } from '@/lib/schemas/source-truth';
 import {
@@ -838,6 +839,13 @@ function contextBlock(input: UnitPromptInput): string[] {
           '',
           'APPROVED OPERATIONAL ASSETS (use these exact values in their declared context):',
           formatApprovedAssets(input.sourceReview.assets),
+          ...(formatConflictDecisions(input.sourceReview.conflicts)
+            ? [
+                '',
+                'PLAYBOOK CONTRADICTIONS THE TRAINER DECIDED (follow each decision; never teach the side the trainer ruled out; teach the rule itself and never mention a "trainer decision" in learner text):',
+                formatConflictDecisions(input.sourceReview.conflicts),
+              ]
+            : []),
         ]
       : []),
     '',

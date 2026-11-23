@@ -231,6 +231,10 @@ export const SourceConflictSchema = z.object({
   effectiveFrom: z.string().nullable().default(null),
   effectiveTo: z.string().nullable().default(null),
   downstreamInvalidationStatus: z.enum(['not_required', 'required', 'completed']).default('not_required'),
+  /** One plain sentence on what contradicts what (automatic contradiction check). */
+  summary: z.string().max(400).optional(),
+  /** Who proposed the conflict: an SME register entry, or the automatic PDF contradiction check. */
+  origin: z.enum(['sme', 'contradiction_check']).optional(),
 });
 export type SourceConflict = z.infer<typeof SourceConflictSchema>;
 

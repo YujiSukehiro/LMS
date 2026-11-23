@@ -212,3 +212,14 @@ export async function pickExcerpt(
   if (!evidence) throw new Error('The server sent an unexpected excerpt response.');
   return evidence;
 }
+
+/** Run (or reuse) the PDF self-contradiction check for a bundle. Found items appear as source conflicts. */
+export async function runSourceContradictionCheck(trackId: string, bundleId: string): Promise<unknown> {
+  const response = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/source-contradictions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bundleId }),
+  });
+  if (!response.ok) await throwResponseError(response, 'The contradiction check did not finish. You can still approve the source');
+  return response.json().catch(() => null);
+}

@@ -1,6 +1,7 @@
 import type {
   OperationalAsset,
   SharedRulePack,
+  SourceConflict,
   SourceExcerptRef,
   SourcePageEvidence,
 } from '@/lib/schemas/source-truth';
@@ -27,6 +28,8 @@ export interface SourceReviewPromptContext {
   pages: SourcePageEvidence[];
   rulePacks: SharedRulePack[];
   assets: OperationalAsset[];
+  /** Source conflicts with the trainer's recorded decisions (the Unit prompt lists the decided ones). */
+  conflicts?: SourceConflict[];
 }
 
 export interface SourceInputRef {

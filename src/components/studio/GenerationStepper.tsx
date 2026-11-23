@@ -12,7 +12,14 @@ import {
 } from '@/lib/schemas/api';
 import type { GenerationStep } from '@/lib/schemas/curriculum';
 import { cn } from '@/lib/utils';
-import { fetchSourceReview, isNoActiveSourceBundle, postSourceReview, type SourceReviewData } from './source-review-api';
+import { fetchSourceReview, isNoActiveSourceBundle, postSourceReview, runSourceContradictionCheck, type SourceReviewData } from './source-review-api';
+import type { SourceConflict } from '@/lib/schemas/source-truth';
+
+type ContradictionCheckState = { kind: 'idle' } | { kind: 'checking' } | { kind: 'done' } | { kind: 'failed'; message: string };
+
+function isOpenConflict(conflict: SourceConflict): boolean {
+  return conflict.status === 'open' || conflict.status === 'sme_review';
+}
 import { estimateMinutesLeft, formatMinutesLeft, isReplayMessage, parseCheckpointProgress, type CheckpointProgress, type EtaSample } from './generation-view';
 
 /** Consecutive dropped connections (no progress in between) before the stepper shows an error. */
@@ -69,6 +76,8 @@ export function GenerationStepper({
   );
   const [state, setState] = useState<StreamState>({ kind: 'connecting' });
   const [sourceReview, setSourceReview] = useState<SourceReviewData | null>(null);
+  const [contradictionCheck, setContradictionCheck] = useState<ContradictionCheckState>({ kind: 'idle' });
+  const [decidingId, setDecidingId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [unitCounter, setUnitCounter] = useState<CheckpointProgress | null>(() =>
     initialProgress?.step === 'BUILDING_UNITS' ? parseCheckpointProgress(initialProgress.message) : null,
@@ -105,6 +114,17 @@ export function GenerationStepper({
         setSourceReview(review);
         setProgress({ step: 'EXTRACTING_PDF', percent: 5, message: 'Review and approve the uploaded source before building the Track.' });
         setState({ kind: 'approval' });
+        setContradictionCheck({ kind: 'checking' });
+        try {
+          await runSourceContradictionCheck(trackId, review.bundle.id);
+          const refreshed = await fetchSourceReview(trackId, review.bundle.id);
+          if (!cancelled) {
+            setSourceReview(refreshed);
+            setContradictionCheck({ kind: 'done' });
+          }
+        } catch (error) {
+          if (!cancelled) setContradictionCheck({ kind: 'failed', message: error instanceof Error ? error.message : 'The contradiction check did not finish.' });
+        }
         return;
       }
 
@@ -310,16 +330,38 @@ export function GenerationStepper({
       </ol>
 
       {state.kind === 'approval' && sourceReview?.bundle ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-pulse-md border border-pulse-indigo/40 bg-pulse-indigo/10 p-4">
+        <div className="flex flex-col gap-3 rounded-pulse-md border border-pulse-indigo/40 bg-pulse-indigo/10 p-4">
+        <ContradictionList
+          check={contradictionCheck}
+          conflicts={sourceReview.conflicts.filter((conflict) => conflict.origin === 'contradiction_check')}
+          decidingId={decidingId}
+          onDecide={(conflict, status, decision) => {
+            setDecidingId(conflict.id);
+            void postSourceReview(trackId, 'conflict', {
+              bundleId: sourceReview.bundle!.id,
+              expectedRevisionHash: sourceReview.bundle!.revisionHash,
+              conflictId: conflict.id,
+              status,
+              decision,
+            })
+              .then(() => fetchSourceReview(trackId, sourceReview.bundle!.id))
+              .then((refreshed) => setSourceReview(refreshed))
+              .catch((error: unknown) => setContradictionCheck({ kind: 'failed', message: error instanceof Error ? error.message : 'The decision did not save.' }))
+              .finally(() => setDecidingId(null));
+          }}
+        />
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="max-w-xl">
             <p className="text-sm font-semibold">Approve the exact uploaded source</p>
             <p className="mt-1 text-xs text-pulse-secondary">
               {sourceReview.bundle.documents.map((document) => document.fileName).join(', ')} · {sourceReview.pages.length} pages. Generation starts after this revision is approved.
+              {sourceReview.conflicts.some(isOpenConflict) ? ' Decide each possible contradiction above first.' : ''}
             </p>
           </div>
           <button
             type="button"
             className="pulse-btn pulse-btn-primary"
+            disabled={contradictionCheck.kind === 'checking' || sourceReview.conflicts.some(isOpenConflict)}
             onClick={() => {
               setState({ kind: 'connecting' });
               void postSourceReview(trackId, 'bundle', {
@@ -332,6 +374,7 @@ export function GenerationStepper({
           >
             <Check aria-hidden className="size-4" /> Approve source bundle revision
           </button>
+        </div>
         </div>
       ) : null}
       {state.kind === 'error' ? (
@@ -355,6 +398,87 @@ export function GenerationStepper({
           Your Track is ready. Opening the Track Studio…
         </p>
       ) : null}
+    </section>
+  );
+}
+
+/** Wrap a quote in curly quotes unless it already starts with a quote mark. */
+function quoted(text: string): string {
+  return /^["“'‘]/.test(text) ? text : `“${text}”`;
+}
+
+function ContradictionList({
+  check,
+  conflicts,
+  decidingId,
+  onDecide,
+}: {
+  check: ContradictionCheckState;
+  conflicts: SourceConflict[];
+  decidingId: string | null;
+  onDecide: (conflict: SourceConflict, status: 'resolved' | 'accepted_context_difference', decision: string) => void;
+}) {
+  if (check.kind === 'checking') {
+    return (
+      <p role="status" className="flex items-center gap-2 text-xs text-pulse-secondary">
+        <LoaderCircle aria-hidden className="size-3.5 animate-spin" /> Checking the PDF for places where it contradicts itself…
+      </p>
+    );
+  }
+  if (check.kind === 'failed') return <p className="text-xs text-pulse-amber">{check.message}</p>;
+  if (check.kind !== 'done') return null;
+  const open = conflicts.filter(isOpenConflict);
+  if (conflicts.length === 0) return <p className="text-xs text-pulse-secondary">No contradictions found in this PDF.</p>;
+  return (
+    <section aria-label="Possible contradictions in this PDF" className="flex flex-col gap-2">
+      <p className="text-sm font-semibold">
+        {conflicts.length === 1 ? '1 possible contradiction' : `${conflicts.length} possible contradictions`} in this PDF
+        {open.length > 0 ? ` · ${open.length} to decide` : ' · all decided'}
+      </p>
+      {conflicts.map((conflict) => {
+        const [rule, other] = conflict.sourceRefs;
+        const decided = !isOpenConflict(conflict);
+        return (
+          <div key={conflict.id} className="rounded-pulse-md border border-pulse-border bg-pulse-surface-1 p-3">
+            <p className="text-xs font-semibold">
+              <span className={cn('mr-2 uppercase', conflict.severity === 'critical' ? 'text-pulse-crimson' : 'text-pulse-amber')}>{conflict.severity}</span>
+              {conflict.summary ?? 'Two passages disagree.'}
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <blockquote className="rounded-pulse-sm bg-pulse-bg p-2 text-xs"><span className="text-pulse-muted">Rule · page {rule.pageNumber}</span><br />{quoted(rule.exactText)}</blockquote>
+              <blockquote className="rounded-pulse-sm bg-pulse-bg p-2 text-xs"><span className="text-pulse-muted">Conflicting · page {other.pageNumber}</span><br />{quoted(other.exactText)}</blockquote>
+            </div>
+            {decided ? (
+              <p className="mt-2 text-xs text-pulse-emerald">Decided: {conflict.decision}</p>
+            ) : (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="pulse-btn pulse-btn-primary text-xs"
+                  disabled={decidingId !== null}
+                  onClick={() =>
+                    onDecide(
+                      conflict,
+                      'resolved',
+                      `Follow the rule on page ${rule.pageNumber}: "${rule.exactText}". Do not teach the passage on page ${other.pageNumber} where it breaks that rule.`,
+                    )
+                  }
+                >
+                  Follow the rule (page {rule.pageNumber})
+                </button>
+                <button
+                  type="button"
+                  className="pulse-btn text-xs"
+                  disabled={decidingId !== null}
+                  onClick={() => onDecide(conflict, 'accepted_context_difference', 'Trainer reviewed: both passages stand; not a contradiction.')}
+                >
+                  Not a contradiction
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </section>
   );
 }
