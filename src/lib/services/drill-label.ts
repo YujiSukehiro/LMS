@@ -13,11 +13,31 @@ function clip(text: string): string {
 }
 
 /** "Does this agent action follow the Playbook?" and similar: the question is the same for every Drill of its kind. */
-const GENERIC_QUESTION = /^(does|is|do) (this|the) (agent|action|statement|response|reply|step)\b[^.?!]{0,60}\?$/i;
+const GENERIC_QUESTION = /^(does|is|do) (this|the) (agent|action|statement|response|reply|step)\b[^.?!]{0,60}\?$|^decide (whether|if)\b[^.?!]{0,80}[.?]?$/i;
 
 export function isGenericDrillPrompt(prompt: string): boolean {
   const flat = prompt.trim();
   return flat.length < 12 || GENERIC_PROMPT.test(flat) || GENERIC_QUESTION.test(flat);
+}
+
+/**
+ * What a Drill actually tests, whatever its prompt says. True/False prompts are all alike ("Decide whether the
+ * agent's action follows the Playbook."), so a later Drill batch told only the prompts repeated the same situation
+ * in every Checkpoint (review 2026-11-23). Used in the "already written" list of the next batch.
+ */
+export function drillSummary(drill: DrillItem): string {
+  switch (drill.kind) {
+    case 'TRUE_FALSE_SPOT':
+      return `True/False: ${clip(drill.statement)}`;
+    case 'FILL_BLANK_CHOICE':
+      return `Fill-in: ${clip(drill.sentenceTemplate.replace(/\{\{BLANK\}\}/g, '___'))}`;
+    case 'MATCH_PAIRS':
+      return `Match: ${clip(drill.pairs.map((pair) => pair.leftPrompt).join(', '))}`;
+    case 'SEQUENCE_ORDER':
+      return `Order: ${clip(drill.prompt)}`;
+    default:
+      return `Choice: ${clip(drill.prompt)}`;
+  }
 }
 
 export function drillLabel(drill: DrillItem): string {
