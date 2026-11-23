@@ -141,6 +141,7 @@ import {
   type GenerationStageResult,
 } from '@/lib/ai/pipeline/generation-reliability';
 import { LocalRuntimeLimiter } from '@/lib/ai/local-runtime';
+import { drillLabel } from '@/lib/services/drill-label';
 
 const generationLimiter = new LocalRuntimeLimiter();
 /** Hosted providers (Gemini) serve parallel builds; only a single-slot local runtime needs serializing. */
@@ -984,7 +985,9 @@ export async function runTrackGeneration(
           // Earlier Checkpoints' Drills are checked after the call, not listed in the prompt: the live R2d build
           // showed Qwen2.5-7B copying listed prompts verbatim into every later Checkpoint (31 near-duplicate pairs).
           const earlierDrills = units.flatMap((done) => done.drills);
-          const previousDrillPrompts = drills.map((drill) => drill.prompt);
+          // Labels, not prompts: a True/False prompt ("Decide whether the agent's action follows the Playbook.") is the
+          // same for every Drill, so batch 2 rewrote batch 1's situations (review 2026-11-23).
+          const previousDrillPrompts = drills.map((drill) => drillLabel(drill));
           // Repeats inside this Checkpoint go back to repair. Repeats of earlier Checkpoints are only dropped
           // afterwards (and restored if the Checkpoint would fall short): a local model that keeps restating a
           // rule the Playbook repeats on several pages must not fail the whole build.

@@ -10,7 +10,7 @@ import {
   ScenarioEvidenceRequirementsSchema,
   type ScenarioQAFixture,
 } from '@/lib/schemas/simulation-state';
-import { CanonicalDispositionSchema } from '@/lib/schemas/source-truth';
+import { CanonicalDispositionSchema, SALES_DISPOSITIONS, SERVICE_DISPOSITIONS } from '@/lib/schemas/source-truth';
 import { draftExpectedGateResults, draftQAFixtureSteps } from '@/components/studio/editor/qa-fixture-drafts';
 
 const CANONICAL_DISPOSITIONS = CanonicalDispositionSchema.options;
@@ -29,7 +29,8 @@ export function normalizeCanonicalDispositions(options: readonly string[]): stri
     .map((option) => CANONICAL_DISPOSITIONS.find((c) => c.toLowerCase() === option.trim().toLowerCase()))
     .filter((option): option is (typeof CANONICAL_DISPOSITIONS)[number] => Boolean(option));
   const unique = [...new Set(valid)];
-  for (const fallback of CANONICAL_DISPOSITIONS) {
+  const service = unique.some((option) => option === 'Resolved' || option === 'Escalated');
+  for (const fallback of service ? SERVICE_DISPOSITIONS : SALES_DISPOSITIONS) {
     if (unique.length >= 3) break;
     if (!unique.includes(fallback)) unique.push(fallback);
   }

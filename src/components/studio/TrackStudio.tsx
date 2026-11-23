@@ -31,7 +31,7 @@ import { ManualJudgeExchange } from './ManualJudgeExchange';
 import { TrainerQaPanel } from './TrainerQaPanel';
 import { addDrill, fetchDraftSecrets, patchTrackDraft, regenerateItem } from './api-client';
 import { AddDrillButton, TrackAttentionBanner, UnitAttentionPanel } from './UnitAttentionPanel';
-import { appendDrill, refreshUnitReviewNotes } from './unit-review';
+import { appendDrill, publishReviewItems, refreshUnitReviewNotes } from './unit-review';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { DIVISION_LABELS } from '@/lib/schemas/constants';
 import { crossUnitRepeatNotes } from '@/lib/services/drill-label';
@@ -265,6 +265,10 @@ export function TrackStudio({
   }
 
   const repeatNotes = useMemo(() => crossUnitRepeatNotes(units), [units]);
+  const reviewItems = useMemo(
+    () => publishReviewItems(units, Object.fromEntries(pillars.map((pillar) => [pillar.id, pillar.label]))),
+    [units, pillars],
+  );
   const renderAttention = (unit: TrackUnit, unitNumber: number, withAddDrill: boolean) => (
     <UnitAttentionPanel
       unit={unit}
@@ -341,6 +345,7 @@ export function TrackStudio({
             divisionLabel={DIVISION_LABELS[track.divisionId]}
             beforePublish={beforePublish}
             onOpenSourceReview={() => setMode('source')}
+            reviewItems={reviewItems}
             disabled={saveState.kind === 'saving'}
           />
         </div>

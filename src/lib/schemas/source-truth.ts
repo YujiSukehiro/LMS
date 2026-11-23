@@ -184,7 +184,15 @@ export const CanonicalDispositionSchema = z.enum([
   'Not interested',
   'Organic',
   'Lost',
+  // Service and compliance calls (review 2026-11-23: an emergency call had to end "Callback scheduled").
+  'Resolved',
+  'Escalated',
 ]);
+
+/** Outcomes of a sales or recovery call. */
+export const SALES_DISPOSITIONS = ['Recovered', 'Callback scheduled', "Didn't reply", 'Not interested', 'Organic', 'Lost'] as const;
+/** Outcomes of a service, support or compliance call. */
+export const SERVICE_DISPOSITIONS = ['Resolved', 'Escalated', 'Callback scheduled', "Didn't reply"] as const;
 
 export const DispositionAssetSchema = z.object({
   ...AssetScopeFields,

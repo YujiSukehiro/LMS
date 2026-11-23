@@ -5,7 +5,7 @@
  * Also holds the single-item regeneration prompts for one BriefingCard or one Drill.
  */
 import { z } from 'zod';
-import { isConditionalStep } from '@/lib/services/drill-label';
+import { givesAwayWord, isConditionalStep, isPositionLabel } from '@/lib/services/drill-label';
 import {
   BriefingCardSchema,
   DRILL_KINDS,
@@ -531,6 +531,9 @@ function checkDrill(drill: DrillGeneration, ctx: UnitBuildContext, path: (string
       break;
     }
     case 'FILL_BLANK_CHOICE': {
+      if (givesAwayWord(drill.prompt, drill.correctWord)) {
+        report([...path, 'prompt'], `The prompt contains the answer "${drill.correctWord}". Rewrite the prompt so it does not name the missing word.`);
+      }
       const occurrences = drill.sentenceTemplate.split(FILL_BLANK_TOKEN).length - 1;
       if (occurrences !== 1) {
         report([...path, 'sentenceTemplate'], `"sentenceTemplate" must contain the token ${FILL_BLANK_TOKEN} exactly once.`);
@@ -563,6 +566,9 @@ function checkDrill(drill: DrillGeneration, ctx: UnitBuildContext, path: (string
           }
         }
       });
+      if (drill.pairs.some((pair) => isPositionLabel(pair.leftPrompt))) {
+        report([...path, 'pairs'], 'A "leftPrompt" starts with its position ("Step 1", "First"). Name each item by what it is, so the learner matches by meaning, not by number.');
+      }
       const lefts = drill.pairs.map((pair) => pair.leftPrompt.trim().toLowerCase());
       const rights = drill.pairs.map((pair) => pair.rightMatch.trim().toLowerCase());
       if (new Set(lefts).size !== lefts.length || new Set(rights).size !== rights.length) {
@@ -783,7 +789,7 @@ const DRILL_KIND_GUIDE = [
   'TRUE_FALSE_SPOT: "statement" describes what an agent said or did on a call. "isCompliant" is true when it follows the Playbook and false when it breaks the Playbook. "prompt" asks the agent to decide.',
   'SEQUENCE_ORDER: "orderedSteps" has 3 to 5 steps {"text"} in the CORRECT order from the Playbook. "prompt" asks the agent to put the steps in order. The "explanation" says why that order is right; it never lists step numbers.',
   'SEQUENCE_ORDER is ONLY for a procedure the Playbook itself gives in a fixed order (numbered steps, a call flow, or "first / then / after"). Every step is one action the agent takes at one point in the same call, and swapping two steps would be wrong. Never use it for a list of separate rules, options for different situations, or "if ..." branches (for example "Stop sharing if uncertain" next to "Limit records to assigned duties"); test those with MULTIPLE_CHOICE or TRUE_FALSE_SPOT ideas inside a sequence about the one procedure the pages do give.',
-  'MATCH_PAIRS: "pairs" has 3 or 4 objects {"leftPrompt","rightMatch"} (for example a caller situation and the required action). Each side is a SHORT phrase of at most 80 characters, never a full script. Every right side matches only one left side.',
+  'MATCH_PAIRS: "pairs" has 3 or 4 objects {"leftPrompt","rightMatch"} (for example a caller situation and the required action). Each side is a SHORT phrase of at most 80 characters, never a full script. Every right side matches only one left side. Never label a left side with its position ("Step 1", "First", "1."): the learner must match by meaning.',
   `FILL_BLANK_CHOICE: "sentenceTemplate" is a Playbook rule with the token ${FILL_BLANK_TOKEN} exactly once where the key word goes. "wordBank" has exactly 4 different words or short phrases. "correctWord" is one of them, written exactly the same.`,
 ].join('\n');
 
@@ -804,7 +810,7 @@ export function buildUnitSystemPrompt(divisionId: DivisionId): string {
     CITATION_RULE,
     EXACT_EVIDENCE_RULE,
     LANGUAGE_RULE,
-    `Callers in Drills are ${profile.counterparty}. Use synthetic names and synthetic order numbers.`,
+    `Callers in Drills are ${profile.counterparty}. Use synthetic names, and only the names listed in the request. Do not invent order, ticket or account numbers unless the SOURCE PAGES show that kind of number.`,
     '',
     'CONTENT RULES:',
     '- Write the number of BriefingCards given in the request (CONTENT SIZE). Each card teaches one operational rule. The count was measured from how many rules the Unit pages hold, so cover every rule and do not pad.',
@@ -814,6 +820,8 @@ export function buildUnitSystemPrompt(divisionId: DivisionId): string {
     '- Teach what an agent says or does on a call. Skip internal testing steps, URL parameters, screenshot or page-layout details and metric definitions unless an agent uses them on a call.',
     '- A "Never", "Do not" or compliance rule in the GLOBAL CAMPAIGN SUMMARY or the SOURCE PAGES wins over any script, example or step. Never write a card, a "doList" item, a takeaway or a correct Drill answer that tells the agent to do a forbidden action (for example sending a link after reaching voicemail). When a script on the pages seems to allow it, teach the script words but not the forbidden action.',
     '- Do not re-teach a rule that one of the "Other Units" listed in the request already covers. Focus on what is new on this Unit\'s pages.',
+    '- Every wrong option, wrong word or false statement must be a mistake a new agent could plausibly make. Never use an absurd or joke option that nobody would pick.',
+    '- A Drill must never give away its answer: the prompt must not contain the correct word, the correct option text, or the order of the steps.',
     '',
     'DRILL KINDS:',
     DRILL_KIND_GUIDE,
@@ -944,6 +952,23 @@ export interface DrillBatchPromptInput extends UnitPromptInput {
   batchCount: number;
 }
 
+/** Synthetic first and last names, handed out so no two Drills of a Track reuse a person (review 2026-11-23). */
+const DRILL_NAMES = [
+  'Ana Torres', 'Ben Okafor', 'Carla Nguyen', 'Dev Shah', 'Erin Walsh', 'Farah Haddad', 'Gus Lindqvist', 'Hana Sato',
+  'Ivan Petrov', 'June Park', 'Kofi Mensah', 'Lena Fischer', 'Mateo Ruiz', 'Nadia Karim', 'Owen Brady', 'Paula Costa',
+  'Quinn Reyes', 'Rosa Delgado', 'Sam Whitaker', 'Tara Singh', 'Umar Aziz', 'Vera Novak', 'Wes Harlow', 'Xin Li',
+  'Yara Haddad', 'Zane Cooper', 'Alma Ortiz', 'Boris Klein', 'Cleo Grant', 'Dario Rossi', 'Ella Morgan', 'Felix Wu',
+  'Gia Romano', 'Hugo Lambert', 'Iris Holt', 'Jonah Price', 'Kira Novak', 'Luis Moreno', 'Mina Cho', 'Nico Ferreira',
+  'Olga Ivanova', 'Pedro Alves', 'Rhea Kapoor', 'Silas Boone', 'Tess Mahoney', 'Uri Levin', 'Viola Bennett', 'Wade Ellis',
+];
+const NAMES_PER_BATCH = 4;
+
+/** The names a Drill batch may use: different for every Unit and batch of a Track (wraps after 12 batches). */
+export function drillBatchNames(unitIndex: number, batchIndex: number): string[] {
+  const start = ((unitIndex * 2 + batchIndex) * NAMES_PER_BATCH) % DRILL_NAMES.length;
+  return Array.from({ length: NAMES_PER_BATCH }, (_, offset) => DRILL_NAMES[(start + offset) % DRILL_NAMES.length]);
+}
+
 /** Split mode, call 2..n: one batch of Drills of planned kinds. */
 export function buildUnitDrillsUserPrompt(input: DrillBatchPromptInput): string {
   return [
@@ -951,7 +976,10 @@ export function buildUnitDrillsUserPrompt(input: DrillBatchPromptInput): string 
     '',
     'BRIEFINGCARDS OF THIS UNIT (the Drills test these rules):',
     ...input.cards.map((card, index) => `${index + 1}. ${card.headline} — ${card.keyTakeaway} (pages ${card.sourcePages.join(', ')})`),
-    input.previousDrillPrompts.length > 0 ? `Drills already written (do not repeat them): ${input.previousDrillPrompts.join(' | ')}` : '',
+    input.previousDrillPrompts.length > 0
+      ? `Drills already written for this Unit (do not test the same situation or rule again, even with a different Drill kind): ${input.previousDrillPrompts.join(' | ')}`
+      : '',
+    `Names for people in these Drills (use each for one person only, and no other names): ${drillBatchNames(input.outline.orderIndex, input.batchIndex).join(', ')}.`,
     '',
     `TASK (Drill batch ${input.batchIndex + 1} of ${input.batchCount}): Write exactly ${input.kinds.length} Drills, one of each kind in this order: ${input.kinds.join(', ')}.`,
     ...(input.kinds.some((kind) => FLEXIBLE_DRILL_KINDS.has(kind))

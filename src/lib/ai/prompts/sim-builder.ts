@@ -12,7 +12,7 @@ import {
   type SecretSimScenarioConfig,
 } from '@/lib/schemas/curriculum';
 import type { DivisionId } from '@/lib/schemas/domain';
-import { CanonicalDispositionSchema } from '@/lib/schemas/source-truth';
+import { CanonicalDispositionSchema, SALES_DISPOSITIONS, SERVICE_DISPOSITIONS } from '@/lib/schemas/source-truth';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import {
   ScenarioContextSchema,
@@ -87,13 +87,21 @@ export const SIM_CANONICAL_DISPOSITIONS = CanonicalDispositionSchema.options;
 export type SimCanonicalDisposition = (typeof SIM_CANONICAL_DISPOSITIONS)[number];
 
 const DISPOSITION_SYNONYMS: Array<[RegExp, SimCanonicalDisposition]> = [
-  [/^recover|^saved?\b|^sale|^sold|^converted|^payment (?:updated|recovered)|^resolved/i, 'Recovered'],
+  [/^resolved|^answered|^completed|^handled|^assisted/i, 'Resolved'],
+  [/escalat|emergency|911|transfer|supervisor|referr/i, 'Escalated'],
+  [/^recover|^saved?\b|^sale|^sold|^converted|^payment (?:updated|recovered)/i, 'Recovered'],
   [/callback|call back|follow[- ]?up|reschedul/i, 'Callback scheduled'],
   [/didn'?t reply|did not reply|no answer|no[- ]reply|voicemail|unreachable|no contact/i, "Didn't reply"],
   [/not interested|declined|refus|opt[- ]?out|do not call|dnc|cancel/i, 'Not interested'],
   [/organic|self[- ]serv|already (?:completed|done|ordered)/i, 'Organic'],
   [/^lost|expired|terminal|closed lost/i, 'Lost'],
 ];
+
+const SERVICE_ONLY = new Set<string>(['Resolved', 'Escalated']);
+/** The outcomes that belong with `expected`: service outcomes for Resolved/Escalated, sales outcomes otherwise. */
+export function dispositionFamily(expected: SimCanonicalDisposition): readonly SimCanonicalDisposition[] {
+  return SERVICE_ONLY.has(expected) ? SERVICE_DISPOSITIONS : SALES_DISPOSITIONS;
+}
 
 /** Map a model-written disposition onto the canonical list (exact, case-insensitive, or a known synonym). */
 export function toCanonicalDisposition(value: string): SimCanonicalDisposition | null {
@@ -255,8 +263,9 @@ export function buildSimSystemPrompt(divisionId: DivisionId): string {
     '- "title" at most 80 characters. "difficulty": STANDARD, EDGE_CASE, or HIGH_PRESSURE. Use a different difficulty for each scenario when you write more than one.',
     '- "contextTicketSummary" at most 280 characters: queue, campaign, channel, and the reason for the contact, as a call ticket. Do not reveal the hidden facts.',
     '- "openingMessage" at most 350 characters: the first thing the caller says, in character.',
-    `- "dispositionOptions": 3 to 6 call dispositions chosen ONLY from this exact list: ${SIM_CANONICAL_DISPOSITIONS.join(' | ')}. Exactly one is correct. Do not invent other dispositions.`,
-    '- "callSetup" (optional): {"direction": outbound|inbound|callback, "queue": recovery|customer_support|medical_chat|renewals, "contactState": lead|existing_patient|third_party|voicemail, "pricingPosture": active|passive|not_applicable, "product": short product name}.',
+    `- "dispositionOptions": 3 to 6 call dispositions chosen ONLY from one of these lists. Sales or recovery calls: ${SALES_DISPOSITIONS.join(' | ')}. Service, support, privacy or compliance calls: ${SERVICE_DISPOSITIONS.join(' | ')}. Do not mix sales outcomes into a service or compliance call. Exactly one is correct. Do not invent other dispositions.`,
+    '- A call where the agent must hand the caller to emergency services, a supervisor, a clinician or a privacy team ends "Escalated". A call the agent fully handles ends "Resolved". Use "Callback scheduled" only when the Playbook says the agent books a callback.',
+    '- "callSetup" (optional; queue "recovery" is only for winning back a sale): {"direction": outbound|inbound|callback, "queue": recovery|customer_support|medical_chat|renewals, "contactState": lead|existing_patient|third_party|voicemail, "pricingPosture": active|passive|not_applicable, "product": short product name}.',
     `- "maxTurns" 6 to 12 (usually 8). "passScoreThreshold" 60 to 95 (usually ${DEFAULT_SIM_PASS_THRESHOLD}).`,
     '',
     'SECRET PART ("secretConfig"):',
@@ -451,7 +460,8 @@ export function finalizeScenario(input: ScenarioGeneration, id: string, ctx: Sim
   const canonicalOptions = [
     ...new Set([expectedDisposition, ...pub.dispositionOptions.map(toCanonicalDisposition).filter((o): o is SimCanonicalDisposition => o !== null)]),
   ];
-  for (const fallback of SIM_CANONICAL_DISPOSITIONS) {
+  // Pad with outcomes of the same kind of call: a compliance call never offers "Recovered" or "Not interested".
+  for (const fallback of dispositionFamily(expectedDisposition)) {
     if (canonicalOptions.length >= 3) break;
     if (!canonicalOptions.includes(fallback)) canonicalOptions.push(fallback);
   }

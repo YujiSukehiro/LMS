@@ -132,7 +132,8 @@ describe('Sim Builder finalize', () => {
     expect(toCanonicalDisposition('recovered')).toBe('Recovered');
     expect(toCanonicalDisposition('Customer declined')).toBe('Not interested');
     expect(toCanonicalDisposition('Voicemail left')).toBe("Didn't reply");
-    expect(toCanonicalDisposition('Escalated to supervisor')).toBeNull();
+    expect(toCanonicalDisposition('Escalated to supervisor')).toBe('Escalated');
+    expect(toCanonicalDisposition('Something else entirely')).toBeNull();
   });
 
   it('produces a runnable scenario: canonical options, trimmed text, context and evidence requirements', () => {

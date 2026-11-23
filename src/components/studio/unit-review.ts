@@ -8,7 +8,7 @@
 import { DEPTH_LIMITS, thinUnitProblems } from '@/lib/ai/pipeline/content-depth';
 import type { DrillItem, TrackUnit, TrackVersionDoc } from '@/lib/schemas/curriculum';
 import type { ClaimEvidence } from '@/lib/schemas/source-truth';
-import { crossUnitRepeatNotes, isConditionalStep } from '@/lib/services/drill-label';
+import { crossUnitRepeatNotes, givesAwayWord, isConditionalStep, isPositionLabel } from '@/lib/services/drill-label';
 
 /** Most Drills a Unit may hold (TrackUnitSchema). */
 export const MAX_UNIT_DRILLS = 10;
@@ -64,6 +64,12 @@ export function drillQualityNotes(unit: Pick<TrackUnit, 'drills' | 'briefingCard
     }
     if (drill.kind === 'SEQUENCE_ORDER' && drill.orderedSteps.some((step) => isConditionalStep(step.text))) {
       notes.push(`${label} asks for an order, but some steps are options for different situations. Rewrite it as one ordered procedure or change the Drill kind.`);
+    }
+    if (drill.kind === 'FILL_BLANK_CHOICE' && givesAwayWord(drill.prompt, drill.correctWord)) {
+      notes.push(`${label}: the question names the answer ("${drill.correctWord}"). Reword the question.`);
+    }
+    if (drill.kind === 'MATCH_PAIRS' && drill.pairs.some((pair) => isPositionLabel(pair.leftPrompt))) {
+      notes.push(`${label}: the left side is labelled by step number, so learners match numbers, not meaning. Remove the "Step N" labels.`);
     }
     const drillRules = drill.ruleIds ?? [];
     if (taughtRules.size > 0 && drillRules.length > 0 && !drillRules.some((ruleId) => taughtRules.has(ruleId))) {
@@ -128,6 +134,37 @@ export function trackAttention(units: TrackUnit[]): TrackAttention {
     thinUnitCount: listed.filter((unit) => unit.shortfall !== null).length,
     itemsNeedingEvidence: listed.reduce((sum, unit) => sum + unit.cardIdsNeedingEvidence.length + unit.drillIdsNeedingEvidence.length, 0),
   };
+}
+
+/** Above this, reviewers call a Track "too long" (review 2026-11-23: 6 Checkpoints, about 78 minutes). */
+export const LONG_TRACK_MINUTES = 45;
+/** One skill area holding more than this share of the Drills makes per-skill analytics lopsided. */
+const PILLAR_SHARE_LIMIT = 0.4;
+
+/**
+ * Things worth a look before learners see the Track: every open Checkpoint note, plus length and skill-area
+ * balance. Suggested, never required (Connor 2026-11-23). Pure; one line per item.
+ */
+export function publishReviewItems(units: TrackUnit[], pillarNames: Record<string, string> = {}): string[] {
+  const items = trackAttention(units).units.flatMap((unit) => [
+    ...unit.notes.map((note) => `Checkpoint ${unit.unitNumber}: ${note}`),
+    ...(unit.shortfall ? [`Checkpoint ${unit.unitNumber}: ${unit.shortfall}`] : []),
+  ]);
+  const minutes = units.reduce((sum, unit) => sum + unit.estimatedMinutes, 0);
+  const drills = units.reduce((sum, unit) => sum + unit.drills.length, 0);
+  const cards = units.reduce((sum, unit) => sum + unit.briefingCards.length, 0);
+  if (minutes > LONG_TRACK_MINUTES) {
+    items.push(`The Track takes about ${minutes} minutes (${cards} cards, ${drills} Drills). Consider removing Drills that test the same rule.`);
+  }
+  if (drills >= 10) {
+    const counts = new Map<string, number>();
+    for (const unit of units) for (const drill of unit.drills) counts.set(drill.competencyPillarId, (counts.get(drill.competencyPillarId) ?? 0) + 1);
+    const [pillarId, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? ['', 0];
+    if (count / drills > PILLAR_SHARE_LIMIT) {
+      items.push(`${count} of ${drills} Drills test one skill area (${pillarNames[pillarId] ?? pillarId}), so skill analytics will be lopsided.`);
+    }
+  }
+  return items;
 }
 
 function nextDrillId(draft: TrackVersionDoc, unitId: string): string {

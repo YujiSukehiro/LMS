@@ -107,3 +107,18 @@ export function crossUnitRepeatNotes(units: ReadonlyArray<{ drills: readonly Dri
   });
   return notes;
 }
+
+/**
+ * The prompt names the missing word (review 2026-11-23: "Complete the rule about our Business Associate Agreement
+ * (BAA)" with the answer "BAA"). Exported for tests.
+ */
+export function givesAwayWord(prompt: string, correctWord: string): boolean {
+  const word = correctWord.trim();
+  return word.replace(/[^a-z0-9]/gi, '').length >= 2 && new RegExp(`(^|[^a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i').test(prompt);
+}
+
+/** "Step 1: Stop the activity", "First -", "2." : a Match Pairs side labelled by position. Exported for tests. */
+export function isPositionLabel(text: string): boolean {
+  return /^\s*(step\s*\d+|\d+[.):]|(first|second|third|fourth|fifth|last)\b\s*[:.\-–—])/i.test(text);
+}
+
