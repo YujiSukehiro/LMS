@@ -9,7 +9,7 @@ import { fetchContentMap, saveUnitTarget, type ContentMap } from './api-client';
  * Step 2 of Track creation: show how much the Playbook holds before the long AI build, and let
  * the trainer adjust the checkpoint count. The build then plans target ±1 checkpoints.
  */
-export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild: () => void }) {
+export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild: (unitTarget: number) => void }) {
   const [map, setMap] = useState<ContentMap | null>(null);
   const [target, setTarget] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +38,7 @@ export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild:
     try {
       // Save null when the trainer kept the measured target, so later rebuilds re-measure.
       await saveUnitTarget(trackId, target === map.recommended.target ? null : target);
-      onBuild();
+      onBuild(target);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The checkpoint target was not saved.');
       setSaving(false);
@@ -52,7 +52,7 @@ export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild:
           <>
             <AlertTriangle aria-hidden className="size-4 text-pulse-crimson" />
             <span className="flex-1">{error}</span>
-            <button type="button" className="pulse-btn pulse-btn-primary" onClick={onBuild}>
+            <button type="button" className="pulse-btn pulse-btn-primary" onClick={() => onBuild(0)}>
               Build anyway
             </button>
           </>
@@ -177,10 +177,14 @@ export function ContentMapStep({ trackId, onBuild }: { trackId: string; onBuild:
             {error}
           </p>
         ) : null}
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <p className="text-xs text-pulse-muted">
+            {map.fileName ? <span className="font-medium text-pulse-secondary">{map.fileName}</span> : 'Uploaded Playbook'} · {map.pageCount} page
+            {map.pageCount === 1 ? '' : 's'}. The PDF is checked for contradictions first; you only stop if it finds any.
+          </p>
           <button type="button" className="pulse-btn pulse-btn-primary px-5 py-2.5 text-base" onClick={build} disabled={saving}>
             {saving ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : null}
-            Build {current} checkpoints
+            Approve source and build {current} checkpoints
             <ArrowRight aria-hidden className="size-4" />
           </button>
         </div>

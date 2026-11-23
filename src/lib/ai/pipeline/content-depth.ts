@@ -50,6 +50,8 @@ export interface CountRange {
   min: number;
   target: number;
   max: number;
+  /** The trainer picked this number: the prompt asks for exactly `target`, and `min`/`max` are the tolerated miss. */
+  exact?: boolean;
 }
 
 export interface PageDepth {
@@ -152,25 +154,21 @@ export function measureSourceDepth(pages: ReadonlyArray<{ pageNumber: number; te
   };
 }
 
-/** Fewest rule statements that justify one Unit when a trainer target is bounded by the source. */
-const MIN_RULES_PER_TARGET_UNIT = 4;
-
 /**
  * Unit range when a trainer picks a target on the Content map (kept inside the absolute limits).
  * With `source`, a large target on a tiny PDF is clamped: at most 2 Units per page with rules and
  * one Unit per ~4 rule statements, so the model is never asked to split 3 rules into 12 Units.
  */
-export function unitRangeForTarget(
-  target: number,
-  source?: Pick<SourceDepth, 'ruleSignals' | 'operationalPages'> & { pageCount?: number },
-): CountRange {
-  let max: number = DEPTH_LIMITS.maxUnits;
-  if (source) {
-    const pages = Math.max(1, source.operationalPages || source.pageCount || 1);
-    const byRules = Math.ceil(source.ruleSignals / MIN_RULES_PER_TARGET_UNIT);
-    max = clamp(Math.min(pages * 2, byRules), DEPTH_LIMITS.minUnits, DEPTH_LIMITS.maxUnits);
-  }
-  return rangeAround(Math.min(target, max), DEPTH_LIMITS.minUnits, max);
+export function unitRangeForTarget(target: number): CountRange {
+  // The trainer chose this count on the Content map (which already warns when it is outside the measured range),
+  // so the build asks for exactly that many and tolerates one more or one fewer (QA M5: "Build 9" built 8).
+  return { ...rangeAround(target, DEPTH_LIMITS.minUnits, DEPTH_LIMITS.maxUnits), exact: true };
+}
+
+/** Plain note when a build's Checkpoint count differs from the trainer's choice, or null when it matches. */
+export function unitCountNote(built: number, requested: number | null | undefined): string | null {
+  if (!requested || built === requested) return null;
+  return `${built} checkpoints built (you asked for ${requested}; the Playbook's rules fit ${built}).`;
 }
 
 /** Rough learner time for a Track: ~40 s per card, ~45 s per Drill, ~6 min per Live Call Sim. */

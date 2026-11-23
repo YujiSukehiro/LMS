@@ -68,12 +68,73 @@ export function estimateMinutesLeft(input: {
   return Math.max(1, Math.ceil(plannedMinutes * remainingShare));
 }
 
-export function formatMinutesLeft(minutes: number): string {
-  if (minutes < 2) return 'about a minute left';
-  if (minutes < 60) return `about ${minutes} min left`;
+function formatSpan(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return `about ${hours} h ${rest} min left`;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+}
+
+export function formatMinutesLeft(minutes: number): string {
+  if (minutes < 2) return 'about a minute left';
+  return `about ${formatSpan(minutes)} left`;
+}
+
+/** A Checkpoint finishing (or starting, for the first sample) while this page watched, with no replay in it. */
+export interface CheckpointSample {
+  at: number;
+  /** Checkpoints done at that moment. */
+  completed: number;
+}
+
+/** Minutes left as a range; `low === high` once the pace is known well enough for one number. */
+export interface BuildEstimate {
+  low: number;
+  high: number;
+}
+
+/**
+ * Minutes left in a build from the time each Checkpoint takes on this runtime (QA: the overall-percent pace jumped
+ * from "7 min" to "17 min" because Checkpoints are most of the work and the percent moves unevenly).
+ * - 2+ Checkpoints timed on this page: one number.
+ * - 1 timed: a range of -20% / +30% around it.
+ * - none yet: a range from the planned count (1 min each on Gemini) up to twice that.
+ * Before the Checkpoint count is known (blueprint stage), falls back to the overall-percent pace.
+ */
+export function estimateBuildTime(input: {
+  samples: readonly CheckpointSample[];
+  checkpointTotal: number | null;
+  completed: number;
+  now: number;
+  first: EtaSample | null;
+  latest: EtaSample;
+}): BuildEstimate | null {
+  const { samples, checkpointTotal, completed, now } = input;
+  if (!checkpointTotal) {
+    const minutes = estimateMinutesLeft({ first: input.first, latest: input.latest, checkpointTotal: null });
+    return minutes === null ? null : { low: minutes, high: minutes };
+  }
+  const remaining = Math.max(0, checkpointTotal - completed);
+  const firstSample = samples[0];
+  const lastSample = samples[samples.length - 1];
+  const timed = firstSample && lastSample ? lastSample.completed - firstSample.completed : 0;
+  if (timed >= 1 && lastSample.at > firstSample.at) {
+    const msPerCheckpoint = (lastSample.at - firstSample.at) / timed;
+    const intoCurrent = Math.min(Math.max(0, now - lastSample.at), msPerCheckpoint * 0.9);
+    // One more Checkpoint's worth covers the Verbal Practice scenarios and the final save.
+    const leftMs = Math.max(0, remaining * msPerCheckpoint - (remaining > 0 ? intoCurrent : 0)) + msPerCheckpoint;
+    const minutes = Math.max(1, Math.ceil(leftMs / 60_000));
+    if (timed >= 2) return { low: minutes, high: minutes };
+    return { low: Math.max(1, Math.round(minutes * 0.8)), high: Math.max(2, Math.ceil(minutes * 1.3)) };
+  }
+  const planned = remaining * MINUTES_PER_CHECKPOINT + FIXED_BUILD_MINUTES;
+  return { low: Math.max(1, planned), high: Math.max(2, planned * 2) };
+}
+
+export function formatBuildEstimate(estimate: BuildEstimate): string {
+  if (estimate.low >= estimate.high) return formatMinutesLeft(estimate.high);
+  if (estimate.high < 60) return `about ${estimate.low} to ${estimate.high} min left`;
+  return `about ${formatSpan(estimate.low)} to ${formatSpan(estimate.high)} left`;
 }
 
 /** Progress messages sent while a resumed build replays saved Checkpoints ("Resumed Checkpoint 3 of 9: …"). */

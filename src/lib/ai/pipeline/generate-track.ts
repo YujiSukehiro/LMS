@@ -35,7 +35,7 @@ import {
   CONTENT_SIZING_VERSION,
   clampPlanToLimits,
   depthLimitsForProvider,
-  measureSourceDepth,
+  unitCountNote,
   unitRangeForTarget,
 } from '@/lib/ai/pipeline/content-depth';
 import {
@@ -683,11 +683,10 @@ export async function runTrackGeneration(
     // Size the Track from the measured source depth. Demo replay serves fixed recorded output,
     // so it keeps the absolute limits and the default per-Unit sizes.
     const sizeFromDepth = runtime.provider !== 'replay';
-    const depth = measureSourceDepth(pages);
     const unitRange = !sizeFromDepth
       ? undefined
       : track.unitTarget
-        ? unitRangeForTarget(track.unitTarget, { ...depth, pageCount: pages.length })
+        ? unitRangeForTarget(track.unitTarget)
         : blueprintUnitRange(pages);
     const blueprintTokens = blueprintMaxOutputTokens(unitRange?.max ?? BLUEPRINT_MAX_UNITS);
     // Local prompts are budgeted against the 16k context window minus the planned output.
@@ -1228,7 +1227,7 @@ export async function runTrackGeneration(
     stageLabel = 'Saving the draft';
     await commitDraft({ track, trackId, blueprint, units, scenarios, versionNumber, createdAt, provenance, source, flaggedCount: flaggedItems.length, reviewNotes: draftNotes });
     lastPercent = 100;
-    onProgress({ step: 'READY', percent: 100, message: readyMessage(flaggedItems.length) });
+    onProgress({ step: 'READY', percent: 100, message: readyMessage(flaggedItems.length, unitCountNote(units.length, track.unitTarget)) });
   } catch (error) {
     if (isGenerationPausedError(error)) {
       // Keep the progress the trainer sees; the next step clears generationPausedAt when it takes over.
@@ -1246,10 +1245,11 @@ export async function runTrackGeneration(
   }
 }
 
-function readyMessage(flaggedCount: number): string {
+function readyMessage(flaggedCount: number, countNote: string | null = null): string {
+  const note = countNote ? ` ${countNote}` : '';
   return flaggedCount > 0
-    ? `Track Ready! ${flaggedCount} item${flaggedCount === 1 ? '' : 's'} need trainer review before publishing. Redirecting to Preview Studio...`
-    : 'Track Ready! Redirecting to Preview Studio...';
+    ? `Track Ready!${note} ${flaggedCount} item${flaggedCount === 1 ? '' : 's'} need trainer review before publishing. Redirecting to Preview Studio...`
+    : `Track Ready!${note} Redirecting to Preview Studio...`;
 }
 
 async function commitDraft(input: {
@@ -1324,7 +1324,7 @@ async function commitDraft(input: {
           estimatedTotalMinutes: estimateTrackMinutes(input.units, simScenarios.length),
         }),
     currentDraftVersionId: DRAFT_VERSION_ID,
-    generationProgress: { step: 'READY', percent: 100, message: readyMessage(input.flaggedCount ?? 0) },
+    generationProgress: { step: 'READY', percent: 100, message: readyMessage(input.flaggedCount ?? 0, unitCountNote(input.units.length, input.track.unitTarget)) },
     updatedAt: now,
   });
   await batch.commit();

@@ -34,6 +34,8 @@ export function NewTrackForm({ resume }: { resume?: { trackId: string; title: st
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState<{ trackId: string; title: string } | null>(resume ?? null);
   const [building, setBuilding] = useState(false);
+  // Set when the trainer clicked "Approve source and build N" on the Content map (0 = "Build anyway" without a map).
+  const [approvedTarget, setApprovedTarget] = useState<number | null>(null);
 
   function validate(): FormErrors {
     const next: FormErrors = {};
@@ -76,7 +78,13 @@ export function NewTrackForm({ resume }: { resume?: { trackId: string; title: st
     return (
       <div className="flex flex-col gap-4">
         <CreationSteps current={1} />
-        <ContentMapStep trackId={created.trackId} onBuild={() => setBuilding(true)} />
+        <ContentMapStep
+          trackId={created.trackId}
+          onBuild={(unitTarget) => {
+            setApprovedTarget(unitTarget);
+            setBuilding(true);
+          }}
+        />
       </div>
     );
   }
@@ -89,6 +97,8 @@ export function NewTrackForm({ resume }: { resume?: { trackId: string; title: st
           trackId={created.trackId}
           trackTitle={created.title}
           initialProgress={{ step: 'EXTRACTING_PDF', percent: 5, message: 'Playbook uploaded. Starting the build…' }}
+          approvedOnContentMap={approvedTarget !== null && approvedTarget > 0}
+          unitTarget={approvedTarget && approvedTarget > 0 ? approvedTarget : null}
         />
       </div>
     );

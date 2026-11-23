@@ -20,7 +20,7 @@ type ContradictionCheckState = { kind: 'idle' } | { kind: 'checking' } | { kind:
 function isOpenConflict(conflict: SourceConflict): boolean {
   return conflict.status === 'open' || conflict.status === 'sme_review';
 }
-import { estimateMinutesLeft, formatMinutesLeft, isReplayMessage, parseCheckpointProgress, type CheckpointProgress, type EtaSample } from './generation-view';
+import { estimateBuildTime, formatBuildEstimate, isReplayMessage, parseCheckpointProgress, type CheckpointProgress, type CheckpointSample, type EtaSample } from './generation-view';
 
 /** Consecutive dropped connections (no progress in between) before the stepper shows an error. */
 const MAX_SILENT_RECONNECTS = 6;
@@ -63,12 +63,18 @@ export function GenerationStepper({
   initialProgress,
   redirectOnComplete = true,
   onComplete,
+  approvedOnContentMap = false,
+  unitTarget = null,
 }: {
   trackId: string;
   trackTitle?: string;
   initialProgress?: GenerateProgressEvent | null;
   redirectOnComplete?: boolean;
   onComplete?: (versionId: string) => void;
+  /** The trainer already clicked "Approve source and build" on the Content map: approve as soon as the check is clear. */
+  approvedOnContentMap?: boolean;
+  /** Checkpoint count the trainer chose, for the approve button label. */
+  unitTarget?: number | null;
 }) {
   const router = useRouter();
   const [progress, setProgress] = useState<GenerateProgressEvent>(
@@ -83,12 +89,41 @@ export function GenerationStepper({
     initialProgress?.step === 'BUILDING_UNITS' ? parseCheckpointProgress(initialProgress.message) : null,
   );
   const [eta, setEta] = useState<{ first: EtaSample | null; latest: EtaSample } | null>(null);
+  const [checkpointSamples, setCheckpointSamples] = useState<CheckpointSample[]>([]);
   const dropsRef = useRef(0);
   const openedAtRef = useRef(0);
   const onCompleteRef = useRef(onComplete);
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
+
+  /** Record the trainer's approval of this exact source revision, then start the build. */
+  const approveAndBuild = useCallback(
+    (review: SourceReviewData) => {
+      if (!review.bundle) return;
+      setState({ kind: 'connecting' });
+      void postSourceReview(trackId, 'bundle', {
+        bundleId: review.bundle.id,
+        expectedRevisionHash: review.bundle.revisionHash,
+      })
+        .then(() => startTrackBuild(trackId))
+        .then(() => setAttempt((n) => n + 1))
+        .catch((error: unknown) => {
+          setState({ kind: 'error', message: error instanceof Error ? error.message : 'Source approval failed.' });
+        });
+    },
+    [trackId],
+  );
+
+  // QA L12: the Content map button already said "Approve source and build". When the contradiction check finds
+  // nothing to decide, go straight on; if it finds something (or fails), stop here so the trainer can act.
+  const autoApprovedRef = useRef(false);
+  useEffect(() => {
+    if (!approvedOnContentMap || autoApprovedRef.current || state.kind !== 'approval' || !sourceReview?.bundle) return;
+    if (contradictionCheck.kind !== 'done' || sourceReview.conflicts.some(isOpenConflict)) return;
+    autoApprovedRef.current = true;
+    approveAndBuild(sourceReview);
+  }, [approvedOnContentMap, approveAndBuild, contradictionCheck.kind, sourceReview, state.kind]);
 
   /** Run (or re-run) the PDF contradiction check, then reload the Source Review so found items show. */
   const runContradictionCheck = useCallback(
@@ -165,7 +200,19 @@ export function GenerationStepper({
         }
         if (next.step === 'BUILDING_UNITS') {
           const counter = parseCheckpointProgress(next.message);
-          if (counter) setUnitCounter(counter);
+          if (counter) {
+            setUnitCounter(counter);
+            // Time Checkpoints only from live (not replayed) progress, after the reconnect settle window.
+            const live = !isReplayMessage(next.message) && Date.now() - openedAtRef.current >= REPLAY_SETTLE_MS;
+            if (live) {
+              setCheckpointSamples((prev) => {
+                const last = prev[prev.length - 1];
+                // The first sample anchors at the start of a Checkpoint; later ones at each finish.
+                if (!last) return counter.current !== null ? [{ at: Date.now(), completed: counter.completed }] : prev;
+                return counter.completed > last.completed ? [...prev, { at: Date.now(), completed: counter.completed }] : prev;
+              });
+            }
+          }
         }
       });
 
@@ -264,7 +311,7 @@ export function GenerationStepper({
       </div>
       {/* Only once the build is queued: before that, closing the page could leave it unstarted. */}
       {state.kind === 'running' ? (
-        <EtaLine eta={eta} checkpointTotal={unitCounter?.total ?? null} />
+        <EtaLine eta={eta} samples={checkpointSamples} counter={unitCounter} />
       ) : null}
 
       <ol className="flex flex-col gap-1">
@@ -372,20 +419,9 @@ export function GenerationStepper({
             type="button"
             className="pulse-btn pulse-btn-primary"
             disabled={contradictionCheck.kind === 'checking' || sourceReview.conflicts.some(isOpenConflict)}
-            onClick={() => {
-              setState({ kind: 'connecting' });
-              void postSourceReview(trackId, 'bundle', {
-                bundleId: sourceReview.bundle!.id,
-                expectedRevisionHash: sourceReview.bundle!.revisionHash,
-              })
-                .then(() => startTrackBuild(trackId))
-                .then(() => setAttempt((n) => n + 1))
-                .catch((error: unknown) => {
-                setState({ kind: 'error', message: error instanceof Error ? error.message : 'Source approval failed.' });
-              });
-            }}
+            onClick={() => approveAndBuild(sourceReview)}
           >
-            <Check aria-hidden className="size-4" /> Approve source bundle revision
+            <Check aria-hidden className="size-4" /> Approve source and build{unitTarget ? ` ${unitTarget} checkpoints` : ''}
           </button>
         </div>
         </div>
@@ -417,7 +453,9 @@ export function GenerationStepper({
 
 /** Wrap a quote in curly quotes unless it already starts with a quote mark. */
 function quoted(text: string): string {
-  return /^["“'‘]/.test(text) ? text : `“${text}”`;
+  // PDF line breaks leave "wake- ups"; join them for reading (the stored excerpt stays verbatim).
+  const display = text.replace(/(\p{L})- (\p{Ll})/gu, '$1-$2');
+  return /^["“'‘]/.test(display) ? display : `“${display}”`;
 }
 
 function ContradictionList({
@@ -507,17 +545,27 @@ function ContradictionList({
   );
 }
 
-function EtaLine({ eta, checkpointTotal }: { eta: { first: EtaSample | null; latest: EtaSample } | null; checkpointTotal: number | null }) {
+function EtaLine({
+  eta,
+  samples,
+  counter,
+}: {
+  eta: { first: EtaSample | null; latest: EtaSample } | null;
+  samples: CheckpointSample[];
+  counter: CheckpointProgress | null;
+}) {
   // Re-render each 30 s so the estimate does not freeze between progress events.
-  const [, tick] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const timer = setInterval(() => tick((n) => n + 1), 30_000);
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
-  const minutes = eta ? estimateMinutesLeft({ first: eta.first, latest: eta.latest, checkpointTotal }) : null;
+  const estimate = eta
+    ? estimateBuildTime({ samples, checkpointTotal: counter?.total ?? null, completed: counter?.completed ?? 0, now, first: eta.first, latest: eta.latest })
+    : null;
   return (
     <p className="-mt-2 text-xs text-pulse-secondary">
-      <span className="font-semibold text-pulse-primary">Estimated time to completion: {minutes ? formatMinutesLeft(minutes) : 'working it out'}. </span>
+      <span className="font-semibold text-pulse-primary">Estimated time to completion: {estimate ? formatBuildEstimate(estimate) : 'working it out'}. </span>
       You can leave this page. The build keeps running, and the Track shows up in Track Studio when it is ready.
     </p>
   );
