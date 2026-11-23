@@ -24,20 +24,15 @@ env:
     value: "1024"
     availability:
       - RUNTIME
-  # Connor 2026-11-23: Gemini 4 Neon writes Tracks (planning, cards, Drills, scenarios, contradiction check);
-  # Verbal Practice keeps the Flash models above. The Track-planning call gets more thinking room.
-  - variable: GEMINI_BUILD_MODEL
+  # Connor 2026-11-23 ("good quality content for less than 50 cents per training"): Gemini 4 Neon only plans the
+  # Track (one call, more thinking room); 3.8 Flash writes cards, Drills, scenarios and the contradiction check, with
+  # the deterministic quality guards (#10, #11) catching what Flash gets wrong. Neon for everything cost ~$2-3.
+  - variable: GEMINI_PLANNING_MODEL
     value: gemini-4-neon
     availability:
       - RUNTIME
   - variable: GEMINI_PLANNING_THINKING_BUDGET
     value: "8192"
-    availability:
-      - RUNTIME
-  # Connor 2026-11-23 ("the cost is crazy"): Neon thinking was uncapped and billed at the $15/M output rate.
-  # 4096 per call is 4x the Flash cap; the planning call keeps 8192 above.
-  - variable: GEMINI_BUILD_THINKING_BUDGET
-    value: "4096"
     availability:
       - RUNTIME
   # One log line of token usage per Gemini call (prompt / cached / output / thinking) to measure real build cost.
