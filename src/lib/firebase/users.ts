@@ -105,6 +105,18 @@ export async function writeCustomClaims(uid: string, claims: PulseCustomClaims):
   await adminAuth.setCustomUserClaims(uid, { ...(record.customClaims ?? {}), ...claims });
 }
 
+/** Custom claim that sends a user to "Choose a new password" after signing in with a temporary password. */
+export const MUST_CHANGE_PASSWORD_CLAIM = 'mustChangePassword';
+
+/** Set or clear the must-change-password claim, keeping every other claim. */
+export async function setMustChangePassword(uid: string, value: boolean): Promise<void> {
+  const record = await adminAuth.getUser(uid);
+  const claims: Record<string, unknown> = { ...(record.customClaims ?? {}) };
+  if (value) claims[MUST_CHANGE_PASSWORD_CLAIM] = true;
+  else delete claims[MUST_CHANGE_PASSWORD_CLAIM];
+  await adminAuth.setCustomUserClaims(uid, claims);
+}
+
 const PASSWORD_ALPHABETS = {
   upper: 'ABCDEFGHJKLMNPQRSTUVWXYZ',
   lower: 'abcdefghijkmnopqrstuvwxyz',

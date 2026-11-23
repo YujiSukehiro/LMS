@@ -56,7 +56,11 @@ export const PERMISSIONS: Record<Permission, PermissionInfo> = {
   'roster.view': { label: 'Open the Roster', group: 'People', roles: ADMINS },
   'users.invite': { label: 'Invite staff and bulk-import agents', group: 'People', roles: ADMINS },
   'users.editAccess': { label: 'Change role, Cohort and Divisions', group: 'People', roles: ADMINS },
-  'users.resetPassword': { label: 'Issue temporary passwords', group: 'People', roles: ADMINS },
+  'users.resetPassword': {
+    label: 'Issue temporary passwords (supervisors: active agents in their own Cohort)',
+    group: 'People',
+    roles: [...ADMINS, 'PARTNER_SUPERVISOR'],
+  },
   'users.deactivate': { label: 'Deactivate and reactivate users', group: 'People', roles: ADMINS },
   'cohorts.create': { label: 'Create Cohorts', group: 'Cohorts', roles: ADMINS },
   'cohorts.edit': { label: 'Rename, set Divisions, manage join codes', group: 'Cohorts', roles: ADMINS },
@@ -82,18 +86,43 @@ export function canManageRole(actorRole: UserRole, targetRole: UserRole): boolea
 }
 
 export function canManageUser(
-  actor: { uid: string; role: UserRole },
-  target: { uid: string; role: UserRole },
+  actor: { uid: string; role: UserRole; partnerCohortId?: string },
+  target: { uid: string; role: UserRole; partnerCohortId?: string; active?: boolean },
   permission: Permission,
 ): boolean {
   if (actor.uid === target.uid) return false;
-  return can(actor.role, permission) && canManageRole(actor.role, target.role);
+  if (!can(actor.role, permission) || !canManageRole(actor.role, target.role)) return false;
+  // Partner supervisors only manage active agents in their own Cohort. Missing Cohort data fails closed.
+  if (actor.role === 'PARTNER_SUPERVISOR') {
+    return (
+      target.role === 'AGENT' &&
+      target.active === true &&
+      typeof actor.partnerCohortId === 'string' &&
+      target.partnerCohortId === actor.partnerCohortId
+    );
+  }
+  return true;
 }
 
 /** Roles this actor may grant (invite, import, or change a user to). */
 export function assignableRoles(actorRole: UserRole): UserRole[] {
   if (!can(actorRole, 'users.editAccess') && !can(actorRole, 'users.invite')) return [];
   return ALL_ROLES.filter((role) => canManageRole(actorRole, role));
+}
+
+/** Roles that see every Cohort's data; they must belong to an internal LogiCall Cohort (QA M3). */
+export const STAFF_ROLES: readonly UserRole[] = ['SUPER_ADMIN', 'ADMIN', 'TRAINER'];
+
+/**
+ * Role and Cohort must fit: Trainer, Admin and Super Admin only in an internal Cohort, so promoting a partner
+ * agent can never hand them every partner's data. Agents and supervisors may be in either (internal test users).
+ * Returns a plain reason, or null when the pair is allowed.
+ */
+export function roleCohortFitError(role: UserRole, cohortIsInternal: boolean): string | null {
+  if (STAFF_ROLES.includes(role) && !cohortIsInternal) {
+    return 'Trainer, Admin and Super Admin accounts must be in the LogiCall Internal Cohort. Move the user to an internal Cohort first.';
+  }
+  return null;
 }
 
 /** Plain-language reason a management action is refused, for 403 responses and disabled buttons. */

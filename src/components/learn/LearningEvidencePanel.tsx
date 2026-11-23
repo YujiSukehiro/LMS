@@ -17,6 +17,8 @@ export interface LearningEvidencePanelProps {
   scenarioLabels?: Record<string, string>;
   /** Optional human labels (for example the Checkpoint title) keyed by rule ID. Raw IDs are never shown to learners. */
   ruleLabels?: Record<string, string>;
+  /** Due Keep-Sharp reviews from the retention queue; overrides the analytics count so every screen agrees. */
+  reviewsDue?: number;
 }
 
 export const CERTIFICATION_LABELS: Record<CertificationStatus, string> = {
@@ -65,13 +67,12 @@ export interface CertificationStep {
 }
 
 /**
- * The learner's path to certification as a short checklist. Copy is action-oriented and never
- * mentions dialer-era workflow or disposition steps while Verbal Practice is the active mode.
+ * The learner's path to certification as a short checklist: every Checkpoint and every Verbal Practice scenario
+ * (GATE-03). Spaced-review recall is not a step; it shows as Keep-sharp (see `keepSharpSummary`).
+ * Copy is action-oriented and never mentions dialer-era workflow or disposition steps while Verbal Practice is active.
  */
 export function certificationSteps(analytics: LearningAnalytics, certification: CertificationDoc | null): CertificationStep[] {
   const completion = analytics.contentCompletion;
-  const mastery = analytics.currentMastery;
-  const retention = analytics.delayedRetention;
   const scenarios = analytics.scenarioCoverage;
   const workflow = analytics.workflowAccuracy;
   const steps: CertificationStep[] = [];
@@ -81,20 +82,6 @@ export function certificationSteps(analytics: LearningAnalytics, certification: 
       label: 'Finish every Checkpoint',
       done: completion.completed >= completion.total,
       detail: `${completion.completed} of ${completion.total}`,
-    });
-  }
-  if (mastery.total > 0) {
-    steps.push({
-      label: 'Recall each Playbook rule again on a later day',
-      done: mastery.mastered >= mastery.total,
-      detail: `${mastery.mastered} of ${mastery.total} rules`,
-    });
-  }
-  if (retention.due > 0) {
-    steps.push({
-      label: 'Clear the reviews that are due',
-      done: retention.completed >= retention.due && retention.correct >= retention.completed,
-      detail: `${Math.max(0, retention.due - retention.completed)} due`,
     });
   }
   if (scenarios.total > 0) {
@@ -128,6 +115,26 @@ export function certificationSteps(analytics: LearningAnalytics, certification: 
   return steps;
 }
 
+export interface KeepSharpSummary {
+  rulesRetained: number;
+  ruleCount: number;
+  reviewsDue: number;
+}
+
+/** Ongoing recall health: Playbook rules recalled on a later day, and spaced reviews waiting now. */
+export function keepSharpSummary(analytics: LearningAnalytics): KeepSharpSummary {
+  const retention = analytics.delayedRetention;
+  return {
+    rulesRetained: analytics.currentMastery.mastered,
+    ruleCount: analytics.currentMastery.total,
+    reviewsDue: Math.max(0, retention.due - retention.completed),
+  };
+}
+
+function reviewsDueText(count: number): string {
+  return `${count} review${count === 1 ? '' : 's'} due to stay sharp`;
+}
+
 /** Compact learner progress + certification summary for one Track. Detail stays collapsed by default. */
 export function LearningEvidencePanel({
   analytics,
@@ -135,9 +142,12 @@ export function LearningEvidencePanel({
   scenarioCoverage = [],
   scenarioLabels = {},
   ruleLabels = {},
+  reviewsDue,
 }: LearningEvidencePanelProps) {
   const status = certification?.status ?? analytics.certificationStatus;
-  const steps = certificationSteps(analytics, certification);
+  const certified = status === 'certified';
+  const steps = certified ? [] : certificationSteps(analytics, certification);
+  const keepSharp = { ...keepSharpSummary(analytics), ...(reviewsDue !== undefined ? { reviewsDue } : {}) };
   const doneCount = steps.filter((step) => step.done).length;
   const outstandingAreas = [
     ...new Set(analytics.outstandingRuleIds.map((ruleId) => ruleLabels[ruleId]).filter((label): label is string => Boolean(label))),
@@ -184,6 +194,11 @@ export function LearningEvidencePanel({
       {certifiedAt ? (
         <p className="text-xs text-pulse-muted">
           Certified <span className="pulse-metric text-pulse-secondary">{certifiedAt}</span>
+          {certified && keepSharp.reviewsDue > 0 ? (
+            <>
+              {' '}· <span className="font-medium text-pulse-amber">{reviewsDueText(keepSharp.reviewsDue)}</span>
+            </>
+          ) : null}
           {expiresAt ? (
             <>
               {' '}· expires <span className="pulse-metric text-pulse-secondary">{expiresAt}</span>
@@ -195,6 +210,17 @@ export function LearningEvidencePanel({
             </>
           ) : null}
         </p>
+      ) : null}
+      {keepSharp.ruleCount > 0 ? (
+        <div className="rounded-pulse-sm bg-pulse-surface-2/60 px-3 py-2 text-xs">
+          <p className="pulse-label">Keep-sharp</p>
+          <p className="mt-0.5 text-pulse-secondary">
+            Rules retained <span className="pulse-metric font-semibold text-pulse-primary">{keepSharp.rulesRetained}</span> of{' '}
+            <span className="pulse-metric">{keepSharp.ruleCount}</span>
+            {!certified && keepSharp.reviewsDue > 0 ? <> · {reviewsDueText(keepSharp.reviewsDue)}</> : null}
+          </p>
+          <p className="mt-0.5 text-pulse-muted">Spaced reviews keep rules fresh. They do not affect certification.</p>
+        </div>
       ) : null}
       {certification?.revocationReason ? (
         <p className="rounded-pulse-md border border-pulse-crimson/30 bg-pulse-crimson/10 px-3 py-2 text-xs text-pulse-secondary">

@@ -1,26 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { Award, Download, Users } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Download, Users } from 'lucide-react';
+import { STAGE_LABELS, type ProgressCell } from '@/lib/services/team-progress';
+import { ProgressStatusChip, progressStatusText } from '@/components/progress/ProgressStatusChip';
 import { csvEscape } from '@/components/progress/csv-escape';
 
-export type CertificationCellStatus =
-  | 'CERTIFIED'
-  | 'IN_PROGRESS'
-  | 'READY_FOR_TRAINER_REVIEW'
-  | 'RECERTIFICATION_REQUIRED'
-  | 'EXPIRED'
-  | 'REVOKED'
-  | 'HISTORICAL_UNVERIFIED'
-  | 'NOT_STARTED'
-  | 'NOT_ASSIGNED';
-
-export interface CertificationCell {
-  status: CertificationCellStatus;
-  /** Optional display percentage; not a measure of live-call readiness. */
-  pct: number | null;
-}
+/** One agent's status on one Track: the Team Progress ladder, so every screen agrees. */
+export type CertificationCell = ProgressCell;
 
 export interface CertificationMatrixTrack {
   id: string;
@@ -34,29 +21,6 @@ export interface CertificationMatrixAgent {
   lcNumber: string | null;
   cohortLabel: string;
   cells: Record<string, CertificationCell>;
-}
-
-function cellText(cell: CertificationCell): string {
-  switch (cell.status) {
-    case 'CERTIFIED':
-      return cell.pct === null ? 'Certified' : `Certified (${Math.round(cell.pct)}%)`;
-    case 'IN_PROGRESS':
-      return `In Progress (${Math.round(cell.pct ?? 0)}%)`;
-    case 'READY_FOR_TRAINER_REVIEW':
-      return 'Trainer Review Required';
-    case 'RECERTIFICATION_REQUIRED':
-      return 'Recertification Required';
-    case 'EXPIRED':
-      return 'Expired';
-    case 'REVOKED':
-      return 'Revoked';
-    case 'HISTORICAL_UNVERIFIED':
-      return 'Historical — Unverified';
-    case 'NOT_STARTED':
-      return 'Not Started';
-    case 'NOT_ASSIGNED':
-      return 'Not Assigned';
-  }
 }
 
 /** Agent × published Track certification grid with 1-click CSV export. */
@@ -77,7 +41,7 @@ export function CertificationMatrix({
         agent.displayName,
         agent.lcNumber ?? '',
         agent.cohortLabel,
-        ...tracks.map((t) => cellText(agent.cells[t.id] ?? { status: 'NOT_STARTED', pct: null })),
+        ...tracks.map((t) => (agent.cells[t.id] ? progressStatusText(agent.cells[t.id]) : STAGE_LABELS.not_started)),
       ];
       lines.push(row.map(csvEscape).join(','));
     }
@@ -93,7 +57,7 @@ export function CertificationMatrix({
   }
 
   const certifiedTotal = agents.reduce(
-    (sum, a) => sum + Object.values(a.cells).filter((c) => c.status === 'CERTIFIED').length,
+    (sum, a) => sum + Object.values(a.cells).filter((c) => c.stage === 'certified').length,
     0,
   );
 
@@ -152,10 +116,10 @@ export function CertificationMatrix({
                     </span>
                   </th>
                   {tracks.map((track) => {
-                    const cell = agent.cells[track.id] ?? { status: 'NOT_STARTED', pct: null };
+                    const cell = agent.cells[track.id];
                     return (
                       <td key={track.id} className="px-3 py-2">
-                        <StatusChip cell={cell} />
+                        {cell ? <ProgressStatusChip cell={cell} /> : <span className="text-xs text-pulse-muted">{STAGE_LABELS.not_started}</span>}
                       </td>
                     );
                   })}
@@ -167,27 +131,4 @@ export function CertificationMatrix({
       )}
     </div>
   );
-}
-
-function StatusChip({ cell }: { cell: CertificationCell }) {
-  const text = cellText(cell);
-  if (cell.status === 'CERTIFIED') {
-    return (
-      <span className="pulse-pill pulse-pill-emerald pulse-metric">
-        <Award aria-hidden className="size-3.5" />
-        {text}
-      </span>
-    );
-  }
-  if (
-    cell.status === 'IN_PROGRESS' ||
-    cell.status === 'READY_FOR_TRAINER_REVIEW' ||
-    cell.status === 'RECERTIFICATION_REQUIRED'
-  ) {
-    return <span className="pulse-pill pulse-pill-amber pulse-metric">{text}</span>;
-  }
-  if (cell.status === 'EXPIRED' || cell.status === 'REVOKED') {
-    return <span className="pulse-pill pulse-pill-crimson">{text}</span>;
-  }
-  return <span className={cn('text-xs text-pulse-muted', cell.status === 'NOT_ASSIGNED' && 'opacity-60')}>{text}</span>;
 }

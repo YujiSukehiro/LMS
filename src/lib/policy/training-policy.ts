@@ -13,6 +13,11 @@ export interface TrainingPolicyConfig {
   allowSameSittingRuleMastery: boolean;
   /** GATE-03: Whether a due spaced review (a day or more after the first sitting) satisfies rule mastery. */
   allowSpacedReviewAsMastery: boolean;
+  /**
+   * GATE-03: Whether certification also needs every required Playbook rule recalled (and retained) on a later day.
+   * false = certified when every Checkpoint and every Verbal Practice scenario is passed; spaced review is Keep-sharp.
+   */
+  certificationRequiresRuleRecall: boolean;
   /** GATE-04: Whether Gemini (`hosted_ai`) simulation evaluations may grant official Track certification. */
   allowHostedAiForCertification: boolean;
   /** GATE-05: Whether learner Track visibility also enforces `user.divisionIds` in addition to Cohort assignment. */
@@ -24,9 +29,14 @@ export const TRAINING_POLICY: TrainingPolicyConfig = {
   requireDispositionInVerbalPractice: false,
   allowSameSittingRuleMastery: false,
   allowSpacedReviewAsMastery: true,
+  // GATE-03 decided 2026-11-23 (QA fix plan decision 3, recommended option): "ready" = all Checkpoints + all Verbal
+  // Practice passed. Rule recall on a later day shows as Keep-sharp and no longer blocks certification.
+  certificationRequiresRuleRecall: false,
   // GATE-04 approved by Connor 2026-11-20: production runs Gemini, so hosted_ai sessions may certify.
   allowHostedAiForCertification: true,
-  enforceLearnerDivisionVisibility: false,
+  // GATE-05 decided 2026-11-23 (QA fix plan decision 1, recommended option): a Track shows only to learners whose
+  // divisionIds include its Division, on top of Cohort assignment.
+  enforceLearnerDivisionVisibility: true,
 };
 
 export interface ApprovalGateEntry {
@@ -58,8 +68,9 @@ export const APPROVAL_GATES: readonly ApprovalGateEntry[] = [
   {
     id: 'GATE-03',
     title: 'Single-sitting certification vs delayed spaced-review gate',
-    status: 'PENDING_CONNOR',
-    currentDefault: 'allowSameSittingRuleMastery = false (single-drill spaced_review fixed; Retention Hub built)',
+    status: 'APPROVED',
+    currentDefault:
+      'certificationRequiresRuleRecall = false (2026-11-23 QA fix plan: certify on all Checkpoints + all Verbal Practice; spaced review is Keep-sharp)',
     pausedScope: 'Letting first-sitting Checkpoint completion unlock Campaign Certified immediately while Retention tracks ongoing Keep-Sharp health',
     codeLocation: 'src/lib/policy/training-policy.ts, src/lib/services/certification.ts',
   },
@@ -74,8 +85,8 @@ export const APPROVAL_GATES: readonly ApprovalGateEntry[] = [
   {
     id: 'GATE-05',
     title: 'Learner Track visibility by divisionIds',
-    status: 'PENDING_CONNOR',
-    currentDefault: 'enforceLearnerDivisionVisibility = false (visibility filtered by assignedCohortIds)',
+    status: 'APPROVED',
+    currentDefault: 'enforceLearnerDivisionVisibility = true (2026-11-23 QA fix plan: Cohort assignment AND matching divisionIds)',
     pausedScope: 'Filtering learner tracks by user.divisionIds alongside partnerCohortId',
     codeLocation: 'src/lib/policy/training-policy.ts, src/lib/services/track-loader.ts',
   },

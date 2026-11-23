@@ -4,7 +4,8 @@ import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft, TriangleAlert } from 'lucide-react';
 import { requirePageUser } from '@/lib/firebase/auth-guard';
 import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
-import { loadCohortOptions, loadDraftWithSecrets, loadTrack, trackNeedsBuild } from '@/components/analytics/server-data';
+import { loadAllAgents, loadCohortOptions, loadDraftWithSecrets, loadTrack, trackNeedsBuild } from '@/components/analytics/server-data';
+import type { PublishCohortOption } from '@/components/studio/PublishDialog';
 import { GenerationStepper } from '@/components/studio/GenerationStepper';
 import { newTrackViewFor } from '@/components/studio/generation-view';
 import { TrackStudio } from '@/components/studio/TrackStudio';
@@ -39,7 +40,18 @@ export default async function TrackStudioPage({
     );
   }
 
-  const [{ draft, secrets }, cohorts] = await Promise.all([loadDraftWithSecrets(track.id), loadCohortOptions()]);
+  const [{ draft, secrets }, cohortOptions, agents] = await Promise.all([
+    loadDraftWithSecrets(track.id),
+    loadCohortOptions(),
+    loadAllAgents(),
+  ]);
+  // Publish & Assign lists each Cohort with how many active agents it would reach (Cohort + the Track's Division).
+  const reachByCohort = new Map<string, number>();
+  for (const agent of agents) {
+    if (!agent.active || !agent.divisionIds.includes(track.divisionId)) continue;
+    reachByCohort.set(agent.partnerCohortId, (reachByCohort.get(agent.partnerCohortId) ?? 0) + 1);
+  }
+  const cohorts: PublishCohortOption[] = cohortOptions.map((cohort) => ({ ...cohort, reach: reachByCohort.get(cohort.id) ?? 0 }));
 
   if (!draft) {
     return (

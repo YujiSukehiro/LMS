@@ -5,6 +5,7 @@ import { CheckpointMap, type CheckpointMapScenario, type CheckpointMapUnit } fro
 import { LearningEvidencePanel } from '@/components/learn/LearningEvidencePanel';
 import { ServiceError } from '@/lib/services/errors';
 import { loadLearningEvidenceForUser, type LearningEvidenceView } from '@/lib/services/learning-evidence';
+import { loadRetentionQueueForUser } from '@/lib/services/retention-queue';
 import { TrackHeader } from '../_components/TrackHeader';
 import { loadBestScenarioScores, loadLearnContext, readVersionParam } from '../_lib/learn-context';
 import { allUnitsComplete, computeUnitStates, previewSuffix, sortUnits } from '../_lib/unit-states';
@@ -44,10 +45,17 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
       : (enrollment?.passedScenarioIds ?? []),
   );
   const certified = evidence?.certification?.status === 'certified';
-  const masteryPct = evidence?.analytics.currentMastery.ratio === null || !evidence
-    ? null
-    : evidence.analytics.currentMastery.ratio * 100;
-  const bestScores = isPreview ? {} : await loadBestScenarioScores(ctx.user.uid, trackId);
+  const [bestScores, retention] = isPreview
+    ? [{} as Record<string, number>, null]
+    : await Promise.all([
+        loadBestScenarioScores(ctx.user.uid, trackId),
+        // Same counts as the Keep-Sharp Review page, so "N reviews scheduled" matches "Practice upcoming (N)".
+        loadRetentionQueueForUser(ctx.user, { trackId })
+          .then((queue) => queue.trackSummaries.find((summary) => summary.trackId === trackId) ?? null)
+          .catch(() => null),
+      ]);
+  const reviewsDue = retention?.dueCount ?? 0;
+  const reviewsUpcoming = retention?.upcomingCount ?? 0;
 
   const ruleLabels: Record<string, string> = {};
   for (const unit of units) {
@@ -83,7 +91,10 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
 
       <TrackHeader
         track={track}
-        masteryPct={masteryPct}
+        checkpointsDone={completedUnitIds.filter((id) => units.some((u) => u.id === id)).length}
+        checkpointCount={units.length}
+        practicePassed={version.simScenarios.filter((scenario) => passedScenarioIds.has(scenario.id)).length}
+        practiceCount={version.simScenarios.length}
         xpEarned={enrollment?.xpEarned ?? 0}
         certified={certified}
         isPreview={isPreview}
@@ -119,9 +130,7 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
           />
         </section>
         <aside className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-20">
-          {!isPreview &&
-          evidence &&
-          (evidence.analytics.delayedRetention.due > 0 || evidence.analytics.upcomingReviews.length > 0) ? (
+          {!isPreview && (reviewsDue > 0 || reviewsUpcoming > 0) ? (
             <section
               aria-label="Track Knowledge Retention"
               className="pulse-card flex flex-wrap items-center justify-between gap-3 px-4 py-2.5"
@@ -130,15 +139,15 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
                 <Brain aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
                 <div>
                   <p className="text-sm font-semibold text-pulse-primary">
-                    {evidence.analytics.delayedRetention.due > 0
-                      ? `${evidence.analytics.delayedRetention.due} review${evidence.analytics.delayedRetention.due === 1 ? '' : 's'} due for this Track`
-                      : `${evidence.analytics.upcomingReviews.length} review${evidence.analytics.upcomingReviews.length === 1 ? '' : 's'} scheduled`}
+                    {reviewsDue > 0
+                      ? `${reviewsDue} review${reviewsDue === 1 ? '' : 's'} due for this Track`
+                      : `${reviewsUpcoming} review${reviewsUpcoming === 1 ? '' : 's'} scheduled`}
                   </p>
                 </div>
               </div>
               <Link
                 href={`/learn/review?trackId=${encodeURIComponent(trackId)}`}
-                className={evidence.analytics.delayedRetention.due > 0 ? 'pulse-btn pulse-btn-primary text-xs' : 'pulse-btn text-xs'}
+                className={reviewsDue > 0 ? 'pulse-btn pulse-btn-primary text-xs' : 'pulse-btn text-xs'}
               >
                 Review now <ArrowRight aria-hidden className="size-3.5" />
               </Link>
@@ -152,6 +161,7 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
               scenarioCoverage={evidence.scenarioCoverage}
               scenarioLabels={evidence.scenarioLabels}
               ruleLabels={ruleLabels}
+              reviewsDue={retention ? reviewsDue : undefined}
             />
           ) : null}
         </aside>

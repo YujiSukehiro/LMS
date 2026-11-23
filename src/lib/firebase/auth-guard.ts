@@ -54,6 +54,7 @@ export function sessionUserFromClaims(decoded: DecodedIdToken): VerifyOutcome {
       partnerCohortId: parsed.data.partnerCohortId,
       divisionIds: parsed.data.divisionIds,
       active: true,
+      ...(decoded.mustChangePassword === true ? { mustChangePassword: true } : {}),
     },
   };
 }

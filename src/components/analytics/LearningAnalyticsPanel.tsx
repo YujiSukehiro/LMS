@@ -173,12 +173,12 @@ export function LearningAnalyticsPanel({
           icon={<Brain className="size-4" />}
         />
         <AnalyticsMetric
-          label="Current mastery"
-          description="Rules currently meeting the mastery policy out of all required rules."
+          label="Rules retained"
+          description="Required Playbook rules recalled correctly on a later day (Keep-sharp). Does not affect certification."
           numerator={analytics.currentMastery.mastered}
           denominator={analytics.currentMastery.total}
           ratio={analytics.currentMastery.ratio}
-          countLabel="rules mastered"
+          countLabel="rules retained"
           icon={<Check className="size-4" />}
         />
         <AnalyticsMetric

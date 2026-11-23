@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { computeProgressPct } from '@/lib/services/scoring';
 import { ArrowRight, Award, BookOpen, Brain, Clock, Flame, Gauge, Layers, Radar, Sparkles, Zap } from 'lucide-react';
 import type { SessionUser } from '@/lib/schemas/domain';
 import type { EnrollmentDoc } from '@/lib/schemas/analytics';
@@ -151,7 +152,14 @@ export async function AgentHome({ user }: { user: SessionUser }) {
 
 function AgentTrackCard({ track, enrollment }: { track: TrackDoc; enrollment: EnrollmentDoc | null }) {
   const status = enrollment?.status ?? 'NOT_STARTED';
-  const progress = enrollment?.progressPct ?? 0;
+  // Recomputed from the counts, not the stored progressPct, so older enrollments use the current formula.
+  const checkpointsDone = Math.min(enrollment?.completedUnitIds.length ?? 0, track.unitCount);
+  const progress = computeProgressPct({
+    completedUnitCount: checkpointsDone,
+    unitCount: track.unitCount,
+    passedScenarioCount: Math.min(enrollment?.passedScenarioIds.length ?? 0, track.simScenarioCount),
+    scenarioCount: track.simScenarioCount,
+  });
   const cta = status === 'CERTIFIED' ? 'Practice Again' : status === 'IN_PROGRESS' ? 'Continue' : 'Start Track';
   return (
     <Link
@@ -169,7 +177,9 @@ function AgentTrackCard({ track, enrollment }: { track: TrackDoc; enrollment: En
             Certified
           </span>
         ) : status === 'IN_PROGRESS' ? (
-          <span className="pulse-pill pulse-pill-amber pulse-metric">In Progress {Math.round(progress)}%</span>
+          <span className="pulse-pill pulse-pill-amber pulse-metric">
+            {checkpointsDone} of {track.unitCount} Checkpoints
+          </span>
         ) : (
           <span className="pulse-pill">Not Started</span>
         )}

@@ -33,6 +33,7 @@ import { addDrill, fetchDraftSecrets, patchTrackDraft, regenerateItem } from './
 import { AddDrillButton, TrackAttentionBanner, UnitAttentionPanel } from './UnitAttentionPanel';
 import { appendDrill, refreshUnitReviewNotes } from './unit-review';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { DIVISION_LABELS } from '@/lib/schemas/constants';
 import { ensureVerbalScenarioDefaults, ensureVerbalSecretDefaults } from '@/lib/services/verbal-defaults';
 import { DEPTH_LIMITS } from '@/lib/ai/pipeline/content-depth';
 import { issueTargetsKey, validateStudioDraft, type StudioIssue } from './validation';
@@ -332,7 +333,9 @@ export function TrackStudio({
             trackId={track.id}
             trackTitle={title || track.title}
             cohorts={cohorts}
-            initialCohortIds={track.assignedCohortIds}
+            // First publish starts with nothing picked; a re-publish keeps the current assignment.
+            initialCohortIds={track.publishedVersionId ? track.assignedCohortIds : []}
+            divisionLabel={DIVISION_LABELS[track.divisionId]}
             beforePublish={beforePublish}
             onOpenSourceReview={() => setMode('source')}
             disabled={saveState.kind === 'saving'}

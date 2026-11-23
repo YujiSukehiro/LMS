@@ -21,6 +21,8 @@ import { DivisionPill } from '@/components/layout/DivisionPill';
 import { CohortBadge } from '@/components/layout/CohortBadge';
 import { formatDate, pillarLabel } from '@/components/layout/labels';
 import { cn } from '@/lib/utils';
+import { canManageUser } from '@/lib/auth/rbac';
+import { ResetPasswordDialog } from '@/app/(dashboard)/roster/_components/ResetPasswordDialog';
 import { SIM_COPY } from '@/lib/policy/training-policy';
 
 export const metadata: Metadata = { title: 'Agent Learning Evidence' };
@@ -55,6 +57,8 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
       return await loadLearningEvidenceForUser({ user: viewer, learnerId: agent.uid, trackId: enrollment.trackId });
     } catch (error) {
       if (error instanceof ServiceError && error.code === 'ASSESSMENT_BLUEPRINT_MISSING') return null;
+      // A Track no longer assigned to this learner (Cohort or Division changed): history stays in the tables below.
+      if (error instanceof ServiceError && error.code === 'TRACK_NOT_FOUND') return null;
       throw error;
     }
   }))).filter((view): view is LearningEvidenceView => view !== null);
@@ -108,6 +112,12 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
             {agent.active ? null : <span className="pulse-pill pulse-pill-crimson">Inactive</span>}
           </div>
         </div>
+        {canManageUser(viewer, agent, 'users.resetPassword') ? (
+          <div className="flex items-center gap-2 text-sm text-pulse-secondary">
+            Reset password
+            <ResetPasswordDialog uid={agent.uid} displayName={agent.displayName} loginIdentifier={agent.lcNumber ?? agent.email} />
+          </div>
+        ) : null}
       </header>
 
       <KpiStrip

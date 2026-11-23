@@ -264,6 +264,7 @@ export default async function RosterPage({
                     <CohortCardActions
                       cohortId={cohort.id}
                       cohortName={cohort.name}
+                      joinCode={cohort.joinCode}
                       joinCodeEnabled={cohort.joinCodeEnabled}
                     />
                   ) : null}

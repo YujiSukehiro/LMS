@@ -7,6 +7,7 @@ import { RosterUpdatePermissionsResponseSchema } from '@/lib/schemas/api';
 import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import type { DivisionId, UserDoc, UserRole } from '@/lib/schemas/domain';
 import { DivisionCheckboxes, RoleRadioGroup, readApiError } from './RosterFormFields';
+import { STAFF_ROLES, roleCohortFitError } from '@/lib/auth/rbac';
 
 interface EditableUser {
   uid: string;
@@ -52,6 +53,8 @@ export function EditUserPermissionsDialog({
   function close(): void {
     dialogRef.current?.close();
   }
+
+  const fitError = roleCohortFitError(role, cohorts.find((c) => c.id === partnerCohortId)?.isInternal === true);
 
   function handleRoleChange(nextRole: UserRole): void {
     setRole(nextRole);
@@ -171,12 +174,22 @@ export function EditUserPermissionsDialog({
                 value={partnerCohortId}
                 onChange={(e) => setPartnerCohortId(e.target.value)}
               >
-                {cohorts.map((cohort) => (
-                  <option key={cohort.id} value={cohort.id}>
-                    {cohort.name} ({cohort.id})
-                  </option>
-                ))}
+                {cohorts.map((cohort) => {
+                  const blocked = roleCohortFitError(role, cohort.isInternal) !== null;
+                  return (
+                    <option key={cohort.id} value={cohort.id} disabled={blocked && cohort.id !== partnerCohortId}>
+                      {cohort.name} ({cohort.id}){blocked ? ' · not for this role' : ''}
+                    </option>
+                  );
+                })}
               </select>
+              {fitError ? (
+                <p role="alert" className="mt-1.5 text-xs text-pulse-crimson">
+                  {fitError}
+                </p>
+              ) : STAFF_ROLES.includes(role) ? (
+                <p className="mt-1.5 text-xs text-pulse-muted">Trainer, Admin and Super Admin accounts stay in an internal Cohort.</p>
+              ) : null}
             </div>
 
             <DivisionCheckboxes
@@ -197,7 +210,7 @@ export function EditUserPermissionsDialog({
             <button type="button" className="pulse-btn pulse-btn-ghost" onClick={close} disabled={pending}>
               Cancel
             </button>
-            <button type="submit" className="pulse-btn pulse-btn-primary" disabled={pending}>
+            <button type="submit" className="pulse-btn pulse-btn-primary" disabled={pending || fitError !== null}>
               {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
               Save access
             </button>

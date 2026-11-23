@@ -40,12 +40,22 @@ describe('Unit scoring', () => {
     expect(nextStreak({ currentStreakDays: 2, lastActiveDateUtc: '2026-10-30' }, NOW + DAY).currentStreakDays).toBe(1);
   });
 
-  it('weights progress toward Unit completion and a passed Simulation', () => {
-    expect(computeProgressPct({ completedUnitCount: 0, unitCount: 4, passedScenarioCount: 0 })).toBe(0);
-    expect(computeProgressPct({ completedUnitCount: 4, unitCount: 4, passedScenarioCount: 1 })).toBe(100);
-    const partial = computeProgressPct({ completedUnitCount: 2, unitCount: 4, passedScenarioCount: 0 });
-    expect(partial).toBeGreaterThan(0);
-    expect(partial).toBeLessThan(100);
+  it('weights progress toward Unit completion and passed Simulation scenarios', () => {
+    expect(computeProgressPct({ completedUnitCount: 0, unitCount: 4, passedScenarioCount: 0, scenarioCount: 2 })).toBe(0);
+    expect(computeProgressPct({ completedUnitCount: 4, unitCount: 4, passedScenarioCount: 2, scenarioCount: 2 })).toBe(100);
+    const partial = computeProgressPct({ completedUnitCount: 2, unitCount: 4, passedScenarioCount: 0, scenarioCount: 2 });
+    expect(partial).toBe(40);
+  });
+
+  it('gives only part of the practice weight when 1 of 2 scenarios is passed (QA H1)', () => {
+    // Before: one passed scenario earned the full 20%, so an agent read 100% (shown as 99%) with a scenario still open.
+    expect(computeProgressPct({ completedUnitCount: 3, unitCount: 3, passedScenarioCount: 1, scenarioCount: 2 })).toBe(90);
+    expect(computeProgressPct({ completedUnitCount: 3, unitCount: 3, passedScenarioCount: 0, scenarioCount: 2 })).toBe(80);
+  });
+
+  it('puts all the weight on Checkpoints when a Track has no scenarios', () => {
+    expect(computeProgressPct({ completedUnitCount: 1, unitCount: 2, passedScenarioCount: 0, scenarioCount: 0 })).toBe(50);
+    expect(computeProgressPct({ completedUnitCount: 2, unitCount: 2, passedScenarioCount: 0, scenarioCount: 0 })).toBe(100);
   });
 
   it('maps scores to strength bands', () => {

@@ -99,18 +99,26 @@ export function isTrackAssignedToUser(
   );
 }
 
+/**
+ * True when the Track is assigned to this learner: their Cohort is assigned and, while GATE-05 is on, their
+ * divisionIds include the Track's Division. Ignores publish state (use isTrackVisibleToLearner for access).
+ */
+export function isTrackAssignedToLearner(
+  track: Pick<TrackDoc, 'assignedCohortIds' | 'divisionId'>,
+  user: Pick<SessionUser, 'partnerCohortId'> & { divisionIds?: readonly string[] },
+): boolean {
+  if (!isTrackAssignedToUser(track, user)) return false;
+  if (!TRAINING_POLICY.enforceLearnerDivisionVisibility) return true;
+  // Fail closed: a learner record without divisionIds sees no division-scoped Track.
+  return Array.isArray(user.divisionIds) && user.divisionIds.includes(track.divisionId);
+}
+
 /** True when a learner (any role) can see and train on the Track's published version. */
 export function isTrackVisibleToLearner(
   track: Pick<TrackDoc, 'status' | 'publishedVersionId' | 'assignedCohortIds' | 'divisionId'>,
   user: Pick<SessionUser, 'partnerCohortId'> & { divisionIds?: readonly string[] },
 ): boolean {
-  if (track.status !== 'PUBLISHED' || !track.publishedVersionId || !isTrackAssignedToUser(track, user)) {
-    return false;
-  }
-  if (TRAINING_POLICY.enforceLearnerDivisionVisibility && Array.isArray(user.divisionIds)) {
-    return user.divisionIds.includes(track.divisionId);
-  }
-  return true;
+  return track.status === 'PUBLISHED' && Boolean(track.publishedVersionId) && isTrackAssignedToLearner(track, user);
 }
 
 export type ResolveVersionResult =

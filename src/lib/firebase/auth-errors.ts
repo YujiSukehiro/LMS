@@ -12,8 +12,9 @@ function readCode(error: unknown): string | null {
 
 const MESSAGES: Record<string, string> = {
   'auth/invalid-credential': 'The LC Number, email, or password is not correct.',
-  'auth/wrong-password': 'The password is not correct.',
-  'auth/user-not-found': 'No account uses this LC Number or email.',
+  // Same message as invalid-credential, so the sign-in page never confirms which LC Numbers exist (QA L16).
+  'auth/wrong-password': 'The LC Number, email, or password is not correct.',
+  'auth/user-not-found': 'The LC Number, email, or password is not correct.',
   'auth/invalid-email': 'Type a valid LC Number (for example LC-1042) or an email address.',
   'auth/missing-password': 'Type your password.',
   'auth/user-disabled': 'This account is deactivated. Contact your LogiCall administrator.',

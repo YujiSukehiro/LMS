@@ -29,6 +29,11 @@ export interface BoardAgent {
 
 type ColumnId = 'not_started' | 'learning' | 'checkpoints_done' | 'certified';
 
+/** A flag a supervisor should act on (info flags are context, not problems). */
+function isProblem(cell: ProgressCell): boolean {
+  return cell.flag !== null && cell.flag.tone !== 'info';
+}
+
 const COLUMNS: Array<{ id: ColumnId; label: string; icon: LucideIcon; tone: string; tile: string; avatar: string }> = [
   { id: 'not_started', label: 'Not started', icon: CircleDashed, tone: 'text-pulse-secondary', tile: 'bg-pulse-surface-2', avatar: 'bg-pulse-indigo/10 text-pulse-indigo-text' },
   { id: 'learning', label: 'Learning', icon: Clock, tone: 'text-pulse-amber', tile: 'bg-pulse-amber/10', avatar: 'bg-pulse-indigo/10 text-pulse-indigo-text' },
@@ -89,7 +94,7 @@ export function TeamProgressBoard({ tracks, agents }: { tracks: BoardTrack[]; ag
     }
     // Problems first, then least progress, then name.
     const order = (a: CardData, b: CardData) =>
-      Number(Boolean(b.cell.flag)) - Number(Boolean(a.cell.flag)) ||
+      Number(isProblem(b.cell)) - Number(isProblem(a.cell)) ||
       (b.cell.stalledDays ?? 0) - (a.cell.stalledDays ?? 0) ||
       stageRank(a.cell) - stageRank(b.cell) ||
       a.cell.unitsDoneCount - b.cell.unitsDoneCount ||
@@ -115,7 +120,7 @@ export function TeamProgressBoard({ tracks, agents }: { tracks: BoardTrack[]; ag
           `${cell.unitsDoneCount}/${cell.unitsDone.length}`,
           cell.bestSimPct === null ? '' : String(Math.round(cell.bestSimPct)),
           cell.detail,
-          cell.flag?.text ?? '',
+          isProblem(cell) ? (cell.flag?.text ?? '') : '',
           cell.nextStep ?? '',
         ]
           .map(csvEscape)
@@ -197,7 +202,7 @@ export function TeamProgressBoard({ tracks, agents }: { tracks: BoardTrack[]; ag
         {COLUMNS.map((column) => {
           const cards = columns[column.id];
           const Icon = column.icon;
-          const flagged = cards.filter((c) => c.cell.flag).length;
+          const flagged = cards.filter((c) => isProblem(c.cell)).length;
           const limit = expanded[column.id] ? cards.length : Math.max(COLUMN_PREVIEW, flagged);
           const shown = cards.slice(0, limit);
           const hidden = cards.length - shown.length;
@@ -273,7 +278,7 @@ function AgentCard({
   avatarClass: string;
   track: BoardTrack;
 }) {
-  const flagTone = cell.flag?.tone === 'danger' ? 'text-pulse-crimson' : 'text-pulse-amber';
+  const flagTone = cell.flag?.tone === 'danger' ? 'text-pulse-crimson' : cell.flag?.tone === 'info' ? 'text-pulse-muted' : 'text-pulse-amber';
   let subline: string;
   switch (column) {
     case 'not_started':
@@ -294,7 +299,7 @@ function AgentCard({
     <article
       className={cn(
         'flex flex-col gap-2 rounded-pulse-md border bg-pulse-surface-1 p-3 shadow-sm',
-        cell.flag?.tone === 'danger' ? 'border-pulse-crimson/50' : cell.flag ? 'border-pulse-amber/50' : 'border-transparent',
+        cell.flag?.tone === 'danger' ? 'border-pulse-crimson/50' : cell.flag?.tone === 'warning' ? 'border-pulse-amber/50' : 'border-transparent',
       )}
     >
       <div className="flex items-start gap-2.5">
@@ -328,7 +333,7 @@ function AgentCard({
       ) : null}
 
       {cell.flag ? (
-        <p className={cn('text-xs font-semibold', flagTone)}>{cell.flag.text}</p>
+        <p className={cn('text-xs', cell.flag.tone === 'info' ? 'font-medium' : 'font-semibold', flagTone)}>{cell.flag.text}</p>
       ) : column === 'learning' ? (
         <p className="text-xs text-pulse-muted">
           {agent.activityLabel}
