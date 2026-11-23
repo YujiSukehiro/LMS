@@ -143,6 +143,8 @@ export class GeminiProvider implements LLMGateway {
   private readonly schemaFallback = new Map<string, 1 | 2>();
   /** Context caches by model + system prompt + prefix. A null name means caching failed: send the full prompt. */
   private readonly contextCaches = new Map<string, ContextCacheEntry>();
+  /** Models Gemini said do not support explicit caching (gemini-4-neon): not asked again. */
+  private readonly noCacheModels = new Set<string>();
 
   constructor(config: GeminiProviderConfig = {}) {
     this.apiKey = config.apiKey ?? nonEmpty(process.env.GEMINI_API_KEY);
@@ -187,7 +189,9 @@ export class GeminiProvider implements LLMGateway {
    * the whole prompt, so caching can only save money, never fail a build.
    */
   private contextCacheFor(model: string, systemInstruction: string, prefix: string): Promise<string | null> {
-    if (process.env.GEMINI_CONTEXT_CACHE === 'off' || prefix.length < MIN_CACHEABLE_PREFIX_CHARS) return Promise.resolve(null);
+    if (process.env.GEMINI_CONTEXT_CACHE === 'off' || prefix.length < MIN_CACHEABLE_PREFIX_CHARS || this.noCacheModels.has(model)) {
+      return Promise.resolve(null);
+    }
     const now = Date.now();
     for (const [key, entry] of this.contextCaches) {
       if (now - entry.createdAt > CONTEXT_CACHE_REUSE_MS) this.contextCaches.delete(key);
@@ -207,6 +211,7 @@ export class GeminiProvider implements LLMGateway {
       })
       .then((cache) => cache.name ?? null)
       .catch((error: unknown) => {
+        if (error instanceof Error && /caching is not supported/i.test(error.message)) this.noCacheModels.add(model);
         console.warn('[gemini] context cache not created; sending the full prompt', {
           model,
           status: errorStatus(error),
