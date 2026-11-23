@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
-import { canManageRole, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
+import { invitableRoles, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { RosterInviteLinkRequestSchema, RosterInviteLinkResponseSchema } from '@/lib/schemas/api';
 import { deliverInviteEmail } from '@/lib/email/invite-delivery';
 import { RosterInviteDocSchema } from '@/lib/schemas/domain';
@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ inviteI
   if (!snap.exists) return jsonError(404, 'NOT_FOUND', 'This invite does not exist.');
   const invite = RosterInviteDocSchema.safeParse({ id: snap.id, ...snap.data() });
   if (!invite.success) return jsonError(404, 'NOT_FOUND', 'This invite record is not valid.');
-  if (!canManageRole(auth.user.role, invite.data.role)) {
+  if (!invitableRoles(auth.user.role).includes(invite.data.role)) {
     return jsonError(403, 'FORBIDDEN', manageDeniedReason(auth.user.role, invite.data.role));
   }
   if (invite.data.status !== 'PENDING') return jsonError(409, 'ALREADY_FINALIZED', 'Only pending invites have a setup link.');

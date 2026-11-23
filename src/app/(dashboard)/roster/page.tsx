@@ -14,7 +14,7 @@ import {
   type UserRole,
 } from '@/lib/schemas/domain';
 import { DIVISION_LABELS, ROLE_LABELS } from '@/lib/schemas/constants';
-import { assignableRoles, can, canManageRole, canManageUser, rolesWith } from '@/lib/auth/rbac';
+import { assignableRoles, can, canManageUser, invitableRoles, rolesWith } from '@/lib/auth/rbac';
 import { cn } from '@/lib/utils';
 import { BulkImportDialog } from './_components/BulkImportDialog';
 import {
@@ -175,6 +175,9 @@ export default async function RosterPage({
   const activeCount = allRows.filter((row) => row.active).length;
   const inactiveCount = allRows.length - activeCount;
   const allowedRoles = assignableRoles(actor.role);
+  const inviteRoles = invitableRoles(actor.role);
+  const canCreateCohorts = can(actor.role, 'cohorts.create');
+  const canEditAccess = can(actor.role, 'users.editAccess');
   const canEditCohorts = can(actor.role, 'cohorts.edit');
   const canDeleteCohorts = can(actor.role, 'cohorts.delete');
   // Every user (active or not) still pins a Cohort, so deletion stays blocked until it is empty.
@@ -200,11 +203,11 @@ export default async function RosterPage({
         <div className="flex flex-wrap items-center gap-2">
           <InviteStaffDialog
             cohorts={cohortChoices.map((c) => ({ id: c.id, name: c.name }))}
-            allowedRoles={allowedRoles}
+            allowedRoles={inviteRoles}
           />
           <BulkImportDialog
             cohorts={cohorts.map((c) => ({ id: c.id, name: c.name, defaultDivisionIds: c.defaultDivisionIds }))}
-            allowedRoles={allowedRoles}
+            allowedRoles={inviteRoles}
           />
         </div>
       </header>
@@ -214,14 +217,14 @@ export default async function RosterPage({
           <h2 id="cohort-heading" className="pulse-label">
             Cohorts
           </h2>
-          <CreateCohortDialog />
+          {canCreateCohorts ? <CreateCohortDialog /> : null}
         </div>
         {cohorts.length === 0 ? (
           <div className="pulse-card flex flex-wrap items-center justify-between gap-3 p-4">
             <p className="text-sm text-pulse-muted">
               No Cohorts exist yet. Initialize the 8 default Cohorts or click New Cohort.
             </p>
-            <BootstrapCohortsButton />
+            {canCreateCohorts ? <BootstrapCohortsButton /> : null}
           </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -265,7 +268,7 @@ export default async function RosterPage({
                       </span>
                     )}
                   </div>
-                  {!cohort.isInternal ? (
+                  {!cohort.isInternal && canEditCohorts ? (
                     <CohortCardActions
                       cohortId={cohort.id}
                       cohortName={cohort.name}
@@ -302,7 +305,7 @@ export default async function RosterPage({
               </thead>
               <tbody>
                 {pendingInvites.map((invite) => {
-                  const lockedInvite = !canManageRole(actor.role, invite.role);
+                  const lockedInvite = !inviteRoles.includes(invite.role);
                   return (
                     <tr key={invite.id} className="border-b border-pulse-border-subtle last:border-0">
                       <th scope="row" className="px-3 py-2 font-medium">
@@ -437,7 +440,7 @@ export default async function RosterPage({
                       </td>
                       <td className="px-3 py-2 text-right">
                         {locked ? (
-                          <span className="text-xs text-pulse-muted">{isSelf ? 'Your account' : 'Higher role'}</span>
+                          <span className="text-xs text-pulse-muted">{isSelf ? 'Your account' : canEditAccess ? 'Higher role' : 'View only'}</span>
                         ) : (
                           <div className="flex flex-nowrap items-center justify-end gap-1">
                             <EditUserPermissionsDialog

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { canManageRole, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
+import { invitableRoles, manageDeniedReason, rolesWith } from '@/lib/auth/rbac';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { RosterRevokeInviteRequestSchema, RosterRevokeInviteResponseSchema } from '@/lib/schemas/api';
@@ -27,7 +27,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ invite
   const invite = RosterInviteDocSchema.safeParse({ id: snap.id, ...snap.data() });
   if (!invite.success) return jsonError(404, 'NOT_FOUND', 'This invite record is not valid.');
 
-  if (!canManageRole(actor.role, invite.data.role)) {
+  if (!invitableRoles(actor.role).includes(invite.data.role)) {
     return jsonError(403, 'FORBIDDEN', manageDeniedReason(actor.role, invite.data.role));
   }
   if (invite.data.status !== 'PENDING') {

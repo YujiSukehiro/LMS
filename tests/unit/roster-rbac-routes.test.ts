@@ -437,6 +437,20 @@ describe('Roster RBAC & Cohort admin routes', () => {
     expect(((await invite.json()) as { error: string }).error).toBe('ROLE_COHORT_MISMATCH');
   });
 
+  it('lets a Trainer invite Trainers, supervisors and agents but not Admins', async () => {
+    activeActor.current = { ...activeActor.current, uid: 'trainer-1', role: 'TRAINER', partnerCohortId: 'INTERNAL' };
+    const invite = (role: string, email: string) =>
+      postCreateInvite(
+        new Request('http://localhost/api/roster/invites', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email, displayName: 'New Person', role, partnerCohortId: 'INTERNAL', divisionIds: ['TELEHEALTH'] }),
+        }),
+      );
+    expect((await invite('TRAINER', 'new.trainer@logicall.io')).status).toBe(200);
+    expect((await invite('ADMIN', 'new.admin@logicall.io')).status).toBe(403);
+  });
+
   it('creates pending email invites, rejects duplicates, and revokes invites cleanly', async () => {
     const createRes = await postCreateInvite(
       new Request('http://localhost/api/roster/invites', {

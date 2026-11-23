@@ -53,8 +53,9 @@ export const PERMISSIONS: Record<Permission, PermissionInfo> = {
   'progress.view': { label: 'See Team Progress', group: 'Insight', roles: [...INTERNAL, 'PARTNER_SUPERVISOR'] },
   'analytics.view': { label: 'See Analytics', group: 'Insight', roles: [...INTERNAL, 'PARTNER_SUPERVISOR'] },
   'analytics.viewAllCohorts': { label: 'See every Cohort (not only their own)', group: 'Insight', roles: INTERNAL },
-  'roster.view': { label: 'Open the Roster', group: 'People', roles: ADMINS },
-  'users.invite': { label: 'Invite staff and bulk-import agents', group: 'People', roles: ADMINS },
+  'roster.view': { label: 'Open the Roster', group: 'People', roles: [...ADMINS, 'TRAINER'] },
+  // Connor 2026-11-23: Trainers can add staff too (Trainers, supervisors and agents; never Admins).
+  'users.invite': { label: 'Invite staff and bulk-import agents', group: 'People', roles: [...ADMINS, 'TRAINER'] },
   'users.editAccess': { label: 'Change role, Cohort and Divisions', group: 'People', roles: ADMINS },
   'users.resetPassword': {
     label: 'Issue temporary passwords (supervisors: active agents in their own Cohort)',
@@ -104,9 +105,10 @@ export function canManageUser(
   return true;
 }
 
-/** Roles this actor may grant (invite, import, or change a user to). */
+/** Roles this actor may change an existing user to. */
 export function assignableRoles(actorRole: UserRole): UserRole[] {
-  if (!can(actorRole, 'users.editAccess') && !can(actorRole, 'users.invite')) return [];
+  // Changing an existing user's role needs users.editAccess; inviting uses invitableRoles.
+  if (!can(actorRole, 'users.editAccess')) return [];
   return ALL_ROLES.filter((role) => canManageRole(actorRole, role));
 }
 
@@ -123,6 +125,16 @@ export function roleCohortFitError(role: UserRole, cohortIsInternal: boolean): s
     return 'Trainer, Admin and Super Admin accounts must be in the LogiCall Internal Cohort. Move the user to an internal Cohort first.';
   }
   return null;
+}
+
+/**
+ * Roles this actor may invite or bulk-import. Trainers add fellow Trainers, Partner Supervisors and Agents (but no
+ * Admins); everyone else follows the hierarchy in assignableRoles.
+ */
+export function invitableRoles(actorRole: UserRole): UserRole[] {
+  if (!can(actorRole, 'users.invite')) return [];
+  if (actorRole === 'TRAINER') return ['TRAINER', 'PARTNER_SUPERVISOR', 'AGENT'];
+  return ALL_ROLES.filter((role) => canManageRole(actorRole, role));
 }
 
 /** Plain-language reason a management action is refused, for 403 responses and disabled buttons. */

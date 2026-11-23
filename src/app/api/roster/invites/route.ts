@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { deliverInviteEmail } from '@/lib/email/invite-delivery';
 import { inviteSetupPath, newInviteToken } from '@/lib/services/invite-token';
-import { assignableRoles, manageDeniedReason, roleCohortFitError, rolesWith } from '@/lib/auth/rbac';
+import { invitableRoles, manageDeniedReason, roleCohortFitError, rolesWith } from '@/lib/auth/rbac';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { isSyntheticLcEmail } from '@/lib/firebase/lc-id';
@@ -24,7 +24,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const input = parsed.data;
 
-  if (!assignableRoles(actor.role).includes(input.role)) {
+  if (!invitableRoles(actor.role).includes(input.role)) {
     return jsonError(403, 'FORBIDDEN', manageDeniedReason(actor.role, input.role));
   }
   if (isSyntheticLcEmail(input.email)) {
