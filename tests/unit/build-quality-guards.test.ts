@@ -43,3 +43,13 @@ describe('drillSummary', () => {
     expect(drillLabel(drill)).toBe('The agent tells Mateo the recording is off.');
   });
 });
+
+describe('promisedStepCount', () => {
+  it('reads a promised step count but not a deliberate subset', async () => {
+    const { promisedStepCount } = await import('@/lib/ai/prompts/unit-builder');
+    expect(promisedStepCount('Put the 6-step form assistance procedure in the required order.')).toBe(6);
+    expect(promisedStepCount('Place the four steps in order.')).toBe(4);
+    expect(promisedStepCount('Put the first five steps of the workflow in order.')).toBeNull();
+    expect(promisedStepCount('Put these steps in order.')).toBeNull();
+  });
+});

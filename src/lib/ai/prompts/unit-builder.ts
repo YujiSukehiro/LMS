@@ -554,6 +554,10 @@ function checkDrill(drill: DrillGeneration, ctx: UnitBuildContext, path: (string
       break;
     }
     case 'SEQUENCE_ORDER': {
+      const promised = promisedStepCount(drill.prompt);
+      if (promised !== null && promised !== drill.orderedSteps.length) {
+        report([...path, 'prompt'], `The prompt promises ${promised} steps but the Drill lists ${drill.orderedSteps.length}. List all ${promised} steps, or remove the number from the prompt.`);
+      }
       const steps = drill.orderedSteps.map((step) => step.text.trim().toLowerCase());
       if (new Set(steps).size !== steps.length) report([...path, 'orderedSteps'], 'Each step needs different text.');
       break;
@@ -583,6 +587,19 @@ function checkDrill(drill: DrillGeneration, ctx: UnitBuildContext, path: (string
       }
       break;
   }
+}
+
+const NUMBER_WORDS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+
+/**
+ * "Put the 6-step procedure in order" promises 6 steps (review 2026-11-23: a Drill said 6-step and showed 5).
+ * "the first five steps" is a deliberate subset, so it promises nothing. Exported for tests.
+ */
+export function promisedStepCount(prompt: string): number | null {
+  const match = /\b(first|last)?\s*(\d+|two|three|four|five|six|seven|eight|nine|ten)[\s-]+steps?\b/i.exec(prompt);
+  if (!match || match[1]) return null;
+  const raw = match[2].toLowerCase();
+  return NUMBER_WORDS[raw] ?? Number.parseInt(raw, 10);
 }
 
 /** True when `needle` appears in `haystack` as whole words ("5 minutes" is not inside "15 minutes"). */
