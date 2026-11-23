@@ -57,6 +57,7 @@ import {
   batchDrillKinds,
   buildUnitCardsSchema,
   buildUnitCardsUserPrompt,
+  unitContextPrefix,
   buildUnitDrillBatchSchema,
   buildUnitDrillsUserPrompt,
   buildUnitGenerationSchema,
@@ -895,6 +896,7 @@ export async function runTrackGeneration(
               {
                 tier: 'heavy',
                 systemPrompt: buildUnitSystemPrompt(track.divisionId),
+                cacheablePrefix: unitContextPrefix(promptInput),
                 userPrompt: buildUnitCardsUserPrompt(promptInput),
                 schema: buildUnitCardsSchema(ctx),
                 schemaName: UNIT_CARDS_SCHEMA_NAME,
@@ -942,6 +944,7 @@ export async function runTrackGeneration(
                   {
                     tier: 'heavy',
                     systemPrompt: buildUnitSystemPrompt(track.divisionId),
+                    cacheablePrefix: unitContextPrefix(promptInput),
                     userPrompt: buildUnitCardsUserPrompt({ ...promptInput, outline: { ...promptInput.outline, contentPlan: topUpPlan }, existingHeadlines }),
                     schema: buildUnitCardsSchema(topUpCtx),
                     schemaName: UNIT_CARDS_SCHEMA_NAME,
@@ -1004,6 +1007,7 @@ export async function runTrackGeneration(
                 {
                   tier: 'heavy',
                   systemPrompt: buildUnitSystemPrompt(track.divisionId),
+                  cacheablePrefix: unitContextPrefix(promptInput),
                   userPrompt: buildUnitDrillsUserPrompt({
                     ...promptInput,
                     cards,

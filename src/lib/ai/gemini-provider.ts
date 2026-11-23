@@ -2,6 +2,7 @@
  * Iteration 2 LLMGateway adapter: Google Gemini API through the official `@google/genai` SDK.
  */
 import { FinishReason, GoogleGenAI, type Content, type GenerateContentResponse, type HttpRetryOptions } from '@google/genai';
+import { createHash } from 'node:crypto';
 import type { z } from 'zod';
 import {
   AIUnavailableError,
@@ -100,6 +101,27 @@ function logGeminiUsage(model: string, label: string, usage: GenerateContentResp
   })}`);
 }
 
+/**
+ * Gemini context caching (Connor 2026-11-23: "the cost is crazy"). A Unit's cards and Drill batches all start with
+ * the same ~20k tokens of source pages and rules; caching that prefix once bills it at the cached rate on every
+ * later call. Prefixes below this size are sent normally (Gemini rejects small caches and the saving is small).
+ */
+export const MIN_CACHEABLE_PREFIX_CHARS = 12_000;
+/** Cache lifetime on Gemini's side; a Unit's calls finish well inside it. Reused locally for a little less. */
+const CONTEXT_CACHE_TTL_SECONDS = 900;
+const CONTEXT_CACHE_REUSE_MS = 12 * 60_000;
+
+interface ContextCacheEntry {
+  createdAt: number;
+  name: Promise<string | null>;
+}
+
+/** HTTP status of a @google/genai error, when it has one. */
+function errorStatus(error: unknown): number | undefined {
+  const status = (error as { status?: unknown })?.status;
+  return typeof status === 'number' ? status : undefined;
+}
+
 function textContent(role: 'user' | 'model', text: string): Content {
   return { role, parts: [{ text }] };
 }
@@ -119,6 +141,8 @@ export class GeminiProvider implements LLMGateway {
    * 2 = send no response schema (JSON mode, schema in the instructions). Zod still validates every answer.
    */
   private readonly schemaFallback = new Map<string, 1 | 2>();
+  /** Context caches by model + system prompt + prefix. A null name means caching failed: send the full prompt. */
+  private readonly contextCaches = new Map<string, ContextCacheEntry>();
 
   constructor(config: GeminiProviderConfig = {}) {
     this.apiKey = config.apiKey ?? nonEmpty(process.env.GEMINI_API_KEY);
@@ -157,6 +181,51 @@ export class GeminiProvider implements LLMGateway {
     return this.client;
   }
 
+  /**
+   * The name of a context cache holding `systemInstruction` and the shared `prefix`, created on first use. Null when
+   * caching is off (GEMINI_CONTEXT_CACHE=off), the prefix is small, or Gemini refused the cache: callers then send
+   * the whole prompt, so caching can only save money, never fail a build.
+   */
+  private contextCacheFor(model: string, systemInstruction: string, prefix: string): Promise<string | null> {
+    if (process.env.GEMINI_CONTEXT_CACHE === 'off' || prefix.length < MIN_CACHEABLE_PREFIX_CHARS) return Promise.resolve(null);
+    const now = Date.now();
+    for (const [key, entry] of this.contextCaches) {
+      if (now - entry.createdAt > CONTEXT_CACHE_REUSE_MS) this.contextCaches.delete(key);
+    }
+    const key = createHash('sha256').update(`${model}\0${systemInstruction}\0${prefix}`).digest('hex');
+    const existing = this.contextCaches.get(key);
+    if (existing) return existing.name;
+    const name = this.getClient()
+      .caches.create({
+        model,
+        config: {
+          systemInstruction,
+          contents: [textContent('user', prefix)],
+          ttl: `${CONTEXT_CACHE_TTL_SECONDS}s`,
+          displayName: 'pulse-unit-context',
+        },
+      })
+      .then((cache) => cache.name ?? null)
+      .catch((error: unknown) => {
+        console.warn('[gemini] context cache not created; sending the full prompt', {
+          model,
+          status: errorStatus(error),
+          message: error instanceof Error ? error.message.slice(0, 200) : String(error),
+        });
+        return null;
+      });
+    this.contextCaches.set(key, { createdAt: now, name });
+    return name;
+  }
+
+  private dropContextCache(name: string): void {
+    for (const [key, entry] of this.contextCaches) {
+      void entry.name.then((value) => {
+        if (value === name) this.contextCaches.delete(key);
+      });
+    }
+  }
+
   async generateStructured<T extends z.ZodTypeAny>(opts: GenerateStructuredOptions<T>): Promise<z.infer<T>> {
     const ai = this.getClient();
     const planning = opts.purpose === 'planning';
@@ -169,6 +238,7 @@ export class GeminiProvider implements LLMGateway {
       level === 2
         ? `${opts.systemPrompt}\n\nReturn ONLY JSON that matches this JSON Schema:\n${JSON.stringify(relaxGeminiJsonSchema(fullSchema))}`
         : opts.systemPrompt;
+    const prefix = opts.cacheablePrefix && opts.userPrompt.startsWith(opts.cacheablePrefix) ? opts.cacheablePrefix : undefined;
     return runStructuredRepairLoop({
       model,
       schema: opts.schema,
@@ -181,14 +251,20 @@ export class GeminiProvider implements LLMGateway {
           .filter((turn) => turn.role !== 'system')
           .map((turn) => textContent(turn.role === 'assistant' ? 'model' : 'user', turn.content));
         let level: 0 | 1 | 2 = this.schemaFallback.get(fallbackKey) ?? 0;
+        // The cache holds the system prompt and the shared prefix; JSON mode (level 2) changes the system prompt.
+        let cacheName = prefix && level < 2 ? await this.contextCacheFor(model, opts.systemPrompt, prefix) : null;
         let response: GenerateContentResponse;
         for (;;) {
+          const cached = cacheName !== null && level < 2 && contents[0]?.parts?.[0]?.text?.startsWith(prefix ?? '\0');
+          const callContents: Content[] = cached
+            ? [textContent('user', contents[0].parts![0].text!.slice(prefix!.length).trim() || 'Continue.'), ...contents.slice(1)]
+            : contents;
           try {
             response = await ai.models.generateContent({
               model,
-              contents,
+              contents: callContents,
               config: {
-                systemInstruction: systemFor(level),
+                ...(cached ? { cachedContent: cacheName! } : { systemInstruction: systemFor(level) }),
                 temperature: opts.temperature ?? 0.2,
                 responseMimeType: 'application/json',
                 ...(level < 2 ? { responseJsonSchema: schemaFor(level) } : {}),
@@ -198,6 +274,17 @@ export class GeminiProvider implements LLMGateway {
             });
             break;
           } catch (error) {
+            // An expired or rejected cache never fails the call: drop it and send the full prompt.
+            if (cached && !opts.signal?.aborted && errorStatus(error) !== 429) {
+              console.warn('[gemini] cached call failed; retrying with the full prompt', {
+                model,
+                status: errorStatus(error),
+                message: error instanceof Error ? error.message.slice(0, 200) : String(error),
+              });
+              this.dropContextCache(cacheName!);
+              cacheName = null;
+              continue;
+            }
             if (level === 2 || !isGeminiSchemaTooComplexError(error)) throw error;
             level = (level + 1) as 1 | 2;
             this.schemaFallback.set(fallbackKey, level);

@@ -34,6 +34,17 @@ env:
     value: "8192"
     availability:
       - RUNTIME
+  # Connor 2026-11-23 ("the cost is crazy"): Neon thinking was uncapped and billed at the $15/M output rate.
+  # 4096 per call is 4x the Flash cap; the planning call keeps 8192 above.
+  - variable: GEMINI_BUILD_THINKING_BUDGET
+    value: "4096"
+    availability:
+      - RUNTIME
+  # One log line of token usage per Gemini call (prompt / cached / output / thinking) to measure real build cost.
+  - variable: GEMINI_LOG_USAGE
+    value: "1"
+    availability:
+      - RUNTIME
   - variable: NEXT_PUBLIC_USE_FIREBASE_EMULATOR
     value: "false"
     availability:

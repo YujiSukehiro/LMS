@@ -919,11 +919,20 @@ export function buildUnitUserPrompt(input: UnitPromptInput): string {
 }
 
 /** Split mode, call 1: every BriefingCard of the Unit. */
+/**
+ * The part of every card and Drill prompt of one Unit that is the same across its calls (Track, summary, pillars,
+ * Unit outline, approved rules and SOURCE PAGES). Prompts start with exactly this text, so a provider can cache it
+ * once per Unit (Gemini context caching) instead of billing it in full on every call.
+ */
+export function unitContextPrefix(input: UnitPromptInput): string {
+  return contextBlock(input).join('\n');
+}
+
 export function buildUnitCardsUserPrompt(input: UnitPromptInput & { existingHeadlines?: readonly string[] }): string {
   const plan = unitPlan(input.outline.contentPlan);
   const existing = input.existingHeadlines ?? [];
   return [
-    ...contextBlock(input),
+    unitContextPrefix(input),
     '',
     `CONTENT SIZE: these pages hold about ${Math.round(plan.ruleSignals) || 'a few'} rule statements for this Unit.`,
     ...(existing.length > 0
@@ -971,9 +980,7 @@ export function drillBatchNames(unitIndex: number, batchIndex: number): string[]
 
 /** Split mode, call 2..n: one batch of Drills of planned kinds. */
 export function buildUnitDrillsUserPrompt(input: DrillBatchPromptInput): string {
-  return [
-    ...contextBlock(input),
-    '',
+  return `${unitContextPrefix(input)}\n${[
     'BRIEFINGCARDS OF THIS UNIT (the Drills test these rules):',
     ...input.cards.map((card, index) => `${index + 1}. ${card.headline} — ${card.keyTakeaway} (pages ${card.sourcePages.join(', ')})`),
     input.previousDrillPrompts.length > 0
@@ -989,7 +996,7 @@ export function buildUnitDrillsUserPrompt(input: DrillBatchPromptInput): string 
     'Return {"drills": [ ... ]} only.',
   ]
     .filter((line) => line !== '')
-    .join('\n');
+    .join('\n')}`;
 }
 
 /** A trainer hint is the first thing the model reads, as a hard requirement (a 7B model ignores a trailing hint). */
