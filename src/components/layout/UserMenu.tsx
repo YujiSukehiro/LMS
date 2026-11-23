@@ -1,5 +1,6 @@
 'use client';
 
+import { emailToLcNumber } from '@/lib/firebase/lc-id';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, LoaderCircle, LogOut } from 'lucide-react';
@@ -51,7 +52,8 @@ export function UserMenu({ uid, displayName, email }: { uid: string; displayName
         <div className="flex flex-col gap-1">
           <div className="border-b border-pulse-border px-2.5 pb-2 pt-1.5">
             <p className="truncate text-sm font-semibold">{displayName}</p>
-            <p className="truncate text-xs text-pulse-muted">{email}</p>
+            {/* QA L3: LC-ID agents see their LC Number, never the internal sign-in address. */}
+            <p className="pulse-metric truncate text-xs text-pulse-muted">{emailToLcNumber(email) ?? email}</p>
           </div>
           <ThemeSwitcher uid={uid} className="border-b border-pulse-border pb-2 pt-1" />
           <button

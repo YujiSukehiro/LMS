@@ -246,6 +246,17 @@ const PILLARS: CompetencyPillar[] = [
   { id: 'pillar_compliance', key: 'compliance_boundaries', label: 'Refund & Clinical Boundaries', description: 'Apply the 14-day refund rule, give no medical advice, and protect payment data.' },
 ];
 
+/**
+ * NeuroCalmRx Verbal Track skill areas: same ids and heatmap keys as the MVP Track, but NeuroCalmRx wording
+ * (QA L10: MVP labels like "Identity Verification & Atlas Notes" showed on NeuroCalmRx Drills).
+ */
+const NC_PILLARS: CompetencyPillar[] = [
+  { id: 'pillar_verification', key: 'verification_crm', label: 'Patient Verification', description: 'Verify full name, date of birth and ZIP before discussing a refill or the account.' },
+  { id: 'pillar_save_offer', key: 'retention_objection', label: 'Recovery Offers', description: 'Answer objections with the approved NeuroCalmRx pricing and guarantee, without pressure.' },
+  { id: 'pillar_escalation', key: 'escalation_triage', label: 'Clinical Escalation', description: 'Route side effects and urgent symptoms to Clinical Support without giving dosing advice.' },
+  { id: 'pillar_compliance', key: 'compliance_boundaries', label: 'Compliance & Medical Claims', description: 'No medical claims or diagnosis, honor opt-outs, and keep TCPA call windows.' },
+];
+
 const UNITS: TrackUnit[] = [
   {
     id: 'unit_verify_document',
@@ -1918,7 +1929,7 @@ function buildVerbalDemoTrackDocs(trainerUid: string): {
     currentDraftVersionId: DRAFT_VERSION_ID,
     publishedVersionId: PUBLISHED_VERSION_ID,
     assignedCohortIds: ['ALL'],
-    competencyPillars: PILLARS,
+    competencyPillars: NC_PILLARS,
     unitCount: units.length,
     simScenarioCount: 1,
     estimatedTotalMinutes: 18,
@@ -1929,7 +1940,7 @@ function buildVerbalDemoTrackDocs(trainerUid: string): {
 
   const versionBase = {
     trackId: VERBAL_TRACK_ID,
-    competencyPillars: PILLARS,
+    competencyPillars: NC_PILLARS,
     units,
     simScenarios: [baseScenario],
     sourceBundleId: bundleId,

@@ -25,7 +25,10 @@ export default async function SimulationPage({ params, searchParams }: PageProps
   if (!rawScenario) notFound();
 
   const mapHref = `/learn/${encodeURIComponent(trackId)}${previewSuffix(isPreview)}`;
-  if (!staffAccess && !allUnitsComplete(version.units, enrollment?.completedUnitIds ?? [])) redirect(mapHref);
+  // QA L8: say why instead of bouncing silently (the Track map shows a notice for ?locked=practice).
+  if (!staffAccess && !allUnitsComplete(version.units, enrollment?.completedUnitIds ?? [])) {
+    redirect(`${mapHref}${mapHref.includes('?') ? '&' : '?'}locked=practice`);
+  }
 
   // Re-parse so only the public scenario fields ever reach the browser.
   const scenario = PublicSimScenarioSchema.parse(rawScenario);

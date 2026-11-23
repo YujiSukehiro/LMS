@@ -67,8 +67,9 @@ export function EmptyState({ icon, title, body, action }: { icon?: ReactNode; ti
   );
 }
 
-export function ProgressBar({ value, tone = 'indigo', label }: { value: number; tone?: 'indigo' | 'emerald' | 'amber'; label?: string }) {
-  const toneClass = tone === 'emerald' ? 'bg-pulse-emerald' : tone === 'amber' ? 'bg-pulse-amber' : 'bg-pulse-indigo';
+export function ProgressBar({ value, tone = 'indigo', label }: { value: number; tone?: 'indigo' | 'emerald' | 'amber' | 'crimson'; label?: string }) {
+  const toneClass =
+    tone === 'emerald' ? 'bg-pulse-emerald' : tone === 'amber' ? 'bg-pulse-amber' : tone === 'crimson' ? 'bg-pulse-crimson' : 'bg-pulse-indigo';
   const pct = Math.max(0, Math.min(100, Math.round(value)));
   return (
     <div

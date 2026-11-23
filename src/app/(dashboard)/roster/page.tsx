@@ -48,7 +48,8 @@ interface RosterRow {
   role: UserRole;
   partnerCohortId: string;
   divisionIds: DivisionId[];
-  readiness: number;
+  /** Blended training score, or null for staff and for agents with no scored activity yet (shown as "—"). */
+  readiness: number | null;
   active: boolean;
 }
 
@@ -92,7 +93,11 @@ function toRosterRow(uid: string, data: Record<string, unknown>): RosterRow | nu
     role: role.data,
     partnerCohortId: data.partnerCohortId,
     divisionIds: divisions,
-    readiness: typeof stats.overallReadinessScore === 'number' ? Math.round(stats.overallReadinessScore) : 0,
+    // QA L5: 0% read as "failing"; staff and agents with no activity show "—" like every other page.
+    readiness:
+      role.data === 'AGENT' && typeof stats.overallReadinessScore === 'number' && stats.overallReadinessScore > 0
+        ? Math.round(stats.overallReadinessScore)
+        : null,
     active: data.active === true,
   };
 }
@@ -420,8 +425,10 @@ export default async function RosterPage({
                           )}
                         </div>
                       </td>
-                      <td className={cn('pulse-metric px-3 py-2 text-right font-semibold', readinessClass(row.readiness))}>
-                        {row.readiness}%
+                      <td
+                        className={cn('pulse-metric px-3 py-2 text-right font-semibold', row.readiness === null ? 'text-pulse-muted' : readinessClass(row.readiness))}
+                      >
+                        {row.readiness === null ? '—' : `${row.readiness}%`}
                       </td>
                       <td className="px-3 py-2">
                         <span className={cn('pulse-pill', row.active ? 'pulse-pill-emerald' : 'pulse-pill-crimson')}>

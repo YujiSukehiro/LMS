@@ -150,10 +150,10 @@ export function NewTrackForm({ resume }: { resume?: { trackId: string; title: st
             <label className="flex flex-col gap-1">
               <span className="sr-only">Track title</span>
               <input
-                className="pulse-input"
+                className="pulse-input placeholder:text-pulse-muted/60"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="MVP Retention & Save-Offer Playbook"
+                placeholder="e.g. NeuroCalmRx Recovery Calling"
                 maxLength={100}
                 disabled={submitting}
                 aria-invalid={Boolean(errors.title)}

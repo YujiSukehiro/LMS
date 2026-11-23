@@ -40,6 +40,35 @@ export function refreshUnitReviewNotes(unit: TrackUnit): TrackUnit {
   return kept.length > 0 ? { ...rest, reviewNotes: kept } : rest;
 }
 
+const LONGEST_ANSWER_RATIO = 1.3;
+
+/**
+ * Drill problems a trainer should fix before learners see them (QA L10):
+ * - a multiple-choice Drill whose right answer is clearly the longest option (learners guess it without reading);
+ * - a Drill whose rules no Briefing Card in this Checkpoint teaches (compared by rule id from card evidence).
+ * Pure; plain one-line notes.
+ */
+export function drillQualityNotes(unit: Pick<TrackUnit, 'drills' | 'briefingCards'>): string[] {
+  const notes: string[] = [];
+  // Rules the Briefing Cards teach, from their evidence. Without rule ids on both sides there is nothing to compare.
+  const taughtRules = new Set(unit.briefingCards.flatMap((card) => (card.evidence ?? []).flatMap((evidence) => evidence.ruleIds)));
+  unit.drills.forEach((drill, index) => {
+    const label = `Drill ${index + 1}`;
+    if (drill.kind === 'MULTIPLE_CHOICE') {
+      const correct = drill.options.find((option) => option.id === drill.correctOptionId);
+      const others = drill.options.filter((option) => option.id !== drill.correctOptionId).map((option) => option.text.trim().length);
+      if (correct && others.length > 0 && correct.text.trim().length >= Math.max(...others) * LONGEST_ANSWER_RATIO) {
+        notes.push(`${label}: the right answer is clearly the longest option. Shorten it or lengthen the others.`);
+      }
+    }
+    const drillRules = drill.ruleIds ?? [];
+    if (taughtRules.size > 0 && drillRules.length > 0 && !drillRules.some((ruleId) => taughtRules.has(ruleId))) {
+      notes.push(`${label} tests a rule that no Briefing Card in this Checkpoint teaches.`);
+    }
+  });
+  return notes;
+}
+
 export interface UnitAttention {
   unitId: string;
   /** Build notes still true for this Unit. */
@@ -57,7 +86,7 @@ export function unitAttention(unit: TrackUnit, unitNumber?: number): UnitAttenti
   const [shortfall] = thinUnitProblems([{ ...unit, orderIndex: unitNumber !== undefined ? unitNumber - 1 : unit.orderIndex }]);
   return {
     unitId: unit.id,
-    notes: refreshed.reviewNotes ?? [],
+    notes: [...(refreshed.reviewNotes ?? []), ...drillQualityNotes(unit)],
     shortfall: shortfall ?? null,
     drillsNeeded: Math.max(0, DEPTH_LIMITS.minDrills - unit.drills.length),
     cardsNeeded: Math.max(0, DEPTH_LIMITS.minCards - unit.briefingCards.length),

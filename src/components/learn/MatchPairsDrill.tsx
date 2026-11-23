@@ -1,5 +1,6 @@
 'use client';
 
+import { matchColumnLabels } from './match-labels';
 import { useMemo, useState } from 'react';
 import { Check } from 'lucide-react';
 import type { LearnerDrill } from '@/lib/schemas/learning';
@@ -121,6 +122,7 @@ export function MatchPairsDrill({
     </ul>
   );
 
+  const columnLabels = matchColumnLabels(drill.prompt);
   return (
     <div>
       <p className="sr-only" aria-live="polite">
@@ -128,11 +130,11 @@ export function MatchPairsDrill({
       </p>
       <div className="grid grid-cols-2 gap-3 @lg:gap-5">
         <div>
-          <p className="pulse-label mb-2">Trigger</p>
+          <p className="pulse-label mb-2">{columnLabels.left}</p>
           {renderColumn('left', leftItems)}
         </div>
         <div>
-          <p className="pulse-label mb-2">Match</p>
+          <p className="pulse-label mb-2">{columnLabels.right}</p>
           {renderColumn('right', rightItems)}
         </div>
       </div>
@@ -141,7 +143,7 @@ export function MatchPairsDrill({
           {result
             ? 'Server-graded pairs shown above.'
             : keyColumn === 'left'
-              ? `Pick a trigger on the left (keys 1–${leftItems.length}), then its match on the right.`
+              ? `Pick an item on the left (keys 1–${leftItems.length}), then its match on the right.`
               : `Now pick its match on the right (keys 1–${rightItems.length}). Esc clears.`}
         </span>
         <span className="pulse-metric">{Object.keys(matches).length}/{drill.leftOptions.length} paired</span>

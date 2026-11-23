@@ -24,8 +24,8 @@ export function ProgressStatusChip({ cell, label, showDetail = true }: { cell: P
         ? cell.detail
         : null;
   return (
-    <span className="inline-flex min-w-0 flex-col items-start gap-0.5">
-      <span className={cn('pulse-pill', STAGE_PILL[cell.stage])}>
+    <span className="inline-flex min-w-0 max-w-full flex-col items-start gap-0.5">
+      <span className={cn('pulse-pill h-auto max-w-full flex-wrap whitespace-normal py-0.5 text-left', STAGE_PILL[cell.stage])}>
         {cell.stage === 'certified' ? <Award aria-hidden className="size-3.5" /> : null}
         {label ? <span className="pulse-metric font-semibold">{label}</span> : null}
         {STAGE_LABELS[cell.stage]}

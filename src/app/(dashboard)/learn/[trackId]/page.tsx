@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, Brain, Eye } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Brain, Eye, Lock } from 'lucide-react';
+import { SIM_COPY } from '@/lib/policy/training-policy';
 import { CheckpointMap, type CheckpointMapScenario, type CheckpointMapUnit } from '@/components/learn/CheckpointMap';
 import { LearningEvidencePanel } from '@/components/learn/LearningEvidencePanel';
 import { ServiceError } from '@/lib/services/errors';
@@ -101,6 +102,12 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
         versionNumber={version.versionNumber}
       />
 
+      {query.locked === 'practice' && !unitsComplete ? (
+        <p role="status" className="flex items-start gap-2 rounded-pulse-md border border-pulse-indigo/40 bg-pulse-indigo/10 px-4 py-3 text-sm text-pulse-secondary">
+          <Lock aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
+          Finish every Checkpoint to unlock {SIM_COPY.singular}.
+        </p>
+      ) : null}
       {isPreview ? (
         <p className="flex items-start gap-2 rounded-pulse-md border border-pulse-amber/40 bg-pulse-amber/10 px-4 py-3 text-sm text-pulse-amber">
           <Eye aria-hidden className="mt-0.5 size-4 shrink-0" />

@@ -107,3 +107,34 @@ describe('planAddedDrill', () => {
     expect(planAddedDrill(draftOf([full]), 'nope')).toMatchObject({ ok: false, code: 'NOT_FOUND' });
   });
 });
+
+describe('drill quality notes (QA L10)', () => {
+  it('flags a right answer that is clearly the longest option, and a rule no card teaches', async () => {
+    const { drillQualityNotes } = await import('@/components/studio/unit-review');
+    const base = fixtureUnit('q1', 0);
+    const mc = {
+      id: 'mc',
+      kind: 'MULTIPLE_CHOICE' as const,
+      competencyPillarId: base.drills[0].competencyPillarId,
+      prompt: 'What do you say first?',
+      explanation: 'x',
+      sourcePages: [2],
+      ruleIds: ['rule-optout'],
+      options: [
+        { id: 'a', text: 'Verify the three identity points, then explain the refund rule and log it in Atlas.' },
+        { id: 'b', text: 'Offer a refund.' },
+        { id: 'c', text: 'Hang up.' },
+        { id: 'd', text: 'Transfer the call.' },
+      ],
+      correctOptionId: 'a',
+    };
+    const card = { ...base.briefingCards[0], evidence: [{ ...evidence('ev'), ruleIds: ['rule-verify'] }] };
+    const notes = drillQualityNotes({ briefingCards: [card], drills: [mc] });
+    expect(notes).toEqual([
+      'Drill 1: the right answer is clearly the longest option. Shorten it or lengthen the others.',
+      'Drill 1 tests a rule that no Briefing Card in this Checkpoint teaches.',
+    ]);
+    const balanced = { ...mc, ruleIds: ['rule-verify'], options: mc.options.map((o) => ({ ...o, text: 'An option of similar length here.' })) };
+    expect(drillQualityNotes({ briefingCards: [card], drills: [balanced] })).toEqual([]);
+  });
+});
