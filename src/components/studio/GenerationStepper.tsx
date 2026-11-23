@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SIM_COPY } from '@/lib/policy/training-policy';
 import { useRouter } from 'next/navigation';
 import { Check, CircleAlert, LoaderCircle, RotateCw } from 'lucide-react';
@@ -90,6 +90,24 @@ export function GenerationStepper({
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
+  /** Run (or re-run) the PDF contradiction check, then reload the Source Review so found items show. */
+  const runContradictionCheck = useCallback(
+    async (bundleId: string, isCancelled: () => boolean = () => false) => {
+      setContradictionCheck({ kind: 'checking' });
+      try {
+        await runSourceContradictionCheck(trackId, bundleId);
+        const refreshed = await fetchSourceReview(trackId, bundleId);
+        if (!isCancelled()) {
+          setSourceReview(refreshed);
+          setContradictionCheck({ kind: 'done' });
+        }
+      } catch (error) {
+        if (!isCancelled()) setContradictionCheck({ kind: 'failed', message: error instanceof Error ? error.message : 'The contradiction check did not finish.' });
+      }
+    },
+    [trackId],
+  );
+
   useEffect(() => {
     let source: EventSource | undefined;
     let finished = false;
@@ -114,17 +132,7 @@ export function GenerationStepper({
         setSourceReview(review);
         setProgress({ step: 'EXTRACTING_PDF', percent: 5, message: 'Review and approve the uploaded source before building the Track.' });
         setState({ kind: 'approval' });
-        setContradictionCheck({ kind: 'checking' });
-        try {
-          await runSourceContradictionCheck(trackId, review.bundle.id);
-          const refreshed = await fetchSourceReview(trackId, review.bundle.id);
-          if (!cancelled) {
-            setSourceReview(refreshed);
-            setContradictionCheck({ kind: 'done' });
-          }
-        } catch (error) {
-          if (!cancelled) setContradictionCheck({ kind: 'failed', message: error instanceof Error ? error.message : 'The contradiction check did not finish.' });
-        }
+        await runContradictionCheck(review.bundle.id, () => cancelled);
         return;
       }
 
@@ -214,7 +222,7 @@ export function GenerationStepper({
       if (redirectTimer) clearTimeout(redirectTimer);
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [trackId, attempt, redirectOnComplete, router]);
+  }, [trackId, attempt, redirectOnComplete, router, runContradictionCheck]);
 
   const activeIndex = state.kind === 'complete' ? STAGES.length - 1 : stageIndexFor(progress.step);
   const percent = state.kind === 'complete' ? 100 : Math.max(0, Math.min(100, Math.round(progress.percent)));
@@ -334,6 +342,7 @@ export function GenerationStepper({
         <div className="flex flex-col gap-3 rounded-pulse-md border border-pulse-indigo/40 bg-pulse-indigo/10 p-4">
         <ContradictionList
           check={contradictionCheck}
+          onRetry={() => void runContradictionCheck(sourceReview.bundle!.id)}
           conflicts={sourceReview.conflicts.filter((conflict) => conflict.origin === 'contradiction_check')}
           decidingId={decidingId}
           onDecide={(conflict, status, decision) => {
@@ -416,8 +425,10 @@ function ContradictionList({
   conflicts,
   decidingId,
   onDecide,
+  onRetry,
 }: {
   check: ContradictionCheckState;
+  onRetry: () => void;
   conflicts: SourceConflict[];
   decidingId: string | null;
   onDecide: (conflict: SourceConflict, status: 'resolved' | 'accepted_context_difference', decision: string) => void;
@@ -429,7 +440,16 @@ function ContradictionList({
       </p>
     );
   }
-  if (check.kind === 'failed') return <p className="text-xs text-pulse-amber">{check.message}</p>;
+  if (check.kind === 'failed') {
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-pulse-amber">
+        <span>{check.message}</span>
+        <button type="button" className="pulse-btn text-xs" onClick={onRetry}>
+          <RotateCw aria-hidden className="size-3.5" /> Run check again
+        </button>
+      </div>
+    );
+  }
   if (check.kind !== 'done') return null;
   const open = conflicts.filter(isOpenConflict);
   if (conflicts.length === 0) return <p className="text-xs text-pulse-secondary">No contradictions found in this PDF.</p>;

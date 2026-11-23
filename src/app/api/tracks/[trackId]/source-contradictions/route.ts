@@ -10,7 +10,7 @@ import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import { loadTrack } from '@/lib/ai/pipeline/track-store';
 import { SourceBundleNotFoundError } from '@/lib/services/source-store';
 import { runContradictionCheck } from '@/lib/services/source-contradictions';
-import { AIUnavailableError } from '@/lib/ai/types';
+import { AIUnavailableError, LLMOutputTruncatedError, LLMStructuredOutputError } from '@/lib/ai/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,6 +36,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
       return jsonError(503, 'AI_UNAVAILABLE', 'The contradiction check could not run because the AI service is unavailable. You can still approve the source.');
     }
     console.error('[source-contradictions]', error);
-    return jsonError(502, 'CHECK_FAILED', 'The contradiction check did not finish. You can still approve the source.');
+    if (error instanceof LLMStructuredOutputError || error instanceof LLMOutputTruncatedError) {
+      return jsonError(502, 'CHECK_FAILED', "The contradiction check did not finish: the AI's answer couldn't be read. Run it again, or approve the source without it.");
+    }
+    return jsonError(502, 'CHECK_FAILED', 'The contradiction check did not finish. Run it again, or approve the source without it.');
   }
 }

@@ -2,7 +2,8 @@
  * Runs the PDF self-contradiction check once per source bundle revision and stores what it finds as open
  * SourceConflicts (origin "contradiction_check"). Open conflicts already block bundle approval, so the trainer
  * sees each one and records a one-click decision before the build; the decision then reaches the Unit prompts.
- * Only items whose two quotes match the page text exactly are kept: the model never invents a conflict.
+ * Only items whose two quotes are found on their pages are kept (quote marks and line-break hyphens aside), and the
+ * stored excerpt is the page's own text: the model never invents a conflict.
  */
 import { createHash } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
@@ -18,7 +19,8 @@ import {
   type ContradictionCheckOutput,
 } from '@/lib/ai/prompts/contradiction-check';
 import { SourceConflictSchema, type SourceConflict, type SourcePageEvidence } from '@/lib/schemas/source-truth';
-import { verifySourceExcerpt } from '@/lib/services/source-evidence';
+import { normalizeSourceText, verifySourceExcerpt } from '@/lib/services/source-evidence';
+import { trimToLimit } from '@/lib/ai/prompts/contradiction-check';
 import { loadSourceReview, sourceConflictRef } from '@/lib/services/source-store';
 
 export interface ContradictionCheckResult {
@@ -34,7 +36,49 @@ function checkMarkerRef(trackId: string, bundleId: string) {
   return adminDb.collection('tracks').doc(trackId).collection('sourceChecks').doc(bundleId);
 }
 
-/** Pure: turn model output into verified SourceConflicts (exact quotes only). Exported for tests. */
+const QUOTE_MARKS = new Set(['"', "'", '\u2018', '\u2019', '\u201C', '\u201D', '`', '\u00AB', '\u00BB']);
+
+/**
+ * Loose form for matching a model quote to its page: quote marks dropped (models swap " for ' or drop them),
+ * a line-break hyphen joined ("wake- ups" -> "wake-ups"), spaces collapsed. `map[i]` is the index in `text`
+ * of loose character i, so a loose match maps back to the page's own words.
+ */
+function looseForm(text: string): { loose: string; map: number[] } {
+  let loose = '';
+  const map: number[] = [];
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (QUOTE_MARKS.has(char)) continue;
+    if (char === ' ') {
+      if (loose.endsWith(' ') || loose.length === 0) continue;
+      if (loose.endsWith('-') && /\p{L}/u.test(loose.at(-2) ?? '')) continue;
+    }
+    loose += char;
+    map.push(index);
+  }
+  if (loose.endsWith(' ')) {
+    loose = loose.slice(0, -1);
+    map.pop();
+  }
+  return { loose, map };
+}
+
+/**
+ * Find a model quote on its page, forgiving only quote marks, line-break hyphens and spacing. Returns the
+ * page's own text for that span (so stored excerpts stay verbatim), trimmed to the display limit, or null.
+ * Exported for tests.
+ */
+export function locateQuoteOnPage(quote: string, page: SourcePageEvidence): string | null {
+  const pageText = normalizeSourceText(page.transcription?.text ?? page.normalizedText);
+  const needle = looseForm(normalizeSourceText(quote)).loose;
+  if (needle.length < 8) return null;
+  const { loose, map } = looseForm(pageText);
+  const at = loose.indexOf(needle);
+  if (at < 0) return null;
+  return trimToLimit(pageText.slice(map[at], map[at + needle.length - 1] + 1));
+}
+
+/** Pure: turn model output into verified SourceConflicts (quotes found on their page only). Exported for tests. */
 export function groundContradictions(
   output: ContradictionCheckOutput,
   pages: SourcePageEvidence[],
@@ -47,7 +91,9 @@ export function groundContradictions(
     const refs = [item.rule, item.conflicting].map((quote) => {
       const page = byLabel.get(quote.page);
       if (!page) return null;
-      const ref = { documentId: page.documentId, revisionId: page.revisionId, pageNumber: page.pageNumber, exactText: quote.quote.trim(), fromApprovedTranscription: false };
+      const exactText = locateQuoteOnPage(quote.quote, page);
+      if (!exactText) return null;
+      const ref = { documentId: page.documentId, revisionId: page.revisionId, pageNumber: page.pageNumber, exactText, fromApprovedTranscription: false };
       return verifySourceExcerpt(ref, pages).matched ? ref : null;
     });
     const [rule, conflicting] = refs;
