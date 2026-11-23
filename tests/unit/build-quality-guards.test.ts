@@ -34,3 +34,12 @@ describe('build quality guards (review 2026-11-23)', () => {
     expect(normalizeCanonicalDispositions(['Recovered'])).toEqual(['Recovered', 'Callback scheduled', "Didn't reply"]);
   });
 });
+
+describe('drillSummary', () => {
+  it('describes a True/False Drill by its statement, not its generic prompt', async () => {
+    const { drillSummary, drillLabel } = await import('@/lib/services/drill-label');
+    const drill = { kind: 'TRUE_FALSE_SPOT', prompt: "Decide whether the agent's action follows the Playbook.", statement: 'The agent tells Mateo the recording is off.' } as never;
+    expect(drillSummary(drill)).toBe('True/False: The agent tells Mateo the recording is off.');
+    expect(drillLabel(drill)).toBe('The agent tells Mateo the recording is off.');
+  });
+});

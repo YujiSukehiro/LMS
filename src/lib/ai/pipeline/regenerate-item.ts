@@ -57,6 +57,7 @@ import {
   trackRef,
   unitCitedPages,
 } from '@/lib/ai/pipeline/track-store';
+import { drillSummary } from '@/lib/services/drill-label';
 
 /** Error with an HTTP status and a machine code for the route handler. */
 export class RegenerateItemError extends Error {
@@ -312,7 +313,7 @@ export async function regenerateDraftItem(
       userPrompt: buildRegenerateDrillUserPrompt({
         ...input,
         current,
-        siblingPrompts: siblings.map((drill) => drill.prompt),
+        siblingPrompts: siblings.map((drill) => drillSummary(drill)),
         trainerHint: request.trainerHint,
       }),
       schema: buildDrillGenerationSchema(current.kind, ctx),
