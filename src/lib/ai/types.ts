@@ -21,6 +21,12 @@ export interface GenerateStructuredOptions<T extends z.ZodTypeAny> {
    * stronger model or more thinking for it (Gemini: GEMINI_PLANNING_MODEL / GEMINI_PLANNING_THINKING_BUDGET).
    */
   purpose?: 'planning';
+  /**
+   * A leading part of `userPrompt` that several calls share word for word (a Unit's source pages and rules).
+   * Providers that support it (Gemini context caching) bill it once per cache instead of on every call; others
+   * ignore it, since it is already inside `userPrompt`. Ignored unless `userPrompt` starts with it.
+   */
+  cacheablePrefix?: string;
 }
 
 export interface StreamChatOptions {
