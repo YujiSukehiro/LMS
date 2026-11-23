@@ -14,7 +14,7 @@ import { SourcePageEvidenceSchema } from '@/lib/schemas/source-truth';
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 vi.mock('@/lib/services/source-store', () => ({ loadSourceReview: vi.fn() }));
-vi.mock('@/lib/ai/gateway', () => ({ getActiveAiRuntime: vi.fn(), getLLMGateway: vi.fn() }));
+vi.mock('@/lib/ai/gateway', () => ({ getActiveAiRuntime: vi.fn(), getLLMGateway: vi.fn(), getBuildGateway: vi.fn(), geminiBuildModel: vi.fn() }));
 
 const { generateOrSalvage, shortfallNotes, topUpDrillKinds } = await import('@/lib/ai/pipeline/generate-track');
 

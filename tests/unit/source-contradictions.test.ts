@@ -4,7 +4,7 @@ import { SourcePageEvidenceSchema, SourceConflictSchema } from '@/lib/schemas/so
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 vi.mock('@/lib/services/source-store', () => ({ loadSourceReview: vi.fn(), sourceConflictRef: vi.fn() }));
-vi.mock('@/lib/ai/gateway', () => ({ getLLMGateway: vi.fn() }));
+vi.mock('@/lib/ai/gateway', () => ({ getLLMGateway: vi.fn(), getBuildGateway: vi.fn() }));
 
 const { groundContradictions } = await import('@/lib/services/source-contradictions');
 const { buildContradictionUserPrompt, formatConflictDecisions, ContradictionCheckOutputSchema, CONTRADICTION_TEXT_MAX, MAX_CONTRADICTIONS, trimToLimit } = await import('@/lib/ai/prompts/contradiction-check');

@@ -82,6 +82,8 @@ vi.mock('@/lib/ai/gateway', () => ({
     generationProfile: { structuredGeneration: { maxRepairRetries: 2 } },
   }),
   getLLMGateway: () => { throw new Error('A test gateway must be supplied.'); },
+  getBuildGateway: () => { throw new Error('A test gateway must be supplied.'); },
+  geminiBuildModel: () => undefined,
 }));
 
 vi.mock('@/lib/services/source-store', () => ({ loadSourceReview: vi.fn() }));

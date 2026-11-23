@@ -1,6 +1,6 @@
 /** Environment factory for the replaceable LLMGateway provider boundary. */
 import { AIUnavailableError, type LLMGateway } from '@/lib/ai/types';
-import { DEFAULT_GEMINI_FAST_MODEL, DEFAULT_GEMINI_HEAVY_MODEL, GeminiProvider } from '@/lib/ai/gemini-provider';
+import { DEFAULT_GEMINI_FAST_MODEL, DEFAULT_GEMINI_HEAVY_MODEL, GeminiProvider, thinkingBudgetFromEnv } from '@/lib/ai/gemini-provider';
 import {
   DEFAULT_OLLAMA_BASE_URL,
   DEFAULT_OLLAMA_FAST_MODEL,
@@ -96,6 +96,33 @@ export function getLLMGateway(): LLMGateway {
           ? new OpenAICompatibleProvider()
           : new OllamaProvider();
   gatewayCache.set(provider, gateway);
+  return gateway;
+}
+
+/** Gemini model that writes Tracks (blueprint, cards, Drills, scenarios, contradiction check). Practice stays on the main models. */
+export function geminiBuildModel(): string | undefined {
+  return envValue('GEMINI_BUILD_MODEL');
+}
+
+let buildGatewayCache: { key: string; gateway: LLMGateway } | null = null;
+
+/**
+ * Gateway for Track creation. With Gemini and GEMINI_BUILD_MODEL set (Connor 2026-11-23: Neon for training
+ * creation, Flash for Verbal Practice), every build call uses that model, with GEMINI_BUILD_THINKING_BUDGET when set.
+ * Otherwise it is the normal gateway.
+ */
+export function getBuildGateway(): LLMGateway {
+  const model = activeProviderName() === 'gemini' ? geminiBuildModel() : undefined;
+  if (!model) return getLLMGateway();
+  const budgetRaw = envValue('GEMINI_BUILD_THINKING_BUDGET');
+  const key = `${model}:${budgetRaw ?? ''}`;
+  if (buildGatewayCache?.key === key) return buildGatewayCache.gateway;
+  const gateway = new GeminiProvider({
+    heavyModel: model,
+    fastModel: model,
+    ...(budgetRaw !== undefined ? { thinkingBudget: thinkingBudgetFromEnv(budgetRaw) } : {}),
+  });
+  buildGatewayCache = { key, gateway };
   return gateway;
 }
 

@@ -28,7 +28,7 @@ import {
 import type { GenerateProgressEvent } from '@/lib/schemas/api';
 import { LLMStructuredOutputError, type GenerateStructuredOptions, type LLMGateway } from '@/lib/ai/types';
 import { MAX_STRUCTURED_REPAIR_RETRIES, parseStructuredOutput } from '@/lib/ai/pipeline/structured-output';
-import { getActiveAiRuntime, getLLMGateway } from '@/lib/ai/gateway';
+import { geminiBuildModel, getActiveAiRuntime, getBuildGateway } from '@/lib/ai/gateway';
 import { createProvenance, type ProvenanceRecord } from '@/lib/ai/provenance';
 import { selectPages } from '@/lib/ai/pdf-extractor';
 import {
@@ -600,7 +600,7 @@ export interface RunTrackGenerationOptions {
 export async function runTrackGeneration(
   trackId: string,
   onProgress: ProgressListener,
-  gateway: LLMGateway = getLLMGateway(),
+  gateway: LLMGateway = getBuildGateway(),
   options: RunTrackGenerationOptions = {},
 ): Promise<void> {
   let lastPercent = 0;
@@ -639,7 +639,7 @@ export async function runTrackGeneration(
     const provenance = createProvenance({
       source: runtime.provider === 'replay' ? 'replay' : runtime.provider === 'gemini' ? 'hosted_ai' : runtime.provider === 'manual_chat' ? 'manual_chat' : 'local_ai',
       provider: runtime.provider,
-      model: runtime.heavyModel,
+      model: (runtime.provider === 'gemini' ? geminiBuildModel() : undefined) ?? runtime.heavyModel,
       prompt: { templateId: 'staged-track-generation', templateVersion: source ? 'v2' : 'v1' },
       schema: { name: 'TrackVersion', version: source ? 'v2' : 'v1' },
       // Local profile ids stay "<provider>-local": they are part of the cache identity of existing checkpoints.

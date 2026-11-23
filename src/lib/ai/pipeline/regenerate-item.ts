@@ -15,7 +15,7 @@ import {
   type TrackVersionDoc,
 } from '@/lib/schemas/curriculum';
 import type { RegenerateItemRequest } from '@/lib/schemas/api';
-import { getActiveAiRuntime, getLLMGateway } from '@/lib/ai/gateway';
+import { getActiveAiRuntime, getBuildGateway } from '@/lib/ai/gateway';
 import { assertGeneratedClaimEvidence, isLocalProvider } from '@/lib/ai/pipeline/generate-track';
 import { regroundStoredEvidence, sourcePageLabels, type EvidenceSource } from '@/lib/ai/prompts/evidence';
 import { UNIT_OVERHEAD_TOKENS, localSourceCharBudget } from '@/lib/ai/pipeline/source-budget';
@@ -147,7 +147,7 @@ function itemGone(kind: string): RegenerateItemError {
 export async function regenerateDraftItem(
   trackId: string,
   request: RegenerateItemRequest,
-  gateway: LLMGateway = getLLMGateway(),
+  gateway: LLMGateway = getBuildGateway(),
 ): Promise<RegeneratedItem> {
   const [track, draft, secrets, allPages] = await Promise.all([
     loadTrack(trackId),
