@@ -37,6 +37,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ trackId:
     {
       trackId,
       title: track.title,
+      fileName: track.sourcePdfFileName,
       pageCount: pages.length,
       words: depth.words,
       ruleSignals: depth.ruleSignals,

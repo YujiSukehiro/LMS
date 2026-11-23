@@ -182,6 +182,7 @@ export async function fetchDraftSecrets(trackId: string): Promise<SecretSimScena
 export interface ContentMap {
   trackId: string;
   title: string;
+  fileName?: string;
   pageCount: number;
   words: number;
   ruleSignals: number;

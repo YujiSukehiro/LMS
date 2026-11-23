@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { estimateMinutesLeft, formatMinutesLeft, isReplayMessage, newTrackViewFor, parseCheckpointProgress } from '@/components/studio/generation-view';
+import {
+  estimateBuildTime,
+  estimateMinutesLeft,
+  formatBuildEstimate,
+  formatMinutesLeft,
+  isReplayMessage,
+  newTrackViewFor,
+  parseCheckpointProgress,
+} from '@/components/studio/generation-view';
 import { bundleLegacyPages } from '@/app/api/tracks/upload/legacy-pages';
 import { SourcePageEvidenceSchema, type SourcePageEvidence } from '@/lib/schemas/source-truth';
 
@@ -97,6 +105,43 @@ describe('estimateMinutesLeft', () => {
     expect(formatMinutesLeft(1)).toBe('about a minute left');
     expect(formatMinutesLeft(24)).toBe('about 24 min left');
     expect(formatMinutesLeft(75)).toBe('about 1 h 15 min left');
+  });
+});
+
+describe('estimateBuildTime (QA: the estimate jumped from 7 to 17 min)', () => {
+  const MIN = 60_000;
+  const latest = { at: 0, percent: 38 };
+
+  it('gives a planned range before any Checkpoint is timed', () => {
+    // 9 left x 1 min + 2 min = 11 planned, up to twice that.
+    expect(estimateBuildTime({ samples: [], checkpointTotal: 9, completed: 0, now: 0, first: null, latest })).toEqual({ low: 11, high: 22 });
+  });
+
+  it('gives a range around the pace after one Checkpoint, then one number after two', () => {
+    const one = [{ at: 0, completed: 1 }, { at: 10 * MIN, completed: 2 }];
+    // 6 left x 10 min + 10 min tail = 70 min -> 56 to 91.
+    expect(estimateBuildTime({ samples: one, checkpointTotal: 8, completed: 2, now: 10 * MIN, first: null, latest })).toEqual({ low: 56, high: 91 });
+    const two = [...one, { at: 20 * MIN, completed: 3 }];
+    // 5 left x 10 min + 10 min tail = 60 min.
+    expect(estimateBuildTime({ samples: two, checkpointTotal: 8, completed: 3, now: 20 * MIN, first: null, latest })).toEqual({ low: 60, high: 60 });
+  });
+
+  it('counts time already spent on the current Checkpoint, so the number goes down while it works', () => {
+    const two = [{ at: 0, completed: 1 }, { at: 10 * MIN, completed: 2 }, { at: 20 * MIN, completed: 3 }];
+    const later = estimateBuildTime({ samples: two, checkpointTotal: 8, completed: 3, now: 25 * MIN, first: null, latest });
+    expect(later).toEqual({ low: 55, high: 55 });
+  });
+
+  it('falls back to the overall pace before the Checkpoint count is known', () => {
+    const first = { at: 0, percent: 10 };
+    expect(estimateBuildTime({ samples: [], checkpointTotal: null, completed: 0, now: 0, first, latest: { at: 2 * MIN, percent: 15 } })).toEqual({ low: 34, high: 34 });
+    expect(estimateBuildTime({ samples: [], checkpointTotal: null, completed: 0, now: 0, first: null, latest })).toBeNull();
+  });
+
+  it('formats a range in plain words', () => {
+    expect(formatBuildEstimate({ low: 15, high: 20 })).toBe('about 15 to 20 min left');
+    expect(formatBuildEstimate({ low: 24, high: 24 })).toBe('about 24 min left');
+    expect(formatBuildEstimate({ low: 56, high: 91 })).toBe('about 56 min to 1 h 31 min left');
   });
 });
 

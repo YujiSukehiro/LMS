@@ -258,7 +258,9 @@ export function buildBlueprintUserPrompt(input: {
     `Campaign code supplied by the trainer: ${input.campaignCode.trim() || '(none, suggest one)'}`,
     `Playbook page count: ${input.pages.length} (valid page numbers: 1-${input.pages.length})`,
     `Measured content: about ${depth.ruleSignals} rule statements and ${depth.words} words on ${depth.operationalPages} pages with rules.`,
-    `UNIT COUNT: plan ${describeRange(unitRange)} Units (aim for ${unitRange.target}).`,
+    unitRange.exact
+      ? `UNIT COUNT: plan exactly ${unitRange.target} Units (the trainer chose ${unitRange.target}). Use ${unitRange.min} or ${unitRange.max} only if the Playbook truly cannot be split into ${unitRange.target}.`
+      : `UNIT COUNT: plan ${describeRange(unitRange)} Units (aim for ${unitRange.target}).`,
     condensed
       ? 'The Playbook is long, so each SOURCE PAGE below shows only its first part. Use the headings and opening text to map the pages to Units.'
       : 'Each SOURCE PAGE below shows the full page text approved for this stage.',

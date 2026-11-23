@@ -7,6 +7,7 @@ import {
   planForRuleSignals,
   planUnitContent,
   unitRangeForTarget,
+  unitCountNote,
   estimateTrackMinutes,
 } from '@/lib/ai/pipeline/content-depth';
 import { buildBlueprintSchema, buildBlueprintUserPrompt, finalizeBlueprint } from '@/lib/ai/prompts/blueprint';
@@ -86,6 +87,14 @@ describe('content depth', () => {
       unitRange: { min: 3, target: 4, max: 4 },
     });
     expect(prompt).toContain('UNIT COUNT: plan 3 to 4 Units (aim for 4)');
+    const exactPrompt = buildBlueprintUserPrompt({
+      trackTitle: 'Test',
+      campaignCode: '',
+      divisionId: 'TELEHEALTH',
+      pages: pages(4),
+      unitRange: unitRangeForTarget(9),
+    });
+    expect(exactPrompt).toContain('UNIT COUNT: plan exactly 9 Units (the trainer chose 9).');
   });
 
   it('attaches a per-Unit plan in finalizeBlueprint and uses it in the Unit schema and prompt', () => {
@@ -131,9 +140,17 @@ describe('content depth', () => {
   });
 
   it('builds a ±1 range around a trainer target and keeps it inside the limits', () => {
-    expect(unitRangeForTarget(6)).toEqual({ min: 5, target: 6, max: 7 });
-    expect(unitRangeForTarget(2)).toEqual({ min: 2, target: 2, max: 3 });
+    expect(unitRangeForTarget(6)).toEqual({ min: 5, target: 6, max: 7, exact: true });
+    expect(unitRangeForTarget(2)).toEqual({ min: 2, target: 2, max: 3, exact: true });
+    // QA M5: the trainer's number is no longer capped by the measured rule count (9 asked -> prompt asks for 9).
+    expect(unitRangeForTarget(9).target).toBe(9);
     expect(unitRangeForTarget(40).max).toBe(DEPTH_LIMITS.maxUnits);
     expect(estimateTrackMinutes(9, 104)).toBeGreaterThan(estimateTrackMinutes(3, 20));
+  });
+
+  it('says plainly when the built Checkpoint count differs from the trainer choice', () => {
+    expect(unitCountNote(8, 9)).toBe("8 checkpoints built (you asked for 9; the Playbook's rules fit 8).");
+    expect(unitCountNote(9, 9)).toBeNull();
+    expect(unitCountNote(8, null)).toBeNull();
   });
 });
