@@ -148,6 +148,11 @@ export const PublicSimScenarioSchema = z.object({
   dispositionOptions: z.array(z.string().max(80)).min(3).max(6),
   maxTurns: z.number().int().min(6).max(12).default(8),
   passScoreThreshold: z.number().int().min(60).max(95).default(80),
+  /**
+   * What the agent's screen shows for this caller (for example "Name: Taylor Bennett", "DOB: 1984-07-12", "ZIP: 60611"),
+   * so the agent can really verify identity (QA L11). Optional for older scenarios.
+   */
+  accountOnFile: z.array(z.string().max(100)).max(6).optional(),
   /** Required for all new runs; optional only so historical curriculum records remain readable. */
   context: ScenarioContextSchema.optional(),
   evidenceRequirements: ScenarioEvidenceRequirementsSchema.optional(),

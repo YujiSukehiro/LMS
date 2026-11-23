@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { SimEvaluation } from '@/lib/schemas/analytics';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { isEchoOf } from '@/lib/services/feedback-text';
 import { cn } from '@/lib/utils';
 import { ScoreGauge, type ScoreTone } from './ScoreGauge';
 
@@ -119,13 +120,15 @@ export function ScorecardView({
                 <span className="pulse-metric">{evaluation.criterionResults.length}</span> criteria to improve
               </span>
             ) : null}
-            {certified ? (
-              <span className="pulse-pill pulse-pill-emerald">
-                <Award aria-hidden className="size-3.5" />
-                Certified
-              </span>
-            ) : null}
           </p>
+          {certified && !isDemoReplay ? (
+            <p className="mt-1.5 flex items-center justify-center gap-1.5 text-xs text-pulse-secondary @2xl:justify-start">
+              <Award aria-hidden className="size-3.5 text-pulse-emerald" />
+              {evaluation.passed
+                ? 'You are certified on this Track.'
+                : 'Track already certified; this attempt was practice and does not change that.'}
+            </p>
+          ) : null}
           <p className="mt-2 text-sm leading-relaxed text-pulse-secondary">{evaluation.summaryFeedback}</p>
           {TRAINING_POLICY.simulationInteractionMode !== 'verbal_only' || TRAINING_POLICY.requireDispositionInVerbalPractice ? (
             <p
@@ -242,7 +245,7 @@ export function ScorecardView({
                 {criterion.coachingNote ? (
                   <p className="mt-2 text-sm leading-relaxed text-pulse-secondary">{criterion.coachingNote}</p>
                 ) : null}
-                {criterionScore < 100 && criterion.betterResponseExample ? (
+                {criterionScore < 100 && criterion.betterResponseExample && !isEchoOf(criterion.betterResponseExample, criterion.agentQuoteEvidence) ? (
                   <div className="mt-2 rounded-pulse-md border border-pulse-emerald/40 bg-pulse-emerald/10 px-3 py-2">
                     <p className="pulse-label flex items-center gap-1.5 text-pulse-emerald">
                       <Lightbulb aria-hidden className="size-3.5" /> Try saying

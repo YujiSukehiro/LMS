@@ -324,7 +324,9 @@ export async function importManualExchange<T extends z.ZodTypeAny, R>(
   const raw = typeof options.input === 'string' ? options.input : await options.input.text();
   try {
     assertNoExecutableContent(raw);
-    assertSensitiveDataSafe(raw, options.syntheticDataPolicy);
+    // Checksums are hex: a run of 13+ digits inside one ("sha256:ae84b05e5448566903153…") looked like a card number,
+    // so a harmless prompt change could fail the import. Mask them before the scan.
+    assertSensitiveDataSafe(raw.replace(/sha256:[0-9a-f]{64}/gi, 'sha256:checksum'), options.syntheticDataPolicy);
   } catch (error) {
     fail('safe_content', error instanceof Error ? error.message : 'Active or sensitive content is not permitted.');
   }

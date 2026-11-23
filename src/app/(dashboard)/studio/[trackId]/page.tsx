@@ -13,10 +13,18 @@ import { SIM_COPY } from '@/lib/policy/training-policy';
 export const metadata: Metadata = { title: 'Track Studio' };
 export const dynamic = 'force-dynamic';
 
-export default async function TrackStudioPage({ params }: { params: Promise<{ trackId: string }> }) {
+export default async function TrackStudioPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ trackId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   // Internal ops only: this page serializes the secret Simulation configs to the browser.
   await requirePageUser(INTERNAL_OPS_ROLES);
   const { trackId } = await params;
+  const rawDrill = (await searchParams).drill;
+  const focusDrillId = typeof rawDrill === 'string' && rawDrill.trim() ? rawDrill.trim() : null;
   const track = await loadTrack(trackId);
   if (!track) notFound();
 
@@ -51,7 +59,7 @@ export default async function TrackStudioPage({ params }: { params: Promise<{ tr
     );
   }
 
-  return <TrackStudio track={track} draft={draft} initialSecrets={secrets} cohorts={cohorts} />;
+  return <TrackStudio track={track} draft={draft} initialSecrets={secrets} cohorts={cohorts} focusDrillId={focusDrillId} />;
 }
 
 function BackLink() {

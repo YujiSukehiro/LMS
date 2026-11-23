@@ -27,6 +27,7 @@ import {
   loadUsersInCohort,
   pillarAverage,
   rankMissedItems,
+  relabelMissedItems,
   simPassRate,
   type UserSummary,
 } from '@/components/analytics/server-data';
@@ -229,6 +230,8 @@ export default async function AnalyticsPage({
     })
     .slice(0, 15);
   const trackTitles = Object.fromEntries(publishedTracks.map((t) => [t.id, t.title]));
+  const trackCodes = Object.fromEntries(publishedTracks.map((t) => [t.id, t.campaignCode]));
+  const missedRows = await relabelMissedItems(missed, publishedTracks);
 
   const passRate = simPassRate(kpiRollup);
   const lockedCohortOptions = internal
@@ -319,7 +322,7 @@ export default async function AnalyticsPage({
           title="Most-missed Drills"
           description="First-try misses. A high count often means the Playbook rule is unclear."
         />
-        <MissedRulesTable rows={missed} trackTitles={trackTitles} linkToStudio={internal} />
+        <MissedRulesTable rows={missedRows} trackTitles={trackTitles} trackCodes={trackCodes} linkToStudio={internal} />
       </section>
     </div>
   );

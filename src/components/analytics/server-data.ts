@@ -4,6 +4,7 @@
  * (PARTNER_SUPERVISOR: own partnerCohortId only; AGENT: own data only).
  * Never import this file from a client component.
  */
+import { drillLabel } from '@/lib/services/drill-label';
 import type { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import {
@@ -24,6 +25,7 @@ import {
   EvalRubricsDocSchema,
   TrackDocSchema,
   TrackVersionDocSchema,
+  type DrillItem,
   type SecretSimScenarioConfig,
   type TrackDoc,
   type TrackVersionDoc,
@@ -155,6 +157,27 @@ export function rankMissedItems(rollups: Array<AnalyticsRollupDoc | null>, limit
     .filter((row) => row.missCount > 0)
     .sort((a, b) => b.missCount - a.missCount)
     .slice(0, limit);
+}
+
+/**
+ * Re-label missed Drills from the current published version, so rows stored with a generic prompt ("Complete the
+ * Playbook rule.") show the Drill's own content and older rows pick up better labels too. Also returns the Track's
+ * campaign code for a short Track column.
+ */
+export async function relabelMissedItems(rows: MissedItemRow[], tracks: readonly TrackDoc[]): Promise<MissedItemRow[]> {
+  const byId = new Map(tracks.map((track) => [track.id, track]));
+  const trackIds = [...new Set(rows.map((row) => row.trackId))].filter((id) => byId.get(id)?.publishedVersionId);
+  const versions = await Promise.all(
+    trackIds.map((id) => loadTrackVersion(id, byId.get(id)!.publishedVersionId as string).catch(() => null)),
+  );
+  const drills = new Map<string, DrillItem>();
+  versions.forEach((version, index) => {
+    for (const unit of version?.units ?? []) for (const drill of unit.drills) drills.set(`${trackIds[index]}__${drill.id}`, drill);
+  });
+  return rows.map((row) => {
+    const drill = drills.get(`${row.trackId}__${row.itemId}`);
+    return drill ? { ...row, itemLabel: drillLabel(drill) } : row;
+  });
 }
 
 // ---------------- Tracks ----------------

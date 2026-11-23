@@ -13,6 +13,7 @@
  * Simulation rule: every evaluated published Simulation adds one rollup attempt (and a pass when passed),
  * pillar samples and missed criteria. XP and `simulationsPassedCount` are given only on the first pass of a scenario.
  */
+import { drillLabel } from '@/lib/services/drill-label';
 import { createHash } from 'node:crypto';
 import { FieldValue, type DocumentSnapshot, type Transaction } from 'firebase-admin/firestore';
 import { z } from 'zod';
@@ -671,7 +672,7 @@ export async function recordUnitCompletion(args: {
       for (const result of drillResults) {
         if (result.passedFirstTry) continue;
         const drill = drillsById.get(result.drillId);
-        addMissedItem(delta, track.id, result.drillId, drill?.prompt ?? result.drillId);
+        addMissedItem(delta, track.id, result.drillId, drill ? drillLabel(drill) : result.drillId);
       }
     }
 

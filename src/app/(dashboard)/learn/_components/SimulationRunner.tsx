@@ -1,5 +1,6 @@
 'use client';
 
+import { AccountOnFile } from '@/components/simulation/AccountOnFile';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
@@ -608,6 +609,7 @@ function IntroCard({
         <div className="rounded-pulse-md border border-pulse-border-subtle bg-pulse-bg px-3.5 py-3">
           <p className="pulse-label mb-1">Scenario brief</p>
           <p className="text-sm leading-relaxed text-pulse-secondary">{scenario.contextTicketSummary}</p>
+          <AccountOnFile lines={scenario.accountOnFile} className="mt-2" />
         </div>
 
         <p className="flex items-start gap-2 text-sm text-pulse-secondary">
