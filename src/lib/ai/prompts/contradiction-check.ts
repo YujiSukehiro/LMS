@@ -14,24 +14,55 @@ export const CONTRADICTION_CHECK_MAX_OUTPUT_TOKENS = 3000;
 /** Hosted models read the whole Playbook; very large bundles are cut per page so one call stays bounded. */
 export const CONTRADICTION_CHECK_CHAR_BUDGET = 120_000;
 
+/** Longest quote or summary we store and show. Longer model text is trimmed to fit, never rejected. */
+export const CONTRADICTION_TEXT_MAX = 300;
+const MIN_QUOTE_CHARS = 8;
+
+/**
+ * Cut text to at most `max` characters at a word boundary. The result is a prefix of the input, so a verbatim
+ * quote stays verbatim (the exact-match check in source-contradictions.ts still finds it on its page).
+ */
+export function trimToLimit(text: string, max = CONTRADICTION_TEXT_MAX): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  return (lastSpace >= max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;:–—-]+$/u, '');
+}
+
+/** Trim a summary for display; add an ellipsis because, unlike quotes, a summary does not need to match the page. */
+function trimSummary(text: string): string {
+  const trimmed = trimToLimit(text);
+  return trimmed.length < text.trim().length ? `${trimmed}…` : trimmed;
+}
+
 const QuoteSchema = z.object({
-  page: z.number().int().positive(),
-  quote: z.string().min(8).max(300),
+  page: z.coerce.number().int().positive(),
+  quote: z.string().min(MIN_QUOTE_CHARS).transform((value) => trimToLimit(value)),
 });
 
-export const ContradictionCheckOutputSchema = z.object({
-  contradictions: z
-    .array(
-      z.object({
-        rule: QuoteSchema.describe('The "Never / Do not / Always / Only" rule, quoted exactly'),
-        conflicting: QuoteSchema.describe('The script, example or step that breaks the rule, quoted exactly'),
-        summary: z.string().min(10).max(300),
-        severity: z.enum(['critical', 'major', 'coaching']),
-      }),
-    )
-    .max(MAX_CONTRADICTIONS),
+const ContradictionItemSchema = z.object({
+  rule: QuoteSchema.describe('The "Never / Do not / Always / Only" rule, quoted exactly'),
+  conflicting: QuoteSchema.describe('The script, example or step that breaks the rule, quoted exactly'),
+  summary: z.string().min(10).transform(trimSummary),
+  severity: z.enum(['critical', 'major', 'coaching']),
 });
-export type ContradictionCheckOutput = z.infer<typeof ContradictionCheckOutputSchema>;
+
+/**
+ * Keep the items that validate and drop the rest, so one malformed item (a missing field, a bad severity)
+ * no longer fails the whole check. Extra items past MAX_CONTRADICTIONS are cut.
+ */
+function keepValidItems(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as { contradictions?: unknown }).contradictions)) return value;
+  const items = (value as { contradictions: unknown[] }).contradictions;
+  return { ...value, contradictions: items.filter((item) => ContradictionItemSchema.safeParse(item).success).slice(0, MAX_CONTRADICTIONS) };
+}
+
+export const ContradictionCheckOutputSchema = z.preprocess(
+  keepValidItems,
+  z.object({ contradictions: z.array(ContradictionItemSchema).max(MAX_CONTRADICTIONS) }),
+);
+export type ContradictionCheckOutput = z.output<typeof ContradictionCheckOutputSchema>;
 
 export function buildContradictionSystemPrompt(): string {
   return [
@@ -41,7 +72,7 @@ export function buildContradictionSystemPrompt(): string {
     '- a script, example, step, template or other rule elsewhere that tells the agent to do the opposite.',
     'Example: page 11 says "Never trigger a link send to voicemail" while the voicemail script on page 7 says "I\'ll send you a text with your link".',
     'Do NOT report: the same rule said twice, a general rule and a narrower exception the Playbook itself explains, different prices for different plans, or style differences.',
-    'Quote both passages EXACTLY as they appear on the page (copy the words, 8 to 300 characters, no ellipsis, no paraphrase). Use the PAGE number shown above each page.',
+    'Quote both passages EXACTLY as they appear on the page (copy the words, no ellipsis, no paraphrase; keep each quote under 300 characters by quoting only the sentence that matters). Use the PAGE number shown above each page.',
     '"summary": one plain sentence that says what contradicts what.',
     '"severity": critical when it touches compliance, consent, medical claims, legal or safety; major when it changes what the agent does on a call; coaching otherwise.',
     `Return at most ${MAX_CONTRADICTIONS} items, most serious first. Return {"contradictions": []} when there are none. Most Playbooks have 0 to 2.`,
