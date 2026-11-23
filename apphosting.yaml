@@ -62,6 +62,11 @@ env:
     value: "15"
     availability:
       - RUNTIME
+  # New Track builds (not Retries or resumes) one trainer can start per UTC day.
+  - variable: MAX_TRACK_BUILDS_PER_USER_PER_DAY
+    value: "10"
+    availability:
+      - RUNTIME
   # Invite emails (Resend). Links in emails use APP_BASE_URL. Sending stays off until RESEND_API_KEY exists.
   - variable: APP_BASE_URL
     value: https://logicall-pulse--telehealthlms.us-central1.hosted.app

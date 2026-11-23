@@ -10,6 +10,7 @@ import { DRAFT_VERSION_ID, type TrackDoc } from '@/lib/schemas/curriculum';
 import type { GenerateCompleteEvent, GenerateProgressEvent, SseErrorEvent } from '@/lib/schemas/api';
 import { sseFrame } from '@/lib/utils';
 import { describeGenerationError, runTrackGeneration } from '@/lib/ai/pipeline/generate-track';
+import { buildLimitMessage, claimBuildSlot, isFreshBuildStart } from '@/lib/services/build-quota';
 import {
   GENERATION_STALE_MS,
   draftRef,
@@ -29,10 +30,11 @@ type LockResult =
   | { kind: 'missing' }
   | { kind: 'ready' }
   | { kind: 'running' }
+  | { kind: 'limited'; limit: number }
   | { kind: 'acquired' };
 
 /** Take the generation lock in a transaction, or report that the Track is ready or already building. */
-async function acquireGenerationLock(trackId: string): Promise<LockResult> {
+async function acquireGenerationLock(trackId: string, uid: string): Promise<LockResult> {
   return adminDb.runTransaction(async (tx) => {
     const trackSnap = await tx.get(trackRef(trackId));
     if (!trackSnap.exists) return { kind: 'missing' } as const;
@@ -43,6 +45,11 @@ async function acquireGenerationLock(trackId: string): Promise<LockResult> {
       return { kind: 'ready' } as const;
     }
     if (isGenerationRunning(track, now)) return { kind: 'running' } as const;
+    // A new build counts toward the trainer's daily limit; a Retry or resume does not.
+    if (isFreshBuildStart(track.generationProgress.step)) {
+      const slot = await claimBuildSlot(tx, uid, trackId, now);
+      if (!slot.ok) return { kind: 'limited', limit: slot.limit } as const;
+    }
     tx.update(trackRef(trackId), {
       generationProgress: { step: 'BLUEPRINTING', percent: 12, message: 'Starting the Track build...' },
       updatedAt: now,
@@ -143,9 +150,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ trackId:
 
       void (async () => {
         try {
-          const lock = await acquireGenerationLock(trackId);
+          const lock = await acquireGenerationLock(trackId, auth.user.uid);
           if (lock.kind === 'missing') {
             fail('This Track does not exist.');
+          } else if (lock.kind === 'limited') {
+            fail(buildLimitMessage(lock.limit));
           } else if (lock.kind === 'ready') {
             progress({ step: 'READY', percent: 100, message: 'Track Ready! Redirecting to Preview Studio...' });
             complete();
