@@ -16,15 +16,17 @@ export function normalizeFeedbackText(text: string): string {
 
 /**
  * True when a "Try saying" suggestion just repeats what the agent said: the same words after normalizing case,
- * spacing and punctuation, or one wholly inside the other with nearly the same length.
+ * spacing and punctuation; a suggestion that is only a piece of the agent's own turn (the QA case: the last two
+ * sentences of the agent's reply, offered back as the better response); or the agent's words with almost nothing added.
  */
 export function isEchoOf(suggestion: string | null | undefined, agentQuote: string | null | undefined): boolean {
-  const a = normalizeFeedbackText(suggestion ?? '');
-  const b = normalizeFeedbackText(agentQuote ?? '');
-  if (!a || !b) return false;
-  if (a === b) return true;
-  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
-  return longer.includes(shorter) && shorter.length / longer.length >= 0.85;
+  const said = normalizeFeedbackText(suggestion ?? '');
+  const quote = normalizeFeedbackText(agentQuote ?? '');
+  if (!said || !quote) return false;
+  if (said === quote) return true;
+  // A suggestion copied out of the agent's turn adds nothing. Very short overlaps ("thank you") are not echoes.
+  if (quote.includes(said)) return said.split(' ').length >= 4;
+  return said.includes(quote) && quote.length / said.length >= 0.85;
 }
 
 /** Quoted fragments ("…" or “…”) of at least three words inside a feedback line. */

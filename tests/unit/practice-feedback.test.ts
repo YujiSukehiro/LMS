@@ -47,6 +47,14 @@ describe('isEchoOf', () => {
     expect(isEchoOf('"I can offer you a discount on your plan"', 'I can offer you a discount on your plan.')).toBe(true);
     expect(isEchoOf('I can offer you 50% off for the next two billing cycles.', 'I can offer you a discount on your plan.')).toBe(false);
     expect(isEchoOf('Anything', '')).toBe(false);
+    // The real QA case (Gemini re-grade check, Nov 23): the suggestion was the tail of the agent's own reply.
+    expect(
+      isEchoOf(
+        "Your pause starts today and billing restarts in 60 days. I've noted the pause in your account and you'll get an email confirmation. Is there anything else I can help with?",
+        "Absolutely, I can pause it for you. Your pause starts today and billing restarts in 60 days. I've noted the pause in your account and you'll get an email confirmation. Is there anything else I can help with?",
+      ),
+    ).toBe(true);
+    expect(isEchoOf('Thank you', 'Thank you so much for calling today, Dana.')).toBe(false);
   });
 
   it('reads quoted fragments of three words or more', () => {
