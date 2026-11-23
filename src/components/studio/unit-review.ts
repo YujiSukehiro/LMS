@@ -136,8 +136,8 @@ export function trackAttention(units: TrackUnit[]): TrackAttention {
   };
 }
 
-/** Above this, reviewers call a Track "too long" (review 2026-11-23: 6 Checkpoints, about 78 minutes). */
-export const LONG_TRACK_MINUTES = 45;
+/** Above this, reviewers call a Track "too long" (review 2026-11-23: 78 minutes was too long; builds now aim for ~45). */
+export const LONG_TRACK_MINUTES = 60;
 /** One skill area holding more than this share of the Drills makes per-skill analytics lopsided. */
 const PILLAR_SHARE_LIMIT = 0.4;
 
