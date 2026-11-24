@@ -1,6 +1,7 @@
 /**
  * Plain-English sign-in error messages (pure, safe for client and server).
  */
+import { PASSWORD_MIN_LENGTH } from '@/lib/schemas/constants';
 
 function readCode(error: unknown): string | null {
   if (typeof error === 'object' && error !== null && 'code' in error) {
@@ -24,7 +25,7 @@ const MESSAGES: Record<string, string> = {
   'auth/cancelled-popup-request': 'The Google sign-in window closed before sign-in was complete.',
   'auth/popup-blocked': 'Your browser blocked the Google sign-in window. Allow pop-ups for this site and try again.',
   'auth/email-already-in-use': 'An account already uses this LC Number.',
-  'auth/weak-password': 'Use a stronger password (8 characters or more).',
+  'auth/weak-password': `Use a stronger password (${PASSWORD_MIN_LENGTH} characters or more).`,
   ACCOUNT_DEACTIVATED: 'This account is deactivated. Contact your LogiCall administrator.',
   DOMAIN_NOT_ALLOWED:
     'This Google account is not on an approved LogiCall domain. Use your @logicall.io account, or ask an administrator for an invite.',

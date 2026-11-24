@@ -4,12 +4,13 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminAuth, adminDb, firebaseErrorCode } from '@/lib/firebase/admin';
 import { requireAuth } from '@/lib/firebase/auth-guard';
 import { isSyntheticLcEmail, lcNumberToEmail, normalizeLcNumber } from '@/lib/firebase/lc-id';
-import { buildNewUserDoc, claimsForUser, generateTemporaryPassword } from '@/lib/firebase/users';
+import { buildNewUserDoc, claimsForUser, generateTemporaryPassword, MUST_CHANGE_PASSWORD_CLAIM } from '@/lib/firebase/users';
 import {
   RosterImportRequestSchema,
   type RosterImportResponse,
   type RosterImportRow,
 } from '@/lib/schemas/api';
+import { PASSWORD_MIN_LENGTH } from '@/lib/schemas/constants';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -109,7 +110,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     } catch (error) {
       const code = firebaseErrorCode(error);
       if (code === 'auth/email-already-exists') fail(`${loginIdentifier} already has an account.`);
-      else if (code === 'auth/invalid-password') fail('The initial password is too weak (use 8 characters or more).');
+      else if (code === 'auth/invalid-password') fail(`The initial password is too weak (use ${PASSWORD_MIN_LENGTH} characters or more).`);
       else if (code === 'auth/invalid-email') fail(`${loginIdentifier} is not a valid email address.`);
       else fail('The account could not be created.');
       continue;
@@ -126,7 +127,8 @@ export async function POST(req: Request): Promise<NextResponse> {
         partnerCohortId: row.partnerCohortId,
         divisionIds: row.divisionIds,
       });
-      await adminAuth.setCustomUserClaims(uid, claimsForUser(userDoc, true));
+      // The CSV password is shared with the person, so they must pick their own at first sign-in (Connor 2026-11-24).
+      await adminAuth.setCustomUserClaims(uid, { ...claimsForUser(userDoc, true), [MUST_CHANGE_PASSWORD_CLAIM]: true });
       const batch = adminDb.batch();
       batch.create(adminDb.collection('users').doc(uid), userDoc);
       if (row.role === 'AGENT') {

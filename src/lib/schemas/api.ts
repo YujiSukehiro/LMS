@@ -29,6 +29,7 @@ import {
   SimulationGateResultSchema,
   SyntheticOutboxRecordSchema,
 } from './simulation-state';
+import { PASSWORD_MIN_LENGTH } from './constants';
 
 // ---------- Generic error body ----------
 export const ApiErrorBodySchema = z.object({
@@ -50,7 +51,7 @@ export const ClaimInviteRequestSchema = z.object({
   joinCode: z.string().min(3).max(40),
   displayName: z.string().min(1).max(100),
   lcNumber: z.string().regex(/^LC-\d+$/i, 'LC Number must look like LC-1042'),
-  password: z.string().min(8).max(128),
+  password: z.string().min(PASSWORD_MIN_LENGTH, `Use a password with ${PASSWORD_MIN_LENGTH} characters or more.`).max(128),
 });
 export const ClaimInviteResponseSchema = z.object({ emailForSignIn: z.string() });
 
@@ -374,7 +375,7 @@ export const RosterImportRowSchema = z
     role: UserRoleSchema,
     partnerCohortId: z.string().min(2).max(32),
     divisionIds: z.array(DivisionIdSchema).min(1),
-    initialPassword: z.string().min(8).max(128).optional(),
+    initialPassword: z.string().min(PASSWORD_MIN_LENGTH, `The initial password needs ${PASSWORD_MIN_LENGTH} characters or more.`).max(128).optional(),
   })
   .refine((row) => Boolean(row.lcNumber || row.email), { message: 'Each row needs an LC Number or an email.' });
 export type RosterImportRow = z.infer<typeof RosterImportRowSchema>;
@@ -409,7 +410,7 @@ export type RosterUpdatePermissionsResponse = z.infer<typeof RosterUpdatePermiss
 
 export const RosterResetPasswordRequestSchema = z
   .object({
-    newPassword: z.string().min(8).max(128).optional(),
+    newPassword: z.string().min(PASSWORD_MIN_LENGTH, `Use a password with ${PASSWORD_MIN_LENGTH} characters or more.`).max(128).optional(),
   })
   .strict();
 export type RosterResetPasswordRequest = z.infer<typeof RosterResetPasswordRequestSchema>;
@@ -449,7 +450,7 @@ export const RosterInviteLinkResponseSchema = z.object({
 export const AcceptInviteRequestSchema = z
   .object({
     token: z.string().min(20).max(128),
-    password: z.string().min(8, 'Use a password with 8 characters or more.').max(128),
+    password: z.string().min(PASSWORD_MIN_LENGTH, `Use a password with ${PASSWORD_MIN_LENGTH} characters or more.`).max(128),
   })
   .strict();
 export const AcceptInviteResponseSchema = z.object({ ok: z.literal(true), emailForSignIn: z.string() });

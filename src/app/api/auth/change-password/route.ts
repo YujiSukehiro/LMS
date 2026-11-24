@@ -9,11 +9,12 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { setMustChangePassword } from '@/lib/firebase/users';
 import { recordAuditEvent } from '@/lib/services/audit';
+import { PASSWORD_MIN_LENGTH } from '@/lib/schemas/constants';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const NEW_PASSWORD_MIN = 10;
+const NEW_PASSWORD_MIN = PASSWORD_MIN_LENGTH;
 
 const BodySchema = z
   .object({

@@ -7,6 +7,7 @@ import { KeyRound, Loader2 } from 'lucide-react';
 import { establishServerSession, getClientAuth } from '@/lib/firebase/client';
 import { describeAuthError, isSilentAuthError } from '@/lib/firebase/auth-errors';
 import { AcceptInviteResponseSchema } from '@/lib/schemas/api';
+import { PASSWORD_MIN_LENGTH } from '@/lib/schemas/constants';
 
 /** First-time setup: choose a password for the invited email, or use a Google account with that same email. */
 export function InviteSetupForm({ token, email }: { token: string; email: string }) {
@@ -29,7 +30,7 @@ export function InviteSetupForm({ token, email }: { token: string; email: string
 
   async function createAccount(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (password.length < 8) return setError('Use a password with 8 characters or more.');
+    if (password.length < PASSWORD_MIN_LENGTH) return setError(`Use a password with ${PASSWORD_MIN_LENGTH} characters or more.`);
     if (password !== confirm) return setError('The two passwords are not the same.');
     setError(null);
     setPending('password');
