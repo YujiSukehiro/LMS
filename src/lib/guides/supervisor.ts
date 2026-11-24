@@ -68,7 +68,7 @@ export const SUPERVISOR_GUIDE: RoleGuide = {
           what: 'The Agent guide explains each step your agents go through: Checkpoints, Drills, Verbal Practice, certification and Keep-Sharp reviews.',
           when: 'Before coaching, or when an agent asks how something works.',
           steps: ['Select the **Agent** tab at the top of this page.'],
-          links: [{ label: 'Open the Agent guide', href: '/guide?role=agent' }],
+          links: [{ label: 'Open the Agent guide', href: '/how-to?role=agent' }],
         },
         accountMenuSection,
       ],

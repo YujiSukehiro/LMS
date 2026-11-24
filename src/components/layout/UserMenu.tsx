@@ -58,12 +58,12 @@ export function UserMenu({ uid, displayName, email }: { uid: string; displayName
           </div>
           <ThemeSwitcher uid={uid} className="border-b border-pulse-border pb-2 pt-1" />
           <Link
-            href="/guide"
+            href="/how-to"
             onClick={close}
             className="flex items-center gap-2 rounded-pulse-sm px-2.5 py-2 text-sm text-pulse-secondary hover:bg-pulse-elevated"
           >
             <BookOpen aria-hidden className="size-4" />
-            How-to guide
+            How To
           </Link>
           <button
             type="button"

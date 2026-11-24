@@ -22,7 +22,7 @@ export interface GuideLink {
 }
 
 export interface GuideSection {
-  /** Stable anchor id, unique within a guide (used by jump links: /guide?role=agent#verbal-practice). */
+  /** Stable anchor id, unique within a guide (deep links: /how-to?role=agent#verbal-practice). Never derive it from the title. */
   id: string;
   title: string;
   /** "What it is": one or two plain sentences. */

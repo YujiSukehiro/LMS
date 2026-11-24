@@ -11,7 +11,10 @@ import { guideRoleFor, resolveGuideRole, visibleGuideRoles } from '@/lib/guides/
 import { guideFileName, guideToMarkdown } from '@/lib/guides/markdown';
 import { filterGuide } from '@/lib/guides/search';
 import { GUIDE_ROLES, type GuideRoleId } from '@/lib/guides/types';
-import { GuideView } from '@/components/guide/GuideView';
+import { HowToView } from '@/components/guide/HowToView';
+import { GUIDE_NAV_ITEM } from '@/components/layout/nav-config';
+import { GUIDE_SECTION_MEDIA, GUIDE_VIDEO_DURATIONS } from '@/lib/guides/media-chapters.generated';
+import { VIDEO_ROLES, normalizeManifest, type GuideMediaManifest } from '@/lib/guides/media';
 import { dismissedCookieValue, shouldShowGuideBanner } from '@/components/guide/guide-banner-cookie';
 
 const ROOT = path.resolve(__dirname, '../..');
@@ -110,14 +113,15 @@ describe('role guides', () => {
 
   it('links only to pages that exist, and to the Guide tabs the reader can open', () => {
     const patterns = pageRoutePatterns();
-    expect(patterns.some((p) => p.test('/guide'))).toBe(true);
+    expect(patterns.some((p) => p.test('/how-to'))).toBe(true);
+    expect(patterns.some((p) => p.test('/guide'))).toBe(true); // old links redirect
     for (const role of GUIDE_ROLES) {
       const allowed = visibleGuideRoles(ROLE_FOR_GUIDE[role]).map((id) => id.toLowerCase());
       for (const section of GUIDES[role].chapters.flatMap((chapter) => chapter.sections)) {
         for (const link of section.links ?? []) {
           const url = new URL(link.href.replace(':uid', 'uid-1'), 'https://pulse.test');
           expect(patterns.some((p) => p.test(url.pathname)), `${role}/${section.id} → ${link.href}`).toBe(true);
-          if (url.pathname === '/guide' && url.searchParams.has('role')) {
+          if (url.pathname === '/how-to' && url.searchParams.has('role')) {
             expect(allowed, `${role}/${section.id} → ${link.href}`).toContain(url.searchParams.get('role'));
           }
         }
@@ -128,7 +132,7 @@ describe('role guides', () => {
   it('keeps the staff guides pointing at the Agent guide', () => {
     for (const role of ['SUPERVISOR', 'TRAINER', 'ADMIN'] as const) {
       const hrefs = GUIDES[role].chapters.flatMap((c) => c.sections.flatMap((s) => (s.links ?? []).map((l) => l.href)));
-      expect(hrefs).toContain('/guide?role=agent');
+      expect(hrefs).toContain('/how-to?role=agent');
     }
   });
 
@@ -140,23 +144,101 @@ describe('role guides', () => {
     expect(hits).toContain('verbal-practice');
   });
 
+  const render = (role: UserRole, manifest: GuideMediaManifest | null = null, initial?: GuideRoleId) =>
+    renderToStaticMarkup(
+      createElement(HowToView, {
+        uid: 'u1',
+        roles: visibleGuideRoles(role),
+        initialRole: initial ?? guideRoleFor(role),
+        manifest,
+        mediaBase: '/guide-media',
+      }),
+    );
+
+  /** A manifest that lists every video and two screenshots for every section with a chapter. */
+  const fullManifest: GuideMediaManifest = {
+    version: 1,
+    videos: Object.fromEntries(VIDEO_ROLES.map((v) => [v, { file: `${v}.mp4`, poster: `${v}.webp`, duration: 200 }])),
+    screenshots: Object.fromEntries(
+      GUIDE_ROLES.flatMap((role) => Object.keys(GUIDE_SECTION_MEDIA[role]).map((id) => [`${role}:${id}`, [`${id}-1.webp`, `${id}-2.webp`]])),
+    ),
+  };
+
   it('renders the reader’s guide with tabs only for the guides they may open', () => {
-    const html = (role: UserRole) =>
-      renderToStaticMarkup(
-        createElement(GuideView, { uid: 'u1', roles: visibleGuideRoles(role), initialRole: guideRoleFor(role) }),
-      );
-    const agent = html('AGENT');
+    const agent = render('AGENT');
     expect(agent).toContain(GUIDES.AGENT.title);
     expect(agent).not.toContain('role="tablist"');
-    const supervisor = html('PARTNER_SUPERVISOR');
+    const supervisor = render('PARTNER_SUPERVISOR');
     expect(supervisor).toContain(GUIDES.SUPERVISOR.title);
     expect((supervisor.match(/role="tab"/g) ?? []).length).toBe(2);
     expect(supervisor).not.toContain('>Trainer<');
-    const admin = html('SUPER_ADMIN');
+    const admin = render('SUPER_ADMIN');
     expect(admin).toContain(GUIDES.ADMIN.title);
     expect((admin.match(/role="tab"/g) ?? []).length).toBe(4);
     // Own-uid links (the Readiness Passport) resolve for the reader.
     expect(agent).toContain('/analytics/agents/u1');
+  });
+
+  it('hides every video control and screenshot toggle when no media is published', () => {
+    for (const role of ['AGENT', 'PARTNER_SUPERVISOR', 'TRAINER', 'ADMIN'] as const) {
+      const html = render(role, null);
+      expect(html).not.toContain('Watch (');
+      expect(html).not.toContain('Show screenshots');
+      expect(html).not.toContain('Watch the');
+      expect(html).not.toContain('<video');
+      expect(html).not.toContain('<img');
+    }
+    // A manifest without this role's video hides that role's player and Watch buttons.
+    const noAgent = normalizeManifest({ ...fullManifest, videos: { trainer: fullManifest.videos.trainer } });
+    expect(render('AGENT', noAgent)).not.toContain('Watch (');
+  });
+
+  it('loads no video or image until the reader asks for one', () => {
+    for (const role of ['AGENT', 'PARTNER_SUPERVISOR', 'TRAINER', 'ADMIN'] as const) {
+      const html = render(role, fullManifest);
+      expect(html).not.toContain('<video');
+      expect(html).not.toContain('<img');
+      expect(html).not.toContain('.webp');
+      expect(html).not.toContain('.mp4');
+      if (Object.keys(GUIDE_SECTION_MEDIA[guideRoleFor(role)]).length > 0) {
+        expect(html).toContain('Watch the');
+        expect(html).toContain('Watch (');
+        expect(html).toContain('Show screenshots (2)');
+      }
+    }
+  });
+
+  it('gives every section a stable anchor, and ?role= picks the tab', () => {
+    for (const role of GUIDE_ROLES) {
+      const reader: UserRole = role === 'SUPERVISOR' ? 'PARTNER_SUPERVISOR' : role;
+      const html = render('SUPER_ADMIN', null, resolveGuideRole('SUPER_ADMIN', role.toLowerCase()));
+      expect(html).toContain(`<h1 class="text-xl font-bold tracking-tight sm:text-2xl">${GUIDES[role].title}</h1>`);
+      expect(html).toContain(`aria-selected="true" aria-controls="guide-panel"`);
+      for (const section of GUIDES[role].chapters.flatMap((c) => c.sections)) {
+        expect(html, `${role}#${section.id}`).toContain(`id="${section.id}"`);
+        expect(html).toContain(`href="#${section.id}"`);
+      }
+      expect(resolveGuideRole(reader, role.toLowerCase())).toBe(role);
+    }
+    // Ids are explicit data, not slugs of the title: they survive a title edit.
+    const edited = GUIDES.AGENT.chapters[0].sections.map((s) => ({ ...s, title: `${s.title} (renamed)` }));
+    expect(edited.map((s) => s.id)).toEqual(GUIDES.AGENT.chapters[0].sections.map((s) => s.id));
+  });
+
+  it('only times sections that exist, inside the recorded video', () => {
+    for (const role of GUIDE_ROLES) {
+      const ids = new Set(GUIDES[role].chapters.flatMap((c) => c.sections.map((s) => s.id)));
+      for (const [id, media] of Object.entries(GUIDE_SECTION_MEDIA[role])) {
+        expect(ids.has(id), `${role}#${id}`).toBe(true);
+        expect(media.start).toBeGreaterThanOrEqual(0);
+        const duration = GUIDE_VIDEO_DURATIONS[media.video];
+        if (duration) expect(media.start).toBeLessThan(duration);
+      }
+    }
+  });
+
+  it('names the page How To in the navigation', () => {
+    expect(GUIDE_NAV_ITEM).toMatchObject({ href: '/how-to', label: 'How To' });
   });
 
   it('keeps docs/guides in sync with the guide data (run npm run guides:export)', () => {

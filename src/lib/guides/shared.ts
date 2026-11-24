@@ -58,14 +58,14 @@ export const forgotPasswordSection = (audience: 'agent' | 'staff'): GuideSection
 
 export const accountMenuSection: GuideSection = {
   id: 'account-menu',
-  title: 'Theme, this guide and signing out',
-  what: 'The account menu (your initials, top right) holds the color theme, a link to this guide, and **Sign out**.',
+  title: 'Theme, How To and signing out',
+  what: 'The account menu (your initials, top right) holds the color theme, a link to this How To page, and **Sign out**.',
   when: 'When the screen is hard to read, when you need help, or on a shared computer.',
   steps: [
     'Select your initials in the top-right corner.',
     'Under **Theme**, pick **Light**, **Dark**, **Contrast** or **System**. Pulse remembers your choice.',
-    'Select **How-to guide** to open this page. **Guide** is also at the bottom of the left sidebar.',
+    'Select **How To** to open this page. **How To** is also at the bottom of the left sidebar.',
     'Select **Sign out** when you finish on a shared computer.',
   ],
-  links: [{ label: 'Open the Guide', href: '/guide' }],
+  links: [{ label: 'Open How To', href: '/how-to' }],
 };

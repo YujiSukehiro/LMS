@@ -57,7 +57,7 @@ export function seeAlsoSections(roles: Array<'trainer' | 'supervisor'>): GuideSe
       what: 'The Trainer guide covers building, publishing and the people tasks Trainers can do.',
       when: 'When onboarding a new Trainer.',
       steps: ['Select the **Trainer** tab at the top of this page.'],
-      links: [{ label: 'Open the Trainer guide', href: '/guide?role=trainer' }],
+      links: [{ label: 'Open the Trainer guide', href: '/how-to?role=trainer' }],
     });
   }
   sections.push(
@@ -67,7 +67,7 @@ export function seeAlsoSections(roles: Array<'trainer' | 'supervisor'>): GuideSe
       what: 'Partner Supervisors see their own Cohort only: Home, Team Progress, Analytics and Passports, and they can reset passwords for their agents.',
       when: 'When onboarding a partner supervisor or answering their questions.',
       steps: ['Select the **Supervisor** tab at the top of this page.'],
-      links: [{ label: 'Open the Supervisor guide', href: '/guide?role=supervisor' }],
+      links: [{ label: 'Open the Supervisor guide', href: '/how-to?role=supervisor' }],
     },
     {
       id: 'agent-experience',
@@ -75,7 +75,7 @@ export function seeAlsoSections(roles: Array<'trainer' | 'supervisor'>): GuideSe
       what: 'The Agent guide walks through the learner side: Checkpoints, Drills, Verbal Practice, certification and Keep-Sharp reviews.',
       when: 'Before you publish, to know what agents will go through, or when answering agent questions.',
       steps: ['Select the **Agent** tab at the top of this page, or test-play a Track with **Play** in Track Studio.'],
-      links: [{ label: 'Open the Agent guide', href: '/guide?role=agent' }],
+      links: [{ label: 'Open the Agent guide', href: '/how-to?role=agent' }],
     },
   );
   return sections;

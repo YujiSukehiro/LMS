@@ -37,7 +37,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
   - [What supervisors see](#supervisor-experience)
   - [What your agents see](#agent-experience)
   - [AI status pill](#ai-status)
-  - [Theme, this guide and signing out](#account-menu)
+  - [Theme, How To and signing out](#account-menu)
 
 ## Getting started
 
@@ -561,7 +561,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 1. Select the **Supervisor** tab at the top of this page.
 
-**Open in Pulse:** **Open the Supervisor guide** (`/guide?role=supervisor`)
+**Open in Pulse:** **Open the Supervisor guide** (`/how-to?role=supervisor`)
 
 <a id="agent-experience"></a>
 
@@ -575,7 +575,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 1. Select the **Agent** tab at the top of this page, or test-play a Track with **Play** in Track Studio.
 
-**Open in Pulse:** **Open the Agent guide** (`/guide?role=agent`)
+**Open in Pulse:** **Open the Agent guide** (`/how-to?role=agent`)
 
 <a id="ai-status"></a>
 
@@ -595,9 +595,9 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 <a id="account-menu"></a>
 
-### Theme, this guide and signing out
+### Theme, How To and signing out
 
-**What it is.** The account menu (your initials, top right) holds the color theme, a link to this guide, and **Sign out**.
+**What it is.** The account menu (your initials, top right) holds the color theme, a link to this How To page, and **Sign out**.
 
 **When to use it.** When the screen is hard to read, when you need help, or on a shared computer.
 
@@ -605,7 +605,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 1. Select your initials in the top-right corner.
 2. Under **Theme**, pick **Light**, **Dark**, **Contrast** or **System**. Pulse remembers your choice.
-3. Select **How-to guide** to open this page. **Guide** is also at the bottom of the left sidebar.
+3. Select **How To** to open this page. **How To** is also at the bottom of the left sidebar.
 4. Select **Sign out** when you finish on a shared computer.
 
-**Open in Pulse:** **Open the Guide** (`/guide`)
+**Open in Pulse:** **Open How To** (`/how-to`)
