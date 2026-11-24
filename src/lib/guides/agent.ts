@@ -107,6 +107,7 @@ export const AGENT_GUIDE: RoleGuide = {
           tips: [
             'Keep-Sharp reviews keep rules fresh but do not affect certification.',
             '**Recertify** means the Track changed in a way that needs a new pass. Your old certification stays in your history.',
+            '**Revoked** means a Trainer withdrew your certification on that Track. The reason shows in **Path to certification**. It does not come back by itself, even if you redo the Track, so talk to your supervisor.',
             'Certification shows training is done. Your supervisor decides when you take live calls.',
           ],
         },
@@ -130,6 +131,7 @@ export const AGENT_GUIDE: RoleGuide = {
             'Nothing due? **Practice Upcoming Drills** lets you review early.',
             'A wrong answer comes back in about 4 hours.',
             'No reviews yet means you have not finished a Checkpoint. Reviews start after your first one.',
+            'Reviews keep rules fresh. They do not count toward certification, and skipping them never removes it.',
           ],
           links: [{ label: 'Open Keep-Sharp Review', href: '/learn/review' }],
         },

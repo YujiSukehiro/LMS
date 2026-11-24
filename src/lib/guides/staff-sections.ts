@@ -123,6 +123,7 @@ export const teamProgressSection = (audience: 'supervisor' | 'staff'): GuideSect
   tips: [
     '"Ready for calls" on this board means certified on the selected Track. On Home it means certified on every assigned Track.',
     'Ready = every Checkpoint done and every Verbal Practice scenario passed. Keep-Sharp reviews do not count toward it.',
+    'A revoked certification moves the agent to the **Needs recert** box with "Revoked:" and the reason.',
     'Certification shows training is done; the decision to put someone on live calls is still yours.',
     audience === 'supervisor'
       ? 'Agents are listed under their home Cohort only. Someone from another team who is "also in" your Cohort shows on their own team\'s board, not yours.'
@@ -168,9 +169,32 @@ export const passportSection = (audience: 'supervisor' | 'staff'): GuideSection 
     audience === 'supervisor'
       ? 'You can open Passports for agents in your own Cohort.'
       : 'Staff can open any agent\'s Passport.',
+    audience === 'supervisor'
+      ? 'A certification a Trainer withdrew shows as **Revoked**. Ask your Trainer about the reason and what happens next.'
+      : 'To withdraw a certification, use **Revoke** in **Campaign Certifications** (see "Revoke a certification").',
   ],
   requires: ['analytics.view'],
 });
+
+export const revokeCertificationSection: GuideSection = {
+  id: 'revoke-certification',
+  title: 'Revoke a certification',
+  what: 'Withdraws an agent\'s certification on one Track. They stop counting as certified or ready for calls on it; their training history stays, and your reason and name are recorded in the certification history.',
+  when: 'When an agent is certified but should not be: for example a compliance violation on a real call, or a policy change that their certification predates.',
+  steps: [
+    'Open the agent\'s Readiness Passport (select their name on **Team Progress** or **Analytics**).',
+    'In **Campaign Certifications**, find the Track and select **Revoke**.',
+    'Type the **Reason**. It is required and kept in the certification history.',
+    'Select **Revoke certification**.',
+  ],
+  tips: [
+    'A revoked certification does not come back by itself, even if the agent meets every requirement again. There is no reinstate button yet.',
+    'The agent sees **Revoked** and your reason on the Track Map. Supervisors see "Revoked:" and the reason on Team Progress.',
+    'Their Track goes back to in progress, so their Home card shows **Continue** instead of **Certified**.',
+  ],
+  links: [{ label: 'Open Team Progress', href: '/progress' }],
+  requires: ['certifications.manage'],
+};
 
 export const manualScoringSection: GuideSection = {
   id: 'score-by-hand',
@@ -254,7 +278,7 @@ export const bulkImportSection: GuideSection = {
     'Pulse does not keep a copy of the temporary passwords. If you lose the file, reset the passwords one by one.',
     'Blank role = Agent. Blank divisionIds = the Cohort\'s default Divisions. Separate several Divisions with |.',
     'Up to 500 rows per import. Excel files must be saved as CSV first.',
-    'Imported accounts are not forced to change their password. Ask agents to keep it private.',
+    'Everyone imported must choose their own password (at least 10 characters) the first time they sign in, the same as after a reset. An initialPassword you set must also be at least 10 characters.',
   ],
   links: [{ label: 'Open Roster', href: '/roster' }],
   requires: ['users.invite'],

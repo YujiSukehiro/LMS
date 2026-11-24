@@ -17,19 +17,22 @@ export const signInSection = (audience: 'agent' | 'staff'): GuideSection => ({
           'Open the Pulse sign-in page.',
           'With an LC Number: type it (for example LC-1042) in **LC Number or Email**, type your **Password**, then select **Sign In**.',
           'With a LogiCall Google account (@logicall.io or @logicall.live): select **Continue with Google**.',
-          'First time with an invite email: open the setup link, choose a password (at least 8 characters) and select **Create my account**, or select **Use my Google account**.',
-          'First time with a join code: select **Have a Team Join Code? Claim Access**, type the code (for example THS-7842), select **Continue**, fill in **Full Name**, **LC Number** and a password, then select **Create Account & Sign In**.',
+          'First time with an invite email: open the setup link, choose a password (at least 10 characters) and select **Create my account**, or select **Use my Google account**.',
+          'First time with a join code: select **Have a Team Join Code? Claim Access**, type the code (for example THS-7842), select **Continue**, fill in **Full Name**, **LC Number** and a password (at least 10 characters), then select **Create Account & Sign In**.',
+          'Given a temporary password (a new account from your supervisor or LogiCall, or after a reset): sign in with it, then type your own password twice on **Choose a new password** and select **Save password and continue**.',
         ]
       : [
           'LogiCall staff: select **Continue with Google** and pick your @logicall.io or @logicall.live account.',
-          'Invited by email: open the one-time setup link from the invite email, choose a password (at least 8 characters) and select **Create my account**, or select **Use my Google account** for that same address.',
+          'Invited by email: open the one-time setup link from the invite email, choose a password (at least 10 characters) and select **Create my account**, or select **Use my Google account** for that same address.',
           'Accounts with a password: type your LC Number or email in **LC Number or Email**, your **Password**, then select **Sign In**.',
+          'Signed in with a temporary password (from Bulk Import or a reset)? Pulse opens **Choose a new password** first. Pick one with at least 10 characters.',
         ],
   tips: [
     'A Google account outside @logicall.io and @logicall.live is refused unless it was invited first.',
     audience === 'agent'
       ? 'A first-time @logicall.io / @logicall.live Google sign-in starts as an Agent in the LogiCall Internal Cohort.'
       : 'A first-time @logicall.io / @logicall.live Google sign-in with no invite starts as an Agent in the LogiCall Internal Cohort. To make them staff, change their role with **Access** on the Roster, or invite them before they sign in.',
+    'Passwords need at least 10 characters.',
     'Setup links work once. If yours says **Invite not available**, ask for a new one.',
     'A deactivated account cannot sign in. Contact your LogiCall administrator.',
   ],

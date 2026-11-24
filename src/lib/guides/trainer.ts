@@ -10,6 +10,7 @@ import {
   editTrackSection,
   inviteSection,
   manualScoringSection,
+  revokeCertificationSection,
   passportSection,
   resetPasswordSection,
   revisedPlaybookSection,
@@ -37,7 +38,13 @@ export const BUILDING_CHAPTER: GuideChapter = {
 export const TEAM_CHAPTER: GuideChapter = {
   id: 'team-insight',
   title: 'Progress and coaching',
-  sections: [teamProgressSection('staff'), manualScoringSection, analyticsSection('staff'), passportSection('staff')],
+  sections: [
+    teamProgressSection('staff'),
+    manualScoringSection,
+    analyticsSection('staff'),
+    passportSection('staff'),
+    revokeCertificationSection,
+  ],
 };
 
 /** Pointers to the guides of the roles a staff member manages. */

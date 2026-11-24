@@ -23,6 +23,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
   - [Score a practice call by hand](#score-by-hand)
   - [Analytics](#analytics)
   - [An agent's Readiness Passport](#readiness-passport)
+  - [Revoke a certification](#revoke-certification)
 - People
   - [The Roster](#roster)
   - [Invite someone by email](#invite-staff)
@@ -51,13 +52,15 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 **How to:**
 
 1. LogiCall staff: select **Continue with Google** and pick your @logicall.io or @logicall.live account.
-2. Invited by email: open the one-time setup link from the invite email, choose a password (at least 8 characters) and select **Create my account**, or select **Use my Google account** for that same address.
+2. Invited by email: open the one-time setup link from the invite email, choose a password (at least 10 characters) and select **Create my account**, or select **Use my Google account** for that same address.
 3. Accounts with a password: type your LC Number or email in **LC Number or Email**, your **Password**, then select **Sign In**.
+4. Signed in with a temporary password (from Bulk Import or a reset)? Pulse opens **Choose a new password** first. Pick one with at least 10 characters.
 
 **Tips:**
 
 - A Google account outside @logicall.io and @logicall.live is refused unless it was invited first.
 - A first-time @logicall.io / @logicall.live Google sign-in with no invite starts as an Agent in the LogiCall Internal Cohort. To make them staff, change their role with **Access** on the Roster, or invite them before they sign in.
+- Passwords need at least 10 characters.
 - Setup links work once. If yours says **Invite not available**, ask for a new one.
 - A deactivated account cannot sign in. Contact your LogiCall administrator.
 
@@ -280,6 +283,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 - "Ready for calls" on this board means certified on the selected Track. On Home it means certified on every assigned Track.
 - Ready = every Checkpoint done and every Verbal Practice scenario passed. Keep-Sharp reviews do not count toward it.
+- A revoked certification moves the agent to the **Needs recert** box with "Revoked:" and the reason.
 - Certification shows training is done; the decision to put someone on live calls is still yours.
 - Agents are grouped by their home Cohort. The **Cohort** filter shows each agent under their home Cohort only, even if they are also in other Cohorts.
 
@@ -343,6 +347,30 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 **Tips:**
 
 - Staff can open any agent's Passport.
+- To withdraw a certification, use **Revoke** in **Campaign Certifications** (see "Revoke a certification").
+
+<a id="revoke-certification"></a>
+
+### Revoke a certification
+
+**What it is.** Withdraws an agent's certification on one Track. They stop counting as certified or ready for calls on it; their training history stays, and your reason and name are recorded in the certification history.
+
+**When to use it.** When an agent is certified but should not be: for example a compliance violation on a real call, or a policy change that their certification predates.
+
+**How to:**
+
+1. Open the agent's Readiness Passport (select their name on **Team Progress** or **Analytics**).
+2. In **Campaign Certifications**, find the Track and select **Revoke**.
+3. Type the **Reason**. It is required and kept in the certification history.
+4. Select **Revoke certification**.
+
+**Tips:**
+
+- A revoked certification does not come back by itself, even if the agent meets every requirement again. There is no reinstate button yet.
+- The agent sees **Revoked** and your reason on the Track Map. Supervisors see "Revoked:" and the reason on Team Progress.
+- Their Track goes back to in progress, so their Home card shows **Continue** instead of **Certified**.
+
+**Open in Pulse:** **Open Team Progress** (`/progress`)
 
 ## People
 
@@ -415,7 +443,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 - Pulse does not keep a copy of the temporary passwords. If you lose the file, reset the passwords one by one.
 - Blank role = Agent. Blank divisionIds = the Cohort's default Divisions. Separate several Divisions with |.
 - Up to 500 rows per import. Excel files must be saved as CSV first.
-- Imported accounts are not forced to change their password. Ask agents to keep it private.
+- Everyone imported must choose their own password (at least 10 characters) the first time they sign in, the same as after a reset. An initialPassword you set must also be at least 10 characters.
 
 **Open in Pulse:** **Open Roster** (`/roster`)
 

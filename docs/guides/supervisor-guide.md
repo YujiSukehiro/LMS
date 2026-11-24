@@ -34,13 +34,15 @@ You use Pulse to see which agents in your Cohort are ready to take calls, coach 
 **How to:**
 
 1. LogiCall staff: select **Continue with Google** and pick your @logicall.io or @logicall.live account.
-2. Invited by email: open the one-time setup link from the invite email, choose a password (at least 8 characters) and select **Create my account**, or select **Use my Google account** for that same address.
+2. Invited by email: open the one-time setup link from the invite email, choose a password (at least 10 characters) and select **Create my account**, or select **Use my Google account** for that same address.
 3. Accounts with a password: type your LC Number or email in **LC Number or Email**, your **Password**, then select **Sign In**.
+4. Signed in with a temporary password (from Bulk Import or a reset)? Pulse opens **Choose a new password** first. Pick one with at least 10 characters.
 
 **Tips:**
 
 - A Google account outside @logicall.io and @logicall.live is refused unless it was invited first.
 - A first-time @logicall.io / @logicall.live Google sign-in with no invite starts as an Agent in the LogiCall Internal Cohort. To make them staff, change their role with **Access** on the Roster, or invite them before they sign in.
+- Passwords need at least 10 characters.
 - Setup links work once. If yours says **Invite not available**, ask for a new one.
 - A deactivated account cannot sign in. Contact your LogiCall administrator.
 
@@ -109,6 +111,7 @@ You use Pulse to see which agents in your Cohort are ready to take calls, coach 
 
 - "Ready for calls" on this board means certified on the selected Track. On Home it means certified on every assigned Track.
 - Ready = every Checkpoint done and every Verbal Practice scenario passed. Keep-Sharp reviews do not count toward it.
+- A revoked certification moves the agent to the **Needs recert** box with "Revoked:" and the reason.
 - Certification shows training is done; the decision to put someone on live calls is still yours.
 - Agents are listed under their home Cohort only. Someone from another team who is "also in" your Cohort shows on their own team's board, not yours.
 
@@ -152,6 +155,7 @@ You use Pulse to see which agents in your Cohort are ready to take calls, coach 
 **Tips:**
 
 - You can open Passports for agents in your own Cohort.
+- A certification a Trainer withdrew shows as **Revoked**. Ask your Trainer about the reason and what happens next.
 
 <a id="reset-password"></a>
 

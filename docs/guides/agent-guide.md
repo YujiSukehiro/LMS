@@ -35,13 +35,15 @@ You use Pulse to learn each campaign before you take its calls: read short Brief
 1. Open the Pulse sign-in page.
 2. With an LC Number: type it (for example LC-1042) in **LC Number or Email**, type your **Password**, then select **Sign In**.
 3. With a LogiCall Google account (@logicall.io or @logicall.live): select **Continue with Google**.
-4. First time with an invite email: open the setup link, choose a password (at least 8 characters) and select **Create my account**, or select **Use my Google account**.
-5. First time with a join code: select **Have a Team Join Code? Claim Access**, type the code (for example THS-7842), select **Continue**, fill in **Full Name**, **LC Number** and a password, then select **Create Account & Sign In**.
+4. First time with an invite email: open the setup link, choose a password (at least 10 characters) and select **Create my account**, or select **Use my Google account**.
+5. First time with a join code: select **Have a Team Join Code? Claim Access**, type the code (for example THS-7842), select **Continue**, fill in **Full Name**, **LC Number** and a password (at least 10 characters), then select **Create Account & Sign In**.
+6. Given a temporary password (a new account from your supervisor or LogiCall, or after a reset): sign in with it, then type your own password twice on **Choose a new password** and select **Save password and continue**.
 
 **Tips:**
 
 - A Google account outside @logicall.io and @logicall.live is refused unless it was invited first.
 - A first-time @logicall.io / @logicall.live Google sign-in starts as an Agent in the LogiCall Internal Cohort.
+- Passwords need at least 10 characters.
 - Setup links work once. If yours says **Invite not available**, ask for a new one.
 - A deactivated account cannot sign in. Contact your LogiCall administrator.
 
@@ -176,6 +178,7 @@ You use Pulse to learn each campaign before you take its calls: read short Brief
 
 - Keep-Sharp reviews keep rules fresh but do not affect certification.
 - **Recertify** means the Track changed in a way that needs a new pass. Your old certification stays in your history.
+- **Revoked** means a Trainer withdrew your certification on that Track. The reason shows in **Path to certification**. It does not come back by itself, even if you redo the Track, so talk to your supervisor.
 - Certification shows training is done. Your supervisor decides when you take live calls.
 
 ## Keeping sharp
@@ -199,6 +202,7 @@ You use Pulse to learn each campaign before you take its calls: read short Brief
 - Nothing due? **Practice Upcoming Drills** lets you review early.
 - A wrong answer comes back in about 4 hours.
 - No reviews yet means you have not finished a Checkpoint. Reviews start after your first one.
+- Reviews keep rules fresh. They do not count toward certification, and skipping them never removes it.
 
 **Open in Pulse:** **Open Keep-Sharp Review** (`/learn/review`)
 

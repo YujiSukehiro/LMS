@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ALL_ROLES, can } from '@/lib/auth/rbac';
+import { PASSWORD_MIN_LENGTH } from '@/lib/schemas/constants';
 import type { UserRole } from '@/lib/schemas/domain';
 import { GUIDES } from '@/lib/guides';
 import { guideRoleFor, resolveGuideRole, visibleGuideRoles } from '@/lib/guides/access';
@@ -166,21 +167,29 @@ describe('role guides', () => {
     }
   });
 
-  it('teaches multi-Cohort assignment with the labels the app really shows', () => {
+  it('teaches multi-Cohort assignment and revoking with the labels the app really shows', () => {
     const read = (rel: string) => readFileSync(path.join(ROOT, 'src', rel), 'utf8');
     const ui = {
       'Also in these Cohorts': read('app/(dashboard)/roster/_components/EditUserPermissionsDialog.tsx'),
       'Save trainings': read('app/(dashboard)/roster/_components/CohortTrainingsDialog.tsx'),
       'Specific people': read('components/studio/PublishDialog.tsx'),
       'Save assignment only': read('components/studio/PublishDialog.tsx'),
+      Revoke: read('components/analytics/RevokeCertificationButton.tsx'),
+      'Revoke certification': read('components/analytics/RevokeCertificationButton.tsx'),
     };
     for (const role of ['TRAINER', 'ADMIN'] as const) {
       const text = guideToMarkdown(GUIDES[role]);
       expect(text).toContain('### Assign trainings to Cohorts or people');
+      expect(text).toContain('### Revoke a certification');
       for (const [label, source] of Object.entries(ui)) {
         expect(source, `UI still shows "${label}"`).toContain(label);
         expect(text, `${role} guide mentions "${label}"`).toContain(`**${label}**`);
       }
+    }
+    // Password minimum matches the app everywhere a guide mentions one.
+    for (const role of GUIDE_ROLES) {
+      const text = guideToMarkdown(GUIDES[role]);
+      for (const match of text.matchAll(/at least (\d+) characters/g)) expect(Number(match[1])).toBe(PASSWORD_MIN_LENGTH);
     }
     // Every guide states the any-Cohort-or-by-name rule; no section is left flagged for a later update.
     expect(guideToMarkdown(GUIDES.AGENT)).toContain('one of your Cohorts or to you by name');
