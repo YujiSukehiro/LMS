@@ -24,8 +24,11 @@ function learnerSequenceId(drill: Extract<DrillItem, { kind: 'SEQUENCE_ORDER' }>
   return `step-${displayIndex}`;
 }
 
-/** Stable, non-canonical learner order and opaque aliases. Correct order and pair mapping remain server-only. */
-export function sanitizeDrillForLearner(drill: DrillItem): LearnerDrill {
+/**
+ * The learner-shaped Drill with the same option ids the grader expects (`right-N`, `step-N`), without schema
+ * parsing. Studio test-play uses this on draft Drills so its answers grade the same way a learner's do.
+ */
+export function learnerDrillView(drill: DrillItem): LearnerDrill {
   const base = {
     id: drill.id,
     competencyPillarId: drill.competencyPillarId,
@@ -61,7 +64,12 @@ export function sanitizeDrillForLearner(drill: DrillItem): LearnerDrill {
       learner = { ...base, kind: drill.kind, sentenceTemplate: drill.sentenceTemplate, wordBank: [...drill.wordBank] };
       break;
   }
-  return LearnerDrillSchema.parse(learner);
+  return learner;
+}
+
+/** Stable, non-canonical learner order and opaque aliases. Correct order and pair mapping remain server-only. */
+export function sanitizeDrillForLearner(drill: DrillItem): LearnerDrill {
+  return LearnerDrillSchema.parse(learnerDrillView(drill));
 }
 
 /** The approved rule mapping used by mastery analytics; evidence mappings are a compatibility fallback. */
