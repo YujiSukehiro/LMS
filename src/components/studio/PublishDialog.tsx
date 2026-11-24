@@ -1,8 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Copy, LoaderCircle, Send, TriangleAlert, X } from 'lucide-react';
+import { Check, Copy, LoaderCircle, Send, TriangleAlert, Users, X } from 'lucide-react';
 import { ALL_COHORTS_ID } from '@/lib/schemas/constants';
 import { cn } from '@/lib/utils';
 import { PublicationGatesError, publishTrack, saveTrackAssignment } from './api-client';
@@ -36,6 +36,8 @@ export function PublishDialog({
   people = [],
   initialUserIds = [],
   published: alreadyPublished = false,
+  mode = 'publish',
+  autoOpen = false,
   divisionLabel,
   beforePublish,
   onOpenSourceReview,
@@ -51,6 +53,13 @@ export function PublishDialog({
   initialUserIds?: string[];
   /** Already published: offer "Save assignment" without publishing a new version. */
   published?: boolean;
+  /**
+   * 'assign' = the "Edit assignment" button (Connor 2026-11-24: assignment had to be easy to find): only who takes a
+   * published Track changes; no new version.
+   */
+  mode?: 'publish' | 'assign';
+  /** Open on load (Track Studio list links here with ?assign=1). */
+  autoOpen?: boolean;
   /** The Track's Division, for "Cohorts with Telehealth agents". */
   divisionLabel: string;
   /** Saves pending edits. Return false to stop the publish. */
@@ -95,6 +104,17 @@ export function PublishDialog({
   function close() {
     dialogRef.current?.close();
   }
+
+  const assignOnly = mode === 'assign';
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (autoOpen && !autoOpened.current) {
+      autoOpened.current = true;
+      open();
+    }
+    // open() only reads the initial props; run once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -171,15 +191,22 @@ export function PublishDialog({
 
   return (
     <>
-      <button type="button" className="pulse-btn pulse-btn-primary" onClick={open} disabled={disabled}>
-        <Send aria-hidden className="size-4" />
-        Publish &amp; Assign
-      </button>
-      <dialog ref={dialogRef} className="pulse-dialog" aria-labelledby="publish-dialog-title">
+      {assignOnly ? (
+        <button type="button" className="pulse-btn" onClick={open} disabled={disabled}>
+          <Users aria-hidden className="size-4" />
+          Edit assignment
+        </button>
+      ) : (
+        <button type="button" className="pulse-btn pulse-btn-primary" onClick={open} disabled={disabled}>
+          <Send aria-hidden className="size-4" />
+          Publish &amp; Assign
+        </button>
+      )}
+      <dialog ref={dialogRef} className="pulse-dialog" aria-labelledby={assignOnly ? 'assign-dialog-title' : 'publish-dialog-title'}>
         <div className="flex items-start justify-between gap-3 border-b border-pulse-border px-5 py-4">
           <div>
-            <h2 id="publish-dialog-title" className="text-base font-semibold">
-              Publish &amp; Assign
+            <h2 id={assignOnly ? 'assign-dialog-title' : 'publish-dialog-title'} className="text-base font-semibold">
+              {assignOnly ? 'Edit assignment' : <>Publish &amp; Assign</>}
             </h2>
             <p className="mt-0.5 text-xs text-pulse-muted">{trackTitle}</p>
           </div>
@@ -220,10 +247,11 @@ export function PublishDialog({
         ) : (
           <div className="flex flex-col gap-4 px-5 py-5">
             <p className="text-sm text-pulse-secondary">
-              Pick the Cohorts and people who must take this Track. Only agents with the {divisionLabel} Division see it. Publishing freezes
-              the current draft as a new TrackVersion; earlier records stay intact.
+              {assignOnly
+                ? `Pick the Cohorts and people who must take this Track. Only agents with the ${divisionLabel} Division see it. Saving changes who takes it right away; the published version and everyone's progress stay the same.`
+                : `Pick the Cohorts and people who must take this Track. Only agents with the ${divisionLabel} Division see it. Publishing freezes the current draft as a new TrackVersion; earlier records stay intact.`}
             </p>
-            {reviewItems.length > 0 ? (
+            {!assignOnly && reviewItems.length > 0 ? (
               <section className="rounded-pulse-md border border-pulse-amber/40 bg-pulse-amber/5 p-3" aria-label="Suggested review before going live">
                 <p className="flex items-center gap-1.5 text-sm font-semibold text-pulse-amber">
                   <TriangleAlert aria-hidden className="size-4" />
@@ -359,15 +387,24 @@ export function PublishDialog({
               <button type="button" className="pulse-btn pulse-btn-ghost" onClick={close} disabled={busy}>
                 Cancel
               </button>
-              {alreadyPublished ? (
-                <button type="button" className="pulse-btn" onClick={onSaveAssignment} disabled={busy}>
-                  Save assignment only
+              {assignOnly ? (
+                <button type="button" className="pulse-btn pulse-btn-primary" onClick={onSaveAssignment} disabled={busy || (selected.size === 0 && selectedPeople.size === 0)}>
+                  {busy ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <Check aria-hidden className="size-4" />}
+                  {busy ? 'Saving…' : 'Save assignment'}
                 </button>
-              ) : null}
-              <button type="button" className="pulse-btn pulse-btn-success" onClick={onPublish} disabled={busy || (selected.size === 0 && selectedPeople.size === 0)}>
-                {busy ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <Send aria-hidden className="size-4" />}
-                {busy ? 'Publishing…' : 'Publish Track'}
-              </button>
+              ) : (
+                <>
+                  {alreadyPublished ? (
+                    <button type="button" className="pulse-btn" onClick={onSaveAssignment} disabled={busy}>
+                      Save assignment only
+                    </button>
+                  ) : null}
+                  <button type="button" className="pulse-btn pulse-btn-success" onClick={onPublish} disabled={busy || (selected.size === 0 && selectedPeople.size === 0)}>
+                    {busy ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <Send aria-hidden className="size-4" />}
+                    {busy ? 'Publishing…' : 'Publish Track'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
