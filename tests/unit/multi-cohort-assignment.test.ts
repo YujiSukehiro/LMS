@@ -24,3 +24,15 @@ describe('Track assignment to Cohorts and people (2026-11-24)', () => {
     expect(PublishTrackRequestSchema.safeParse({ assignedCohortIds: [], assignedUserIds: [] }).success).toBe(false);
   });
 });
+
+describe('Keep-sharp Mastered count', () => {
+  it('counts a rule on the longest interval after a correct review', async () => {
+    const { nextReviewSchedule } = await import('@/lib/services/retrieval-schedule');
+    const attempt = (kind: string, at: string) => ({ id: at, learnerId: 'l', trackId: 't', unitId: 'u', drillId: 'd', curriculumVersion: 'v1', attemptKind: kind, correct: true, submittedAt: at }) as never;
+    const first = nextReviewSchedule({ previous: null, attempt: attempt('initial', '2026-01-01T00:00:00.000Z'), ruleIds: ['r'] });
+    const second = nextReviewSchedule({ previous: first, attempt: attempt('spaced_review', '2026-01-02T00:00:00.000Z'), ruleIds: ['r'] });
+    // The ladder tops out at index 2; Mastered uses that index, so it can be reached.
+    expect(first.intervalIndex).toBe(1);
+    expect(second.intervalIndex).toBe(2);
+  });
+});
