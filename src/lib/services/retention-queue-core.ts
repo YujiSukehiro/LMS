@@ -2,6 +2,17 @@ import type { CompetencyPillar, DrillItem, TrackDoc, TrackVersionDoc } from '@/l
 import type { DivisionId } from '@/lib/schemas/domain';
 import type { LearnerDrill, ReviewScheduleDoc } from '@/lib/schemas/learning';
 import { drillRuleIds, sanitizeDrillForLearner } from './drill-grader';
+import { DEFAULT_RETRIEVAL_INTERVALS } from './retrieval-schedule';
+
+/**
+ * A rule counts as Mastered once it passed a spaced review and sits on the longest interval of the 1/3/7-day ladder.
+ * The ladder's top index is 2, so the old `intervalIndex >= 3` test never matched and Mastered always read 0
+ * (guides review 2026-11-24).
+ */
+const MASTERED_INTERVAL_INDEX = DEFAULT_RETRIEVAL_INTERVALS.spacedReviewDays.length - 1;
+function isMastered(item: { intervalIndex: number; lastResult: string | null }): boolean {
+  return item.intervalIndex >= MASTERED_INTERVAL_INDEX && item.lastResult === 'correct';
+}
 
 export interface RetentionQueueItem {
   scheduleId: string;
@@ -188,7 +199,7 @@ export function buildRetentionQueue(args: {
       versionId: meta.version.versionId,
       dueCount: bucket.filter((item) => Date.parse(item.dueAt) <= args.nowMs).length,
       scheduledCount: bucket.length,
-      masteredCount: bucket.filter((item) => item.intervalIndex >= 3 && item.lastResult === 'correct').length,
+      masteredCount: bucket.filter((item) => isMastered(item)).length,
       nextDueAt: sortedDates[0]?.dueAt ?? null,
       upcomingCount: bucket.filter((item) => Date.parse(item.dueAt) > args.nowMs).length,
       nextUpcomingAt: firstUpcoming(sortedDates, args.nowMs),
@@ -201,7 +212,7 @@ export function buildRetentionQueue(args: {
     dueCount: dueItems.length,
     overdueCount: dueItems.filter((item) => Date.parse(item.dueAt) <= args.nowMs - DAY_MS).length,
     scheduledCount: allItems.length,
-    masteredCount: allItems.filter((item) => item.intervalIndex >= 3 && item.lastResult === 'correct').length,
+    masteredCount: allItems.filter((item) => isMastered(item)).length,
     nextDueAt: sortedAll[0]?.dueAt ?? null,
     upcomingCount: allItems.filter((item) => Date.parse(item.dueAt) > args.nowMs).length,
     nextUpcomingAt: firstUpcoming(sortedAll, args.nowMs),

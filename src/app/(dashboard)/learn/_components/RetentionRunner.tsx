@@ -5,7 +5,6 @@ import Link from 'next/link';
 import {
   ArrowLeft,
   ArrowRight,
-  Award,
   Brain,
   CalendarClock,
   CheckCircle2,
@@ -570,18 +569,7 @@ export function RetentionRunner({
             </div>
           ) : null}
 
-          {completionResult && completionResult.newlyCertifiedTrackIds.length > 0 ? (
-            <div className="flex items-start gap-3 rounded-pulse-lg border border-pulse-emerald/40 bg-pulse-emerald/10 p-4">
-              <Award aria-hidden className="mt-0.5 size-6 shrink-0 text-pulse-emerald" />
-              <div>
-                <p className="font-bold text-pulse-emerald">Campaign Certified Unlocked!</p>
-                <p className="mt-0.5 text-sm text-pulse-primary">
-                  Your spaced retention reviews satisfied all remaining Playbook rule requirements for:{' '}
-                  <span className="font-semibold">{completionResult.newlyCertifiedTrackIds.join(', ')}</span>.
-                </p>
-              </div>
-            </div>
-          ) : null}
+          {/* Keep-sharp reviews never change certification (GATE-03), so the end screen no longer announces one. */}
 
           <div className="flex flex-wrap gap-3">
             <Link href="/" className="pulse-btn pulse-btn-primary">
