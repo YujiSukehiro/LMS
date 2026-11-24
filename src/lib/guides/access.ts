@@ -43,5 +43,5 @@ export function resolveGuideRole(role: UserRole, param: string | null | undefine
 /** Path of the Guide page, optionally on a given tab and section. */
 export function guideHref(role?: GuideRoleId, sectionId?: string): string {
   const query = role ? `?role=${guideRoleParam(role)}` : '';
-  return `/guide${query}${sectionId ? `#${sectionId}` : ''}`;
+  return `/how-to${query}${sectionId ? `#${sectionId}` : ''}`;
 }

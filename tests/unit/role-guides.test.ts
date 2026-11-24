@@ -11,7 +11,11 @@ import { guideRoleFor, resolveGuideRole, visibleGuideRoles } from '@/lib/guides/
 import { guideFileName, guideToMarkdown } from '@/lib/guides/markdown';
 import { filterGuide } from '@/lib/guides/search';
 import { GUIDE_ROLES, type GuideRoleId } from '@/lib/guides/types';
-import { GuideView } from '@/components/guide/GuideView';
+import { HowToView } from '@/components/guide/HowToView';
+import { GUIDE_NAV_ITEM } from '@/components/layout/nav-config';
+import { GUIDE_SECTION_MEDIA, GUIDE_VIDEO_DURATIONS } from '@/lib/guides/media-chapters.generated';
+import { VIDEO_ROLES, allowedVideoRoles, normalizeManifest, type GuideMediaManifest } from '@/lib/guides/media';
+import { buildHowToPage, buildRoleContent } from '@/lib/guides/how-to-data';
 import { dismissedCookieValue, shouldShowGuideBanner } from '@/components/guide/guide-banner-cookie';
 
 const ROOT = path.resolve(__dirname, '../..');
@@ -110,14 +114,15 @@ describe('role guides', () => {
 
   it('links only to pages that exist, and to the Guide tabs the reader can open', () => {
     const patterns = pageRoutePatterns();
-    expect(patterns.some((p) => p.test('/guide'))).toBe(true);
+    expect(patterns.some((p) => p.test('/how-to'))).toBe(true);
+    expect(patterns.some((p) => p.test('/guide'))).toBe(true); // old links redirect
     for (const role of GUIDE_ROLES) {
       const allowed = visibleGuideRoles(ROLE_FOR_GUIDE[role]).map((id) => id.toLowerCase());
       for (const section of GUIDES[role].chapters.flatMap((chapter) => chapter.sections)) {
         for (const link of section.links ?? []) {
           const url = new URL(link.href.replace(':uid', 'uid-1'), 'https://pulse.test');
           expect(patterns.some((p) => p.test(url.pathname)), `${role}/${section.id} → ${link.href}`).toBe(true);
-          if (url.pathname === '/guide' && url.searchParams.has('role')) {
+          if (url.pathname === '/how-to' && url.searchParams.has('role')) {
             expect(allowed, `${role}/${section.id} → ${link.href}`).toContain(url.searchParams.get('role'));
           }
         }
@@ -128,7 +133,7 @@ describe('role guides', () => {
   it('keeps the staff guides pointing at the Agent guide', () => {
     for (const role of ['SUPERVISOR', 'TRAINER', 'ADMIN'] as const) {
       const hrefs = GUIDES[role].chapters.flatMap((c) => c.sections.flatMap((s) => (s.links ?? []).map((l) => l.href)));
-      expect(hrefs).toContain('/guide?role=agent');
+      expect(hrefs).toContain('/how-to?role=agent');
     }
   });
 
@@ -140,23 +145,168 @@ describe('role guides', () => {
     expect(hits).toContain('verbal-practice');
   });
 
-  it('renders the reader’s guide with tabs only for the guides they may open', () => {
-    const html = (role: UserRole) =>
-      renderToStaticMarkup(
-        createElement(GuideView, { uid: 'u1', roles: visibleGuideRoles(role), initialRole: guideRoleFor(role) }),
-      );
-    const agent = html('AGENT');
-    expect(agent).toContain(GUIDES.AGENT.title);
-    expect(agent).not.toContain('role="tablist"');
-    const supervisor = html('PARTNER_SUPERVISOR');
-    expect(supervisor).toContain(GUIDES.SUPERVISOR.title);
-    expect((supervisor.match(/role="tab"/g) ?? []).length).toBe(2);
-    expect(supervisor).not.toContain('>Trainer<');
-    const admin = html('SUPER_ADMIN');
-    expect(admin).toContain(GUIDES.ADMIN.title);
-    expect((admin.match(/role="tab"/g) ?? []).length).toBe(4);
-    // Own-uid links (the Readiness Passport) resolve for the reader.
-    expect(agent).toContain('/analytics/agents/u1');
+  const render = (role: UserRole, manifest: GuideMediaManifest | null = null, roleParam?: string) => {
+    const data = buildHowToPage(role, roleParam, manifest);
+    return { data, html: renderToStaticMarkup(createElement(HowToView, { uid: 'u1', blocks: data.blocks, focus: data.focus })) };
+  };
+
+  /** A manifest that lists every video and two screenshots for every section with a chapter. */
+  const fullManifest: GuideMediaManifest = {
+    version: 2,
+    videos: Object.fromEntries(VIDEO_ROLES.map((v) => [v, { file: `${v}/${v}.mp4`, poster: `${v}/${v}.webp`, vtt: `${v}/${v}.vtt`, duration: 200 }])),
+    screenshots: Object.fromEntries(
+      GUIDE_ROLES.flatMap((role) =>
+        Object.entries(GUIDE_SECTION_MEDIA[role]).map(([id, m]) => [`${role}:${id}`, [`${m.video}/${id}-1.webp`, `${m.video}/${id}-2.webp`]]),
+      ),
+    ),
+  };
+
+  /** Section titles that appear only in one guide (not shared with any other). */
+  const uniqueTitles = (role: GuideRoleId) => {
+    const others = GUIDE_ROLES.filter((r) => r !== role).flatMap((r) => GUIDES[r].chapters.flatMap((c) => c.sections.map((s) => s.title)));
+    return GUIDES[role].chapters.flatMap((c) => c.sections.map((s) => s.title)).filter((t) => !others.includes(t));
+  };
+  const asHtml = (t: string) => `>${t.replace(/&/g, '&amp;').replace(/'/g, '&#x27;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}<`;
+  const asJson = (t: string) => `"title":${JSON.stringify(t)}`;
+  const ABOVE: Record<UserRole, GuideRoleId[]> = {
+    AGENT: ['SUPERVISOR', 'TRAINER', 'ADMIN'],
+    PARTNER_SUPERVISOR: ['TRAINER', 'ADMIN'],
+    TRAINER: ['ADMIN'],
+    ADMIN: [],
+    SUPER_ADMIN: [],
+  };
+
+  it('opens the reader’s own guide, folds the roles below and leaves out the roles above', () => {
+    const expected: Record<UserRole, GuideRoleId[]> = {
+      AGENT: ['AGENT'],
+      PARTNER_SUPERVISOR: ['SUPERVISOR', 'AGENT'],
+      TRAINER: ['TRAINER', 'SUPERVISOR', 'AGENT'],
+      ADMIN: ['ADMIN', 'TRAINER', 'SUPERVISOR', 'AGENT'],
+      SUPER_ADMIN: ['ADMIN', 'TRAINER', 'SUPERVISOR', 'AGENT'],
+    };
+    for (const role of ALL_ROLES) {
+      const { data, html } = render(role, fullManifest);
+      expect(data.blocks.map((b) => b.role)).toEqual(expected[role]);
+      const [own, ...lower] = data.blocks;
+      // Own guide: content sent and rendered, expanded.
+      expect(own.content?.guide.role).toBe(own.role);
+      for (const title of uniqueTitles(own.role)) expect(html, `${role} sees ${title}`).toContain(asHtml(title));
+      // Lower guides: folded header only; no content sent or rendered until expanded.
+      for (const block of lower) {
+        expect(block.content).toBeNull();
+        expect(html).toContain(`aria-expanded="false" aria-controls="panel-${block.role}"`);
+        for (const title of uniqueTitles(block.role)) expect(html, `${role} must not render ${title} yet`).not.toContain(asHtml(title));
+      }
+      // Higher guides: nowhere, not in the HTML and not in the data sent to the browser.
+      const payload = JSON.stringify(data);
+      for (const higher of ABOVE[role]) {
+        expect(payload).not.toContain(GUIDES[higher].title);
+        expect(html).not.toContain(GUIDES[higher].title);
+        for (const title of uniqueTitles(higher)) {
+          expect(payload, `${role} payload leaks ${title}`).not.toContain(asJson(title));
+          expect(html, `${role} page leaks ${title}`).not.toContain(asHtml(title));
+        }
+      }
+      // No role tabs any more.
+      expect(html).not.toContain('role="tablist"');
+    }
+  });
+
+  it('opens a lower role from a deep link and falls back to the reader’s role for a higher one', () => {
+    const trainerToAgent = render('TRAINER', null, 'agent');
+    expect(trainerToAgent.data.focus).toBe('AGENT');
+    expect(trainerToAgent.data.blocks.find((b) => b.role === 'AGENT')?.content).not.toBeNull();
+    expect(trainerToAgent.data.blocks.find((b) => b.role === 'SUPERVISOR')?.content).toBeNull();
+    for (const section of GUIDES.AGENT.chapters.flatMap((c) => c.sections)) {
+      expect(trainerToAgent.html).toContain(`id="agent--${section.id}"`);
+    }
+    const agentToAdmin = render('AGENT', null, 'admin');
+    expect(agentToAdmin.data.focus).toBe('AGENT');
+    expect(JSON.stringify(agentToAdmin.data)).not.toContain(GUIDES.ADMIN.title);
+    const supervisorToTrainer = render('PARTNER_SUPERVISOR', null, 'trainer');
+    expect(supervisorToTrainer.data.focus).toBe('SUPERVISOR');
+    expect(JSON.stringify(supervisorToTrainer.data)).not.toContain(GUIDES.TRAINER.title);
+  });
+
+  it('gives every section of an open guide a stable, unique anchor', () => {
+    for (const role of GUIDE_ROLES) {
+      const reader: UserRole = role === 'SUPERVISOR' ? 'PARTNER_SUPERVISOR' : role;
+      const { html } = render(reader);
+      const ids = GUIDES[role].chapters.flatMap((c) => c.sections.map((s) => s.id));
+      for (const id of ids) {
+        expect(html, `${role}#${id}`).toContain(`id="${role.toLowerCase()}--${id}"`);
+        expect(html).toContain(`href="#${role.toLowerCase()}--${id}"`);
+      }
+    }
+    // Ids are explicit data, not slugs of the title: they survive a title edit.
+    const edited = GUIDES.AGENT.chapters[0].sections.map((s) => ({ ...s, title: `${s.title} (renamed)` }));
+    expect(edited.map((s) => s.id)).toEqual(GUIDES.AGENT.chapters[0].sections.map((s) => s.id));
+  });
+
+  it('hides every video control and screenshot toggle when no media is published', () => {
+    for (const role of ALL_ROLES) {
+      const { html } = render(role, null);
+      expect(html).not.toContain('Watch (');
+      expect(html).not.toContain('Show screenshots');
+      expect(html).not.toContain('Watch the');
+      expect(html).not.toContain('<video');
+      expect(html).not.toContain('<img');
+    }
+    // A manifest without this role's video hides that role's player and Watch buttons.
+    const noAgent = normalizeManifest({ ...fullManifest, videos: { trainer: fullManifest.videos.trainer } });
+    expect(render('AGENT', noAgent).html).not.toContain('Watch (');
+  });
+
+  it('loads no video or image until the reader asks for one', () => {
+    for (const role of ALL_ROLES) {
+      const { html } = render(role, fullManifest);
+      expect(html).not.toContain('<video');
+      expect(html).not.toContain('<img');
+      expect(html).not.toContain('.webp');
+      expect(html).not.toContain('.mp4');
+      if (Object.keys(GUIDE_SECTION_MEDIA[guideRoleFor(role)]).length > 0) {
+        expect(html).toContain('Watch the');
+        expect(html).toContain('Watch (');
+        expect(html).toContain('Show screenshots (2)');
+      }
+    }
+  });
+
+  it('never hands a reader media from a role folder above theirs', () => {
+    for (const role of ALL_ROLES) {
+      const allowed = allowedVideoRoles(role);
+      for (const guideRole of visibleGuideRoles(role)) {
+        const content = buildRoleContent(guideRole, role, fullManifest);
+        const urls = [
+          ...Object.values(content.videos).flatMap((v) => [v!.url, v!.posterUrl, v!.vttUrl ?? '']),
+          ...Object.values(content.screenshots).flat(),
+        ].filter(Boolean);
+        for (const url of urls) {
+          const folder = url.replace('/api/guide-media/', '').split('/')[0];
+          expect(allowed, `${role} gets ${url}`).toContain(folder);
+        }
+      }
+    }
+    expect(allowedVideoRoles('AGENT')).toEqual(['agent']);
+    expect(allowedVideoRoles('PARTNER_SUPERVISOR')).toEqual(['supervisor', 'agent']);
+    expect(allowedVideoRoles('TRAINER')).toEqual(['trainer', 'supervisor', 'agent']);
+    expect(allowedVideoRoles('ADMIN')).toEqual(['admin', 'trainer', 'supervisor', 'agent']);
+  });
+
+  it('only times sections that exist, inside the recorded video', () => {
+    for (const role of GUIDE_ROLES) {
+      const ids = new Set(GUIDES[role].chapters.flatMap((c) => c.sections.map((s) => s.id)));
+      for (const [id, media] of Object.entries(GUIDE_SECTION_MEDIA[role])) {
+        expect(ids.has(id), `${role}#${id}`).toBe(true);
+        expect(media.start).toBeGreaterThanOrEqual(0);
+        const duration = GUIDE_VIDEO_DURATIONS[media.video];
+        if (duration) expect(media.start).toBeLessThan(duration);
+      }
+    }
+  });
+
+  it('names the page How To in the navigation', () => {
+    expect(GUIDE_NAV_ITEM).toMatchObject({ href: '/how-to', label: 'How To' });
   });
 
   it('keeps docs/guides in sync with the guide data (run npm run guides:export)', () => {
@@ -216,5 +366,17 @@ describe('role guides', () => {
 
   it('covers every app role', () => {
     for (const role of ALL_ROLES) expect(GUIDES[guideRoleFor(role)]).toBeDefined();
+  });
+});
+
+describe('How To player sound', () => {
+  const source = readFileSync(path.join(process.cwd(), 'src/components/guide/HowToView.tsx'), 'utf8');
+
+  it('plays with sound at half volume after a click, with no muted start', () => {
+    expect(source).toMatch(/PLAYER_START_VOLUME = 0\.5/);
+    expect(source).toMatch(/el\.muted = false/);
+    expect(source).not.toMatch(/Turn on sound/);
+    expect(source).not.toMatch(/\bmuted=\{/);
+    expect(source).not.toMatch(/\bautoPlay\b/);
   });
 });

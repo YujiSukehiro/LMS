@@ -18,7 +18,7 @@ You use Pulse to learn each campaign before you take its calls: read short Brief
 - Keeping sharp
   - [Keep-Sharp Review](#keep-sharp-review)
   - [My Readiness Passport](#readiness-passport)
-  - [Theme, this guide and signing out](#account-menu)
+  - [Theme, How To and signing out](#account-menu)
 
 ## Getting started
 
@@ -228,9 +228,9 @@ You use Pulse to learn each campaign before you take its calls: read short Brief
 
 <a id="account-menu"></a>
 
-### Theme, this guide and signing out
+### Theme, How To and signing out
 
-**What it is.** The account menu (your initials, top right) holds the color theme, a link to this guide, and **Sign out**.
+**What it is.** The account menu (your initials, top right) holds the color theme, a link to this How To page, and **Sign out**.
 
 **When to use it.** When the screen is hard to read, when you need help, or on a shared computer.
 
@@ -238,7 +238,7 @@ You use Pulse to learn each campaign before you take its calls: read short Brief
 
 1. Select your initials in the top-right corner.
 2. Under **Theme**, pick **Light**, **Dark**, **Contrast** or **System**. Pulse remembers your choice.
-3. Select **How-to guide** to open this page. **Guide** is also at the bottom of the left sidebar.
+3. Select **How To** to open this page. **How To** is also at the bottom of the left sidebar.
 4. Select **Sign out** when you finish on a shared computer.
 
-**Open in Pulse:** **Open the Guide** (`/guide`)
+**Open in Pulse:** **Open How To** (`/how-to`)

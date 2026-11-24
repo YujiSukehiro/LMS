@@ -19,11 +19,11 @@ export function GuideBanner({ uid, roleLabel }: { uid: string; roleLabel: string
       </span>
       <p className="min-w-0 flex-1 basis-56 text-sm">
         <span className="font-semibold">New here?</span>{' '}
-        <span className="text-pulse-secondary">The {roleLabel} guide shows what each page does and how to use it, step by step.</span>
+        <span className="text-pulse-secondary">The {roleLabel} How To shows what each page does, step by step, with short videos.</span>
       </p>
       <div className="flex items-center gap-1">
-        <Link href="/guide" className="pulse-btn pulse-btn-primary text-sm" onClick={() => markGuideSeen(uid)}>
-          Read your guide
+        <Link href="/how-to" className="pulse-btn pulse-btn-primary text-sm" onClick={() => markGuideSeen(uid)}>
+          Open How To
         </Link>
         <button
           type="button"
