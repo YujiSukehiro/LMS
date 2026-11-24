@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { canManageUser } from '@/lib/auth/rbac';
 import { ResetPasswordDialog } from '@/app/(dashboard)/roster/_components/ResetPasswordDialog';
 import { SIM_COPY } from '@/lib/policy/training-policy';
+import { RevokeCertificationButton } from '@/components/analytics/RevokeCertificationButton';
 
 export const metadata: Metadata = { title: 'Agent Learning Evidence' };
 export const dynamic = 'force-dynamic';
@@ -192,6 +193,9 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
                         {e.bestSimScorePct !== null ? ` · ${Math.round(e.bestSimScorePct)}%` : ''}
                       </span>
                     </span>
+                    {isInternalOps(viewer) ? (
+                      <RevokeCertificationButton learnerId={agent.uid} trackId={e.trackId} trackTitle={e.trackTitle} learnerName={agent.displayName} />
+                    ) : null}
                   </li>
                 ))}
               </ul>

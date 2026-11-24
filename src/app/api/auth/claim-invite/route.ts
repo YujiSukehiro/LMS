@@ -7,6 +7,7 @@ import { buildNewUserDoc, claimsForUser } from '@/lib/firebase/users';
 import { ClaimInviteRequestSchema } from '@/lib/schemas/api';
 import { CohortDocSchema } from '@/lib/schemas/domain';
 import { clientKey, joinCodeLimiter } from '@/lib/services/attempt-limiter';
+import { PASSWORD_MIN_LENGTH } from '@/lib/schemas/constants';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -64,7 +65,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       return jsonError(409, 'LC_NUMBER_IN_USE', 'An account already uses this LC Number. Sign in instead, or contact your supervisor.');
     }
     if (code === 'auth/invalid-password') {
-      return jsonError(400, 'VALIDATION_FAILED', 'Use a stronger password (8 characters or more).');
+      return jsonError(400, 'VALIDATION_FAILED', `Use a stronger password (${PASSWORD_MIN_LENGTH} characters or more).`);
     }
     console.error('[auth/claim-invite] createUser failed', error);
     return jsonError(500, 'CLAIM_FAILED', 'Your account could not be created. Try again.');
