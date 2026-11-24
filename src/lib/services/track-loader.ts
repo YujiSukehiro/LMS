@@ -19,6 +19,7 @@ import { ALL_COHORTS_ID } from '@/lib/schemas/constants';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import type { SessionUser } from '@/lib/schemas/domain';
 import { ServiceError } from './errors';
+import { withCohortMemberships } from './memberships';
 
 function trackRef(trackId: string) {
   return adminDb.collection('tracks').doc(trackId);
@@ -89,14 +90,23 @@ export async function loadSecretScenario(
   return rubrics?.scenarios.find((s) => s.scenarioId === scenarioId) ?? null;
 }
 
-/** True when a published Track is assigned to the user's Cohort ('ALL' or the user's partnerCohortId). */
+/** Who a Track can be assigned to: the home Cohort, any extra Cohorts, and the person themself. */
+export interface AssignmentScope {
+  partnerCohortId: string;
+  uid?: string;
+  /** Extra Cohort memberships (users/{uid}.cohortIds). */
+  cohortIds?: readonly string[];
+}
+
+/** True when a Track is assigned to the user: every Cohort, one of their Cohorts, or them by name. */
 export function isTrackAssignedToUser(
-  track: Pick<TrackDoc, 'assignedCohortIds'>,
-  user: Pick<SessionUser, 'partnerCohortId'>,
+  track: Pick<TrackDoc, 'assignedCohortIds'> & { assignedUserIds?: readonly string[] },
+  user: AssignmentScope,
 ): boolean {
-  return (
-    track.assignedCohortIds.includes(ALL_COHORTS_ID) || track.assignedCohortIds.includes(user.partnerCohortId)
-  );
+  const cohorts = track.assignedCohortIds;
+  if (cohorts.includes(ALL_COHORTS_ID) || cohorts.includes(user.partnerCohortId)) return true;
+  if (user.cohortIds?.some((id) => cohorts.includes(id))) return true;
+  return Boolean(user.uid && track.assignedUserIds?.includes(user.uid));
 }
 
 /**
@@ -104,8 +114,8 @@ export function isTrackAssignedToUser(
  * divisionIds include the Track's Division. Ignores publish state (use isTrackVisibleToLearner for access).
  */
 export function isTrackAssignedToLearner(
-  track: Pick<TrackDoc, 'assignedCohortIds' | 'divisionId'>,
-  user: Pick<SessionUser, 'partnerCohortId'> & { divisionIds?: readonly string[] },
+  track: Pick<TrackDoc, 'assignedCohortIds' | 'assignedUserIds' | 'divisionId'>,
+  user: AssignmentScope & { divisionIds?: readonly string[] },
 ): boolean {
   if (!isTrackAssignedToUser(track, user)) return false;
   if (!TRAINING_POLICY.enforceLearnerDivisionVisibility) return true;
@@ -115,8 +125,8 @@ export function isTrackAssignedToLearner(
 
 /** True when a learner (any role) can see and train on the Track's published version. */
 export function isTrackVisibleToLearner(
-  track: Pick<TrackDoc, 'status' | 'publishedVersionId' | 'assignedCohortIds' | 'divisionId'>,
-  user: Pick<SessionUser, 'partnerCohortId'> & { divisionIds?: readonly string[] },
+  track: Pick<TrackDoc, 'status' | 'publishedVersionId' | 'assignedCohortIds' | 'assignedUserIds' | 'divisionId'>,
+  user: AssignmentScope & { divisionIds?: readonly string[] },
 ): boolean {
   return track.status === 'PUBLISHED' && Boolean(track.publishedVersionId) && isTrackAssignedToLearner(track, user);
 }
@@ -133,7 +143,7 @@ export type ResolveVersionResult =
  *   A request for a different version gets 409 VERSION_OUTDATED (the Track was published again).
  */
 export function resolveLearnerVersion(
-  user: SessionUser,
+  user: SessionUser & { cohortIds?: readonly string[] },
   track: TrackDoc,
   requestedVersionId?: string | null,
 ): ResolveVersionResult {
@@ -186,7 +196,9 @@ export async function loadLearnerTrackContext(
   const track = await loadTrack(trackId);
   if (!track) throw new ServiceError(404, 'TRACK_NOT_FOUND', 'This Track does not exist.');
 
-  const resolved = resolveLearnerVersion(user, track, requestedVersionId);
+  // Learners: extra Cohort memberships count too (internal ops skip the lookup).
+  const scoped = isInternalOps(user) ? user : await withCohortMemberships(user);
+  const resolved = resolveLearnerVersion(scoped, track, requestedVersionId);
   if (!resolved.ok) throw new ServiceError(resolved.status, resolved.error, resolved.message);
 
   const version = await loadVersion(trackId, resolved.versionId);

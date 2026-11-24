@@ -219,9 +219,10 @@ export async function loadLearningEvidenceForUser(args: {
   }
   // A learner sees only Tracks assigned to them (Cohort + Division). A supervisor viewing a passport checks the Cohort
   // only, so training done before a Division change stays visible as history.
+  const targetCohorts = Array.isArray(targetSnap.get('cohortIds')) ? (targetSnap.get('cohortIds') as unknown[]).filter((id): id is string => typeof id === 'string') : [];
   const visible = ownRecord
-    ? isTrackVisibleToLearner(track, args.user)
-    : track.status === 'PUBLISHED' && isTrackAssignedToUser(track, { partnerCohortId: target.partnerCohortId });
+    ? isTrackVisibleToLearner(track, { ...args.user, cohortIds: targetCohorts })
+    : track.status === 'PUBLISHED' && isTrackAssignedToUser(track, { partnerCohortId: target.partnerCohortId, uid: learnerId, cohortIds: targetCohorts });
   if (!isInternalOps(args.user) && !visible) {
     throw new ServiceError(404, 'TRACK_NOT_FOUND', 'This Track is not available.');
   }

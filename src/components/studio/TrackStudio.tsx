@@ -24,7 +24,7 @@ import { ScenarioEditor } from './editor/ScenarioEditor';
 import { TextField } from './editor/fields';
 import { ScenarioPlayPreview, UnitPlayPreview } from './PlayPreview';
 import { RegenerateItemButton } from './RegenerateItemButton';
-import { PublishDialog, type PublishCohortOption } from './PublishDialog';
+import { PublishDialog, type PublishCohortOption, type PublishPersonOption } from './PublishDialog';
 import { RevisedPlaybookDialog } from './RevisedPlaybookDialog';
 import { SourceReview } from './SourceReview';
 import { ManualJudgeExchange } from './ManualJudgeExchange';
@@ -50,12 +50,15 @@ export function TrackStudio({
   draft,
   initialSecrets,
   cohorts,
+  people = [],
   focusDrillId,
 }: {
   track: TrackDoc;
   draft: TrackVersionDoc;
   initialSecrets: SecretSimScenarioConfig[];
   cohorts: PublishCohortOption[];
+  /** Active agents with the Track's Division, for one-by-one assignment. */
+  people?: PublishPersonOption[];
   /** Open the Checkpoint that holds this Drill in Edit mode (links from "Top missed items"). */
   focusDrillId?: string | null;
 }) {
@@ -342,6 +345,9 @@ export function TrackStudio({
             cohorts={cohorts}
             // First publish starts with nothing picked; a re-publish keeps the current assignment.
             initialCohortIds={track.publishedVersionId ? track.assignedCohortIds : []}
+            people={people}
+            initialUserIds={track.publishedVersionId ? (track.assignedUserIds ?? []) : []}
+            published={Boolean(track.publishedVersionId)}
             divisionLabel={DIVISION_LABELS[track.divisionId]}
             beforePublish={beforePublish}
             onOpenSourceReview={() => setMode('source')}

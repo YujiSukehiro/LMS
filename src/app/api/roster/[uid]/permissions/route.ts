@@ -4,6 +4,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminAuth, adminDb, firebaseErrorCode } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { claimsForUser, parseStoredUserDoc, writeCustomClaims } from '@/lib/firebase/users';
+import { normalizeExtraCohorts } from '@/lib/services/memberships';
 import {
   RosterUpdatePermissionsRequestSchema,
   RosterUpdatePermissionsResponseSchema,
@@ -70,6 +71,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ uid: s
       const fitError = roleCohortFitError(input.role, nextCohortSnap.get('isInternal') === true);
       if (fitError) throw new PermissionsError(400, 'ROLE_COHORT_MISMATCH', fitError);
 
+      // Extra Cohort memberships: only when sent; every listed Cohort must exist; never the home Cohort.
+      let extraCohortIds = normalizeExtraCohorts(existing.cohortIds ?? [], input.partnerCohortId);
+      if (input.cohortIds) {
+        extraCohortIds = normalizeExtraCohorts(input.cohortIds, input.partnerCohortId);
+        const extraSnaps = await Promise.all(extraCohortIds.map((id) => tx.get(adminDb.collection('cohorts').doc(id))));
+        const missing = extraSnaps.filter((snap) => !snap.exists).map((snap) => snap.id);
+        if (missing.length > 0) throw new PermissionsError(400, 'INVALID_COHORT', `These Cohorts do not exist: ${missing.join(', ')}.`);
+      }
+
       const cohortChanged = existing.partnerCohortId !== input.partnerCohortId;
       const oldCohortRef = adminDb.collection('cohorts').doc(existing.partnerCohortId);
       const oldCohortSnap = cohortChanged ? await tx.get(oldCohortRef) : null;
@@ -82,6 +92,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ uid: s
         displayName: nextDisplayName,
         role: input.role,
         partnerCohortId: input.partnerCohortId,
+        cohortIds: extraCohortIds,
         divisionIds,
         updatedAt: now,
       };
@@ -90,6 +101,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ uid: s
         displayName: nextDisplayName,
         role: input.role,
         partnerCohortId: input.partnerCohortId,
+        cohortIds: extraCohortIds,
         divisionIds,
         updatedAt: now,
       });

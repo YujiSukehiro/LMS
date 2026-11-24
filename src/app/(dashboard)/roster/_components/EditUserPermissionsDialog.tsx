@@ -17,6 +17,8 @@ interface EditableUser {
   authMethod: UserDoc['authMethod'];
   role: UserRole;
   partnerCohortId: string;
+  /** Extra Cohorts on top of the home Cohort. */
+  cohortIds?: string[];
   divisionIds: DivisionId[];
 }
 
@@ -38,6 +40,7 @@ export function EditUserPermissionsDialog({
   const [role, setRole] = useState<UserRole>(user.role);
   const [partnerCohortId, setPartnerCohortId] = useState(user.partnerCohortId);
   const [divisionIds, setDivisionIds] = useState<DivisionId[]>(user.divisionIds);
+  const [extraCohortIds, setExtraCohortIds] = useState<string[]>(user.cohortIds ?? []);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +49,7 @@ export function EditUserPermissionsDialog({
     setRole(user.role);
     setPartnerCohortId(user.partnerCohortId);
     setDivisionIds(user.divisionIds.length > 0 ? user.divisionIds : ['TELEHEALTH']);
+    setExtraCohortIds(user.cohortIds ?? []);
     setError(null);
     dialogRef.current?.showModal();
   }
@@ -88,6 +92,7 @@ export function EditUserPermissionsDialog({
           displayName: displayName.trim(),
           role,
           partnerCohortId,
+          cohortIds: extraCohortIds.filter((id) => id !== partnerCohortId),
           divisionIds,
         }),
       });
@@ -165,7 +170,7 @@ export function EditUserPermissionsDialog({
 
             <div>
               <label htmlFor={cohortId} className="pulse-label mb-1.5 block">
-                Cohort
+                Home Cohort
               </label>
               <select
                 id={cohortId}
@@ -191,6 +196,30 @@ export function EditUserPermissionsDialog({
                 <p className="mt-1.5 text-xs text-pulse-muted">Trainer, Admin and Super Admin accounts stay in an internal Cohort.</p>
               ) : null}
             </div>
+
+            <fieldset>
+              <legend className="pulse-label mb-1.5">Also in these Cohorts</legend>
+              <p className="mb-2 text-xs text-pulse-muted">
+                They get the trainings assigned to these Cohorts too. Their home Cohort above still decides who supervises them.
+              </p>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {cohorts
+                  .filter((cohort) => cohort.id !== partnerCohortId)
+                  .map((cohort) => (
+                    <label key={cohort.id} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-[var(--pulse-indigo)]"
+                        checked={extraCohortIds.includes(cohort.id)}
+                        onChange={() =>
+                          setExtraCohortIds((prev) => (prev.includes(cohort.id) ? prev.filter((id) => id !== cohort.id) : [...prev, cohort.id]))
+                        }
+                      />
+                      <span>{cohort.name}</span>
+                    </label>
+                  ))}
+              </div>
+            </fieldset>
 
             <DivisionCheckboxes
               name={`divisions-${user.uid}`}
