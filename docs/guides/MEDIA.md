@@ -36,7 +36,8 @@ Without media, the page is text only and still complete.
 - Narration is a local Chatterbox voice (mlx-audio), about 170 words per minute.
   - The TTS input respells names: "Logic-call Pulse" and "L C Number". Captions keep the real spelling.
   - Every clip is checked with local speech-to-text and redone if it is off.
-- Playback starts muted with a **Turn on sound** button. A section's **Watch** button plays with sound.
+- Nothing plays on page load. Clicking play or a section's **Watch** button plays with sound at 50% volume. The reader's own volume change is kept after that.
+- Narration is loudness-normalized to about -16 LUFS so it isn't loud on any device.
 - A WebVTT subtitle track is attached for the player's CC button. It is off by default because the text is already in the caption band.
 
 ## Update the media
@@ -57,7 +58,7 @@ Without media, the page is text only and still complete.
 ## Deep links
 
 - `/how-to?role=trainer#publish-assign` opens that role's section, scrolls to the section and highlights it.
-- Add `&play=1` to open the player at that section's chapter, muted.
+- Add `&play=1` to open the player at that section's chapter. Browsers may wait for a click before playing, since playback has sound.
 - A link to a role above the reader opens the reader's own role instead.
 - Section ids are explicit in the guide data, so links survive title edits.
 - `/guide` redirects to `/how-to`.

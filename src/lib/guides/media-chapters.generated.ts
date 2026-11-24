@@ -274,8 +274,8 @@ export const GUIDE_SECTION_MEDIA: Record<GuideRoleId, Record<string, SectionMedi
 };
 
 export const GUIDE_VIDEO_DURATIONS: Partial<Record<VideoRole, number>> = {
-  "agent": 173.7,
+  "agent": 173.8,
   "supervisor": 99,
   "trainer": 214.3,
-  "admin": 94.3
+  "admin": 94.4
 };

@@ -14,7 +14,6 @@ import {
   LoaderCircle,
   Play,
   Search,
-  Volume2,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -45,8 +44,6 @@ interface PlayerRequest {
   video: VideoRole;
   start: number;
   nonce: number;
-  /** True when the reader clicked Watch (a gesture): play with sound. Otherwise play muted. */
-  withSound: boolean;
 }
 
 export function HowToView({ uid, blocks: initialBlocks, focus }: { uid: string; blocks: HowToRoleBlock[]; focus: GuideRoleId }) {
@@ -64,13 +61,14 @@ export function HowToView({ uid, blocks: initialBlocks, focus }: { uid: string; 
     markGuideSeen(uid);
   }, [uid]);
 
-  const openPlayer = useCallback((role: GuideRoleId, video: VideoRole, start: number, withSound: boolean) => {
-    setPlayers((prev) => ({ ...prev, [role]: { video, start, withSound, nonce: (prev[role]?.nonce ?? 0) + 1 } }));
+  const openPlayer = useCallback((role: GuideRoleId, video: VideoRole, start: number) => {
+    setPlayers((prev) => ({ ...prev, [role]: { video, start, nonce: (prev[role]?.nonce ?? 0) + 1 } }));
     requestAnimationFrame(() => document.getElementById(`player-${role}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }, []);
 
   // Deep links: ?role=x#section opens role x (if allowed; the server already fell back to the reader's role),
-  // scrolls to the section and highlights it; &play=1 opens that block's player at the section's chapter, muted.
+  // scrolls to the section and highlights it; &play=1 opens that block's player at the section's chapter (the browser may wait for a click to
+  // start it, since playback has sound).
   useEffect(() => {
     function goTo(fromLoad: boolean) {
       const raw = decodeURIComponent(window.location.hash.slice(1));
@@ -85,7 +83,7 @@ export function HowToView({ uid, blocks: initialBlocks, focus }: { uid: string; 
         const block = initialBlocks.find((b) => b.role === focus);
         const sectionId = anchor.split('--')[1];
         const media = block?.content?.media[sectionId];
-        if (media) openPlayer(focus, media.video, media.start, false);
+        if (media) openPlayer(focus, media.video, media.start);
       }
     }
     goTo(true);
@@ -209,7 +207,7 @@ export function HowToView({ uid, blocks: initialBlocks, focus }: { uid: string; 
                       role={block.role}
                       content={block.content}
                       request={players[block.role] ?? null}
-                      onStart={() => openPlayer(block.role, VIDEO_FOR_GUIDE[block.role], 0, false)}
+                      onStart={() => openPlayer(block.role, VIDEO_FOR_GUIDE[block.role], 0)}
                     />
                     {f && f.chapters.length === 0 ? (
                       <div className="rounded-pulse-lg border border-dashed border-pulse-border px-6 py-8 text-center">
@@ -232,7 +230,7 @@ export function HowToView({ uid, blocks: initialBlocks, focus }: { uid: string; 
                                 section={section}
                                 uid={uid}
                                 highlighted={highlight === anchor}
-                                watch={media ? { start: media.start, onWatch: () => openPlayer(block.role, media.video, media.start, true) } : null}
+                                watch={media ? { start: media.start, onWatch: () => openPlayer(block.role, media.video, media.start) } : null}
                                 screenshots={block.content!.screenshots[section.id] ?? []}
                               />
                             );
@@ -257,10 +255,13 @@ export function HowToView({ uid, blocks: initialBlocks, focus }: { uid: string; 
 }
 
 /**
- * Click-to-play. Before a click there is no <video> and no poster request. Playback starts muted with a
- * "Turn on sound" button, except from a section's Watch button (a click), which plays with sound.
+ * Click-to-play. Before a click there is no <video> and no poster request. Playback starts with sound at half
+ * volume (narration can be loud on some devices); the reader's own volume change is kept after that.
  * The narration is also burned into the video as a caption band; the WebVTT track is there for the CC button.
  */
+/** Players open at half volume. */
+const PLAYER_START_VOLUME = 0.5;
+
 function VideoPlayer({
   role,
   content,
@@ -273,15 +274,17 @@ function VideoPlayer({
   onStart: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [muted, setMuted] = useState(true);
   const video = request?.video ?? VIDEO_FOR_GUIDE[role];
   const entry = content.videos[video];
 
   useEffect(() => {
     const el = videoRef.current;
     if (!el || !request) return;
-    setMuted(!request.withSound);
-    el.muted = !request.withSound;
+    el.muted = false;
+    if (!el.dataset.volumeSet) {
+      el.volume = PLAYER_START_VOLUME;
+      el.dataset.volumeSet = '1';
+    }
     const seek = () => {
       el.currentTime = request.start;
       void el.play().catch(() => undefined);
@@ -302,31 +305,13 @@ function VideoPlayer({
               className="aspect-[1280/928] w-full bg-black"
               controls
               playsInline
-              muted={muted}
               preload="metadata"
               poster={entry.posterUrl}
               src={entry.url}
-              onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
             >
               {entry.vttUrl ? <track kind="subtitles" srcLang="en" label="English" src={entry.vttUrl} /> : null}
               Your browser cannot play this video.
             </video>
-            {muted ? (
-              <button
-                type="button"
-                onClick={() => {
-                  const el = videoRef.current;
-                  if (!el) return;
-                  el.muted = false;
-                  setMuted(false);
-                  void el.play().catch(() => undefined);
-                }}
-                className="pulse-btn pulse-btn-primary absolute left-1/2 top-4 -translate-x-1/2 shadow-lg"
-              >
-                <Volume2 aria-hidden className="size-4" />
-                Turn on sound
-              </button>
-            ) : null}
           </div>
         ) : (
           <button

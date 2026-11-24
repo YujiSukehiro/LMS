@@ -368,3 +368,15 @@ describe('role guides', () => {
     for (const role of ALL_ROLES) expect(GUIDES[guideRoleFor(role)]).toBeDefined();
   });
 });
+
+describe('How To player sound', () => {
+  const source = readFileSync(path.join(process.cwd(), 'src/components/guide/HowToView.tsx'), 'utf8');
+
+  it('plays with sound at half volume after a click, with no muted start', () => {
+    expect(source).toMatch(/PLAYER_START_VOLUME = 0\.5/);
+    expect(source).toMatch(/el\.muted = false/);
+    expect(source).not.toMatch(/Turn on sound/);
+    expect(source).not.toMatch(/\bmuted=\{/);
+    expect(source).not.toMatch(/\bautoPlay\b/);
+  });
+});
