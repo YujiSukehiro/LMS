@@ -51,6 +51,7 @@ export function TrackStudio({
   initialSecrets,
   cohorts,
   people = [],
+  openAssign = false,
   focusDrillId,
 }: {
   track: TrackDoc;
@@ -59,6 +60,8 @@ export function TrackStudio({
   cohorts: PublishCohortOption[];
   /** Active agents with the Track's Division, for one-by-one assignment. */
   people?: PublishPersonOption[];
+  /** Open "Edit assignment" on load (?assign=1 from the Track Studio list). */
+  openAssign?: boolean;
   /** Open the Checkpoint that holds this Drill in Edit mode (links from "Top missed items"). */
   focusDrillId?: string | null;
 }) {
@@ -339,6 +342,23 @@ export function TrackStudio({
             divisionId={track.divisionId}
             hasUnsavedChanges={dirty}
           />
+          {track.publishedVersionId ? (
+            <PublishDialog
+              mode="assign"
+              autoOpen={openAssign}
+              trackId={track.id}
+              trackTitle={title || track.title}
+              cohorts={cohorts}
+              initialCohortIds={track.assignedCohortIds}
+              people={people}
+              initialUserIds={track.assignedUserIds ?? []}
+              published
+              divisionLabel={DIVISION_LABELS[track.divisionId]}
+              beforePublish={beforePublish}
+              onOpenSourceReview={() => setMode('source')}
+              disabled={saveState.kind === 'saving'}
+            />
+          ) : null}
           <PublishDialog
             trackId={track.id}
             trackTitle={title || track.title}

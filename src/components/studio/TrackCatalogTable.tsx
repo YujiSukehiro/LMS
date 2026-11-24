@@ -6,6 +6,25 @@ import { relativeTime } from "@/components/layout/labels";
 import { TrackStatusPill } from "./TrackStatusPill";
 import { trackBuildFailed, trackDisplayStatus } from "./track-display-status";
 
+/** "Every Cohort", "2 Cohorts · 3 people", or "Not assigned" for a published Track. */
+function assignmentSummary(track: TrackDoc): string {
+  if (track.assignedCohortIds.includes("ALL")) {
+    const people = track.assignedUserIds?.length ?? 0;
+    return people > 0 ? `Every Cohort · ${people} named` : "Every Cohort";
+  }
+  const cohorts = track.assignedCohortIds.length;
+  const people = track.assignedUserIds?.length ?? 0;
+  const parts = [
+    cohorts > 0 ? `${cohorts} Cohort${cohorts === 1 ? "" : "s"}` : "",
+    people > 0 ? `${people} ${people === 1 ? "person" : "people"}` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : "Not assigned";
+}
+
+function assignHref(track: TrackDoc): string {
+  return `/studio/${encodeURIComponent(track.id)}?assign=1`;
+}
+
 function versionLabel(track: TrackDoc): string {
   if (track.publishedVersionId) return track.publishedVersionId;
   return "Draft";
@@ -53,11 +72,19 @@ export function TrackCatalogTable({ tracks }: { tracks: TrackDoc[] }) {
                 </span>
               ) : null}
             </Link>
+            {track.publishedVersionId ? (
+              <div className="mt-1 flex items-center justify-between gap-2 px-1 text-xs">
+                <span className="text-pulse-muted">Assigned: {assignmentSummary(track)}</span>
+                <Link href={assignHref(track)} className="font-semibold text-pulse-indigo-text hover:underline">
+                  Edit assignment
+                </Link>
+              </div>
+            ) : null}
           </li>
         ))}
       </ul>
       <div className="pulse-card relative hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[820px] text-sm">
+        <table className="w-full min-w-[940px] text-sm">
           <thead>
             <tr className="border-b border-pulse-border-subtle text-left">
               <th scope="col" className="pulse-label px-4 py-3">
@@ -71,6 +98,9 @@ export function TrackCatalogTable({ tracks }: { tracks: TrackDoc[] }) {
               </th>
               <th scope="col" className="pulse-label px-3 py-3">
                 Published version
+              </th>
+              <th scope="col" className="pulse-label px-3 py-3">
+                Assigned to
               </th>
               <th scope="col" className="pulse-label px-3 py-3 text-right">
                 Checkpoints
@@ -129,6 +159,18 @@ export function TrackCatalogTable({ tracks }: { tracks: TrackDoc[] }) {
                 </td>
                 <td className="pulse-metric px-3 py-3 text-pulse-secondary">
                   {versionLabel(track)}
+                </td>
+                <td className="px-3 py-3">
+                  {track.publishedVersionId ? (
+                    <div className="flex flex-col items-start gap-0.5">
+                      <span className="whitespace-nowrap text-xs text-pulse-secondary">{assignmentSummary(track)}</span>
+                      <Link href={assignHref(track)} className="whitespace-nowrap text-xs font-semibold text-pulse-indigo-text hover:underline">
+                        Edit assignment
+                      </Link>
+                    </div>
+                  ) : (
+                    <span className="whitespace-nowrap text-xs text-pulse-muted">Not published</span>
+                  )}
                 </td>
                 <td className="pulse-metric px-3 py-3 text-right">
                   {track.unitCount}
