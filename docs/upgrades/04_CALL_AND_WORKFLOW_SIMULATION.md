@@ -351,3 +351,16 @@ A later P3 voice phase may consider local microphone capture, local speech-to-te
 - [ ] Minimal-evidence sessions cannot pass or certify.
 - [ ] Every required scenario has scripted pass and critical-fail acceptance paths.
 - [ ] The UI states that text/action simulation does not assess audible call skills.
+
+### 14.1 Voice update (2026-11-24, Connor approved option 2)
+
+- Live dictation: the mic stays on until the learner turns it off, words appear while they talk, and it pauses while the
+  caller replies or speaks, then resumes. Browser Web Speech API (free). Firefox has none; the mic shows as unavailable.
+- Caller voice: each caller reply is read aloud with the browser's built-in speech voice (free), with a mute toggle.
+- Delivery coaching: each spoken reply is recorded in the browser (Opus, 24 kbps). After the scorecard, the clips are
+  sent once to `POST /api/simulations/[sessionId]/delivery`, which makes one Gemini call (`GEMINI_AUDIO_MODEL`, else
+  `GEMINI_FAST_MODEL`) to score warmth, pace, conciseness, confidence and professionalism (1-5; overall 0-100 computed
+  in code). It is coaching only: never part of the Rubric score, pass result or certification. Audio is not stored; only
+  the scores and notes are saved on the session (`deliveryAssessment`). One assessment per session.
+- Cost check: `npx tsx --env-file=.env.local scripts/measure-delivery-cost.ts <clips...>` makes one paid call and logs
+  `[gemini-usage]` token counts.

@@ -1,3 +1,4 @@
+import { DeliveryAssessmentSchema } from '@/lib/schemas/delivery';
 import { z } from 'zod';
 import { DivisionIdSchema } from './domain';
 import { ProvenanceRecordSchema } from '@/lib/ai/provenance';
@@ -127,6 +128,8 @@ export const SimSessionDocSchema = z.object({
    * Trainer scores it through the manual judge exchange.
    */
   judgeReview: SimJudgeReviewSchema.optional(),
+  /** Additive: coaching-only delivery score from the agent's spoken audio. Audio itself is never stored. */
+  deliveryAssessment: DeliveryAssessmentSchema.optional(),
   startedAt: z.number(),
   updatedAt: z.number(),
 });

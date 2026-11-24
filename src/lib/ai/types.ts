@@ -27,6 +27,13 @@ export interface GenerateStructuredOptions<T extends z.ZodTypeAny> {
    * ignore it, since it is already inside `userPrompt`. Ignored unless `userPrompt` starts with it.
    */
   cacheablePrefix?: string;
+  /**
+   * Audio sent with the prompt (base64). Only Gemini reads audio; callers must check `providerName` first.
+   * Each clip follows its `label` text in the request.
+   */
+  audioParts?: Array<{ label: string; mimeType: string; base64: string }>;
+  /** Overrides the tier's model for this call (Gemini only), for example GEMINI_AUDIO_MODEL. */
+  modelOverride?: string;
 }
 
 export interface StreamChatOptions {
