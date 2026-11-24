@@ -193,6 +193,10 @@ describe('role guides', () => {
     }
     // Every guide states the any-Cohort-or-by-name rule; no section is left flagged for a later update.
     expect(guideToMarkdown(GUIDES.AGENT)).toContain('one of your Cohorts or to you by name');
+    const retention = readFileSync(path.join(ROOT, 'src/app/(dashboard)/learn/_components/RetentionRunner.tsx'), 'utf8');
+    expect(retention).toContain('Mastered</span>');
+    expect(retention).not.toContain('Certified Unlocked');
+    expect(guideToMarkdown(GUIDES.AGENT)).toContain('**Mastered**');
     for (const role of GUIDE_ROLES) {
       for (const section of GUIDES[role].chapters.flatMap((c) => c.sections)) {
         expect(section.maintainerNote, `${role}/${section.id}`).toBeUndefined();

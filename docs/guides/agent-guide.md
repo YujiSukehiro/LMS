@@ -203,6 +203,7 @@ You use Pulse to learn each campaign before you take its calls: read short Brief
 - A wrong answer comes back in about 4 hours.
 - No reviews yet means you have not finished a Checkpoint. Reviews start after your first one.
 - Reviews keep rules fresh. They do not count toward certification, and skipping them never removes it.
+- **Mastered** (on the Keep-Sharp page; "fully retained" on Home) = rules you answered correctly in a spaced review and that are now on the longest (7-day) review gap.
 
 **Open in Pulse:** **Open Keep-Sharp Review** (`/learn/review`)
 
