@@ -8,7 +8,7 @@ import { Loader2, UserPlus } from 'lucide-react';
 import { establishServerSession, getClientAuth } from '@/lib/firebase/client';
 import { describeAuthError } from '@/lib/firebase/auth-errors';
 import { ClaimInviteResponseSchema } from '@/lib/schemas/api';
-import { LC_ID_PATTERN } from '@/lib/schemas/constants';
+import { LC_ID_PATTERN, PASSWORD_MIN_LENGTH } from '@/lib/schemas/constants';
 
 export function JoinForm({ joinCode, cohortName }: { joinCode: string; cohortName: string | null }) {
   const router = useRouter();
@@ -22,7 +22,7 @@ export function JoinForm({ joinCode, cohortName }: { joinCode: string; cohortNam
   function validate(): string | null {
     if (!displayName.trim()) return 'Type your full name.';
     if (!LC_ID_PATTERN.test(lcNumber.trim())) return 'Type your LC Number in the format LC-1042.';
-    if (password.length < 8) return 'Use a password with 8 characters or more.';
+    if (password.length < PASSWORD_MIN_LENGTH) return `Use a password with ${PASSWORD_MIN_LENGTH} characters or more.`;
     if (password !== confirmPassword) return 'The two passwords are not the same.';
     return null;
   }
@@ -140,7 +140,7 @@ export function JoinForm({ joinCode, cohortName }: { joinCode: string; cohortNam
             type="password"
             className="pulse-input w-full"
             autoComplete="new-password"
-            minLength={8}
+            minLength={PASSWORD_MIN_LENGTH}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             disabled={pending}
@@ -155,7 +155,7 @@ export function JoinForm({ joinCode, cohortName }: { joinCode: string; cohortNam
             type="password"
             className="pulse-input w-full"
             autoComplete="new-password"
-            minLength={8}
+            minLength={PASSWORD_MIN_LENGTH}
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
             disabled={pending}

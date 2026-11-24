@@ -12,6 +12,7 @@ import { AcceptInviteRequestSchema, AcceptInviteResponseSchema } from '@/lib/sch
 import { RosterInviteDocSchema } from '@/lib/schemas/domain';
 import { clientKey, joinCodeLimiter } from '@/lib/services/attempt-limiter';
 import { findInviteByToken, INVITE_LOOKUP_MESSAGES } from '@/lib/services/invite-lookup';
+import { PASSWORD_MIN_LENGTH } from '@/lib/schemas/constants';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -53,7 +54,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     if (code === 'auth/email-already-exists') {
       return jsonError(409, 'ACCOUNT_EXISTS', 'An account already exists for this email. Use Sign In (or Continue with Google) instead.');
     }
-    if (code === 'auth/invalid-password') return jsonError(400, 'VALIDATION_FAILED', 'Use a stronger password (8 characters or more).');
+    if (code === 'auth/invalid-password') return jsonError(400, 'VALIDATION_FAILED', `Use a stronger password (${PASSWORD_MIN_LENGTH} characters or more).`);
     console.error('[auth/accept-invite] createUser failed', error);
     return jsonError(500, 'ACCEPT_FAILED', 'Your account could not be created. Try again.');
   }

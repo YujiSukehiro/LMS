@@ -154,7 +154,7 @@ export function BulkImportDialog({
               <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-xs text-pulse-muted">
                 <li>Blank <span className="pulse-metric">role</span> → Agent (basic user). Other values: PARTNER_SUPERVISOR, TRAINER, ADMIN.</li>
                 <li>Blank <span className="pulse-metric">divisionIds</span> → the Cohort&rsquo;s default Divisions. Separate several with <span className="pulse-kbd">|</span>.</li>
-                <li>Blank <span className="pulse-metric">initialPassword</span> → Pulse makes a temporary password you download after import.</li>
+                <li>Blank <span className="pulse-metric">initialPassword</span> → Pulse makes a temporary password you download after import. Everyone imported must choose a new password at first sign-in.</li>
               </ul>
             </div>
             <button type="button" className="pulse-btn pulse-btn-ghost p-1.5" aria-label="Close" onClick={close}>

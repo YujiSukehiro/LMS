@@ -331,7 +331,7 @@ export function RetentionRunner({
                   <span className="pulse-metric">{visibleDue.length}</span> review drill
                   {visibleDue.length === 1 ? '' : 's'} ready now
                 </h2>
-                <p className="text-sm text-pulse-secondary">Each correct answer moves that rule to its next review and counts toward certification.</p>
+                <p className="text-sm text-pulse-secondary">Each correct answer moves that rule to its next review. Keep-sharp reviews keep rules fresh; they do not change certification.</p>
               </div>
               <div className="flex flex-wrap gap-3">
                 <button

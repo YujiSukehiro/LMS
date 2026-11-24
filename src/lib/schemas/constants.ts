@@ -105,3 +105,6 @@ export const PDF_LIMITS = {
   minExtractedChars: 150,
   condensedBlueprintPageThreshold: 25,
 } as const;
+
+/** Minimum password length everywhere a password is set (invite, join, reset, change, import). Connor 2026-11-24. */
+export const PASSWORD_MIN_LENGTH = 10;

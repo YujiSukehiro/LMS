@@ -5,6 +5,7 @@ import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { generateTemporaryPassword, parseStoredUserDoc, setMustChangePassword } from '@/lib/firebase/users';
 import { recordAuditEvent } from '@/lib/services/audit';
 import { RosterResetPasswordRequestSchema, RosterResetPasswordResponseSchema } from '@/lib/schemas/api';
+import { PASSWORD_MIN_LENGTH } from '@/lib/schemas/constants';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ uid: st
   const parsed = RosterResetPasswordRequestSchema.safeParse(rawBody ?? {});
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    return jsonError(400, 'VALIDATION_FAILED', first ? first.message : 'Password must be 8 to 128 characters.');
+    return jsonError(400, 'VALIDATION_FAILED', first ? first.message : `Password must be ${PASSWORD_MIN_LENGTH} to 128 characters.`);
   }
 
   const userRef = adminDb.collection('users').doc(uid);
