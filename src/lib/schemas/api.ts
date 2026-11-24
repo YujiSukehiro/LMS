@@ -162,7 +162,20 @@ export const RegenerateItemResponseSchema = z.object({
   item: z.union([BriefingCardSchema, DrillItemSchema, PublicSimScenarioSchema]),
 });
 
-export const PublishTrackRequestSchema = z.object({ assignedCohortIds: z.array(z.string()).min(1) });
+export const PublishTrackRequestSchema = z
+  .object({
+    assignedCohortIds: z.array(z.string()).default([]),
+    /** Individual people who must take the Track, on top of the Cohorts (Connor 2026-11-24). */
+    assignedUserIds: z.array(z.string().min(1).max(128)).max(500).default([]),
+  })
+  .refine((value) => value.assignedCohortIds.length > 0 || value.assignedUserIds.length > 0, {
+    message: 'Pick at least one Cohort or person.',
+  });
+/** PATCH /api/tracks/{id}/assignment: change who must take a published Track without publishing a new version. */
+export const TrackAssignmentRequestSchema = z.object({
+  assignedCohortIds: z.array(z.string()).max(100),
+  assignedUserIds: z.array(z.string().min(1).max(128)).max(500),
+});
 export const PublishTrackResponseSchema = z.object({ publishedVersionId: z.string() });
 
 // ---------- Progress ----------
@@ -381,6 +394,8 @@ export const RosterUpdatePermissionsRequestSchema = z
     displayName: z.string().trim().min(1).max(100).optional(),
     role: UserRoleSchema,
     partnerCohortId: z.string().min(2).max(32),
+    /** Extra Cohorts (not the home Cohort). Omitted = leave memberships unchanged. */
+    cohortIds: z.array(z.string().min(2).max(32)).max(20).optional(),
     divisionIds: z.array(DivisionIdSchema).min(1),
   })
   .strict();

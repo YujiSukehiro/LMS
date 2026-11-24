@@ -7,10 +7,11 @@ import type { TrackDoc } from '@/lib/schemas/curriculum';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { loadRetentionQueueForUser } from '@/lib/services/retention-queue';
 import { isTrackVisibleToLearner } from '@/lib/services/track-loader';
+import { withCohortMemberships } from '@/lib/services/memberships';
 import { cn } from '@/lib/utils';
 import {
   loadEnrollmentsForUser,
-  loadPublishedTracksForCohort,
+  loadPublishedTracks,
   loadUser,
 } from '@/components/analytics/server-data';
 import { EmptyState, KpiStrip, ProgressBar, SectionHeader } from '@/components/analytics/KpiStrip';
@@ -18,13 +19,15 @@ import { formatPct } from '@/components/analytics/strength';
 import { DivisionPill } from '../DivisionPill';
 
 export async function AgentHome({ user }: { user: SessionUser }) {
-  const [profile, rawTracks, enrollments, retention] = await Promise.all([
+  const [profile, rawTracks, enrollments, retention, scope] = await Promise.all([
     loadUser(user.uid),
-    loadPublishedTracksForCohort(user.partnerCohortId),
+    // Every published Track: extra Cohorts and one-by-one assignments decide visibility, not the home Cohort alone.
+    loadPublishedTracks(),
     loadEnrollmentsForUser(user.uid),
     loadRetentionQueueForUser(user),
+    withCohortMemberships(user),
   ]);
-  const tracks = rawTracks.filter((track) => isTrackVisibleToLearner(track, user));
+  const tracks = rawTracks.filter((track) => track.publishedVersionId && isTrackVisibleToLearner(track, scope));
   const enrollmentByTrack = new Map(enrollments.map((e) => [e.trackId, e]));
   const stats = profile?.stats;
   const firstName = user.displayName.split(/\s+/)[0] ?? user.displayName;

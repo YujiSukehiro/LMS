@@ -251,6 +251,8 @@ export const TrackDocSchema = z.object({
   currentDraftVersionId: z.string(),
   publishedVersionId: z.string().nullable(),
   assignedCohortIds: z.array(z.string()), // ['ALL'] or ['INTERNAL', 'THS', 'DOZ']
+  /** People assigned one by one, on top of the Cohorts (Connor 2026-11-24). */
+  assignedUserIds: z.array(z.string()).optional(),
   competencyPillars: z.array(CompetencyPillarSchema),
   unitCount: z.number().int().nonnegative(),
   /** Checkpoint count the trainer chose on the Content map. Null = use the measured target. */

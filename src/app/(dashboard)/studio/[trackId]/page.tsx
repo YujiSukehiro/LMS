@@ -5,7 +5,7 @@ import { ArrowLeft, TriangleAlert } from 'lucide-react';
 import { requirePageUser } from '@/lib/firebase/auth-guard';
 import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
 import { loadAllAgents, loadCohortOptions, loadDraftWithSecrets, loadTrack, trackNeedsBuild } from '@/components/analytics/server-data';
-import type { PublishCohortOption } from '@/components/studio/PublishDialog';
+import type { PublishCohortOption, PublishPersonOption } from '@/components/studio/PublishDialog';
 import { GenerationStepper } from '@/components/studio/GenerationStepper';
 import { newTrackViewFor } from '@/components/studio/generation-view';
 import { TrackStudio } from '@/components/studio/TrackStudio';
@@ -49,9 +49,22 @@ export default async function TrackStudioPage({
   const reachByCohort = new Map<string, number>();
   for (const agent of agents) {
     if (!agent.active || !agent.divisionIds.includes(track.divisionId)) continue;
-    reachByCohort.set(agent.partnerCohortId, (reachByCohort.get(agent.partnerCohortId) ?? 0) + 1);
+    // Home Cohort and extra Cohorts both receive the Track.
+    for (const cohortId of new Set([agent.partnerCohortId, ...(agent.cohortIds ?? [])])) {
+      reachByCohort.set(cohortId, (reachByCohort.get(cohortId) ?? 0) + 1);
+    }
   }
   const cohorts: PublishCohortOption[] = cohortOptions.map((cohort) => ({ ...cohort, reach: reachByCohort.get(cohort.id) ?? 0 }));
+  const cohortNames = new Map(cohortOptions.map((cohort) => [cohort.id, cohort.name]));
+  // People who can be assigned one by one: active agents with the Track's Division (others would not see it).
+  const people: PublishPersonOption[] = agents
+    .filter((agent) => agent.active && agent.divisionIds.includes(track.divisionId))
+    .map((agent) => ({
+      uid: agent.uid,
+      name: agent.displayName,
+      detail: [agent.lcNumber ?? agent.email, cohortNames.get(agent.partnerCohortId) ?? agent.partnerCohortId].filter(Boolean).join(' · '),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   if (!draft) {
     return (
@@ -71,7 +84,7 @@ export default async function TrackStudioPage({
     );
   }
 
-  return <TrackStudio track={track} draft={draft} initialSecrets={secrets} cohorts={cohorts} focusDrillId={focusDrillId} />;
+  return <TrackStudio track={track} draft={draft} initialSecrets={secrets} cohorts={cohorts} people={people} focusDrillId={focusDrillId} />;
 }
 
 function BackLink() {

@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
+import { resolveTrackAssignment, type TrackAssignment } from '@/lib/services/track-assignment';
 import { evaluatePublicationGates } from '@/lib/services/source-evidence';
 import { buildAssessmentBlueprint, mapAssessmentContentChanges, planRecertification } from '@/lib/services/certification';
 import {
@@ -22,7 +23,8 @@ import { normalizeVerbalScenarioPairs } from '@/lib/services/verbal-defaults';
 import { VERBAL_ONLY } from '@/lib/policy/training-policy';
 import { loadSourceReview, SourceBundleNotFoundError } from '@/lib/services/source-store';
 import type { PublicationGateReport } from '@/lib/schemas/source-truth';
-import { ALL_COHORTS_ID, INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
+import { INTERNAL_OPS_ROLES } from '@/lib/schemas/constants';
+import { ServiceError } from '@/lib/services/errors';
 import { PublishTrackRequestSchema } from '@/lib/schemas/api';
 import { EnrollmentDocSchema, enrollmentIdFor } from '@/lib/schemas/analytics';
 import { AssessmentBlueprintDocSchema, CertificationDocSchema } from '@/lib/schemas/learning';
@@ -71,19 +73,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
     return jsonError(400, 'VALIDATION_FAILED', 'The request body must be JSON.');
   }
   const parsed = PublishTrackRequestSchema.safeParse(json);
-  if (!parsed.success) return jsonError(400, 'VALIDATION_FAILED', 'Select at least one Cohort.');
+  if (!parsed.success) return jsonError(400, 'VALIDATION_FAILED', 'Pick at least one Cohort or person.');
 
-  const requested = [...new Set(parsed.data.assignedCohortIds.map((id) => id.trim()).filter(Boolean))];
-  if (requested.length === 0) return jsonError(400, 'VALIDATION_FAILED', 'Select at least one Cohort.');
-  let assignedCohortIds: string[];
-  if (requested.includes(ALL_COHORTS_ID)) {
-    assignedCohortIds = [ALL_COHORTS_ID];
-  } else {
-    const snaps = await adminDb.getAll(...requested.map((id) => adminDb.collection('cohorts').doc(id)));
-    const missing = snaps.filter((snap) => !snap.exists).map((snap) => snap.id);
-    if (missing.length > 0) return jsonError(400, 'VALIDATION_FAILED', `These Cohorts do not exist: ${missing.join(', ')}.`);
-    assignedCohortIds = requested;
+  let assignment: TrackAssignment;
+  try {
+    assignment = await resolveTrackAssignment({ cohortIds: parsed.data.assignedCohortIds, userIds: parsed.data.assignedUserIds });
+  } catch (error) {
+    if (error instanceof ServiceError) return jsonError(error.status, error.code, error.message);
+    throw error;
   }
+  const { assignedCohortIds, assignedUserIds } = assignment;
 
   try {
     const publishedVersionId = await adminDb.runTransaction(async (tx) => {
@@ -272,6 +271,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ trackId
         status: 'PUBLISHED',
         publishedVersionId: versionId,
         assignedCohortIds,
+        assignedUserIds,
         competencyPillars: published.competencyPillars,
         unitCount: published.units.length,
         simScenarioCount: published.simScenarios.length,

@@ -13,7 +13,7 @@ import {
   type UserDoc,
   type UserRole,
 } from '@/lib/schemas/domain';
-import { DIVISION_LABELS, ROLE_LABELS } from '@/lib/schemas/constants';
+import { ALL_COHORTS_ID, DIVISION_LABELS, ROLE_LABELS } from '@/lib/schemas/constants';
 import { assignableRoles, can, canManageUser, invitableRoles, rolesWith } from '@/lib/auth/rbac';
 import { cn } from '@/lib/utils';
 import { BulkImportDialog } from './_components/BulkImportDialog';
@@ -28,6 +28,7 @@ import {
 } from './_components/CohortAdminControls';
 import { RolesPermissionsPanel } from './_components/RolesPermissionsPanel';
 import { CopyJoinLinkButton } from './_components/CopyJoinLinkButton';
+import { CohortTrainingsDialog } from './_components/CohortTrainingsDialog';
 import { EditUserPermissionsDialog } from './_components/EditUserPermissionsDialog';
 import { InviteStaffDialog } from './_components/InviteStaffDialog';
 import { ResetPasswordDialog } from './_components/ResetPasswordDialog';
@@ -47,6 +48,8 @@ interface RosterRow {
   lcNumber: string | null;
   role: UserRole;
   partnerCohortId: string;
+  /** Extra Cohort memberships. */
+  cohortIds: string[];
   divisionIds: DivisionId[];
   /** Blended training score, or null for staff and for agents with no scored activity yet (shown as "—"). */
   readiness: number | null;
@@ -92,6 +95,7 @@ function toRosterRow(uid: string, data: Record<string, unknown>): RosterRow | nu
     lcNumber,
     role: role.data,
     partnerCohortId: data.partnerCohortId,
+    cohortIds: Array.isArray(data.cohortIds) ? data.cohortIds.filter((id): id is string => typeof id === 'string') : [],
     divisionIds: divisions,
     // QA L5: 0% read as "failing"; staff and agents with no activity show "—" like every other page.
     readiness:
@@ -126,10 +130,28 @@ export default async function RosterPage({
   const actor = await requirePageUser(rolesWith('roster.view'));
   const params = await searchParams;
 
-  const [cohortSnaps, inviteSnaps] = await Promise.all([
+  const canAssignTrainings = can(actor.role, 'tracks.publish');
+  const [cohortSnaps, inviteSnaps, publishedSnaps] = await Promise.all([
     adminDb.collection('cohorts').get(),
     adminDb.collection('rosterInvites').where('status', '==', 'PENDING').limit(200).get(),
+    canAssignTrainings ? adminDb.collection('tracks').where('status', '==', 'PUBLISHED').get() : Promise.resolve(null),
   ]);
+  const publishedTrainings = (publishedSnaps?.docs ?? [])
+    .map((doc) => ({
+      id: doc.id,
+      title: typeof doc.get('title') === 'string' ? (doc.get('title') as string) : doc.id,
+      divisionId: DivisionIdSchema.safeParse(doc.get('divisionId')).data,
+      assignedCohortIds: Array.isArray(doc.get('assignedCohortIds')) ? (doc.get('assignedCohortIds') as string[]) : [],
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+  const trainingsFor = (cohortId: string) =>
+    publishedTrainings.map((training) => ({
+      id: training.id,
+      title: training.title,
+      divisionLabel: training.divisionId ? DIVISION_LABELS[training.divisionId] : '',
+      everyCohort: training.assignedCohortIds.includes(ALL_COHORTS_ID),
+      assigned: training.assignedCohortIds.includes(cohortId),
+    }));
 
   const cohorts: CohortDoc[] = cohortSnaps.docs
     .flatMap((doc) => {
@@ -160,12 +182,18 @@ export default async function RosterPage({
   const statusFilter: StatusFilter =
     requestedStatus === 'inactive' || requestedStatus === 'all' ? requestedStatus : 'active';
 
-  const usersQuery =
+  // A Cohort filter lists home members and people who are also in that Cohort.
+  const [userSnaps, extraSnaps] = await Promise.all([
     cohortFilter === 'ALL'
-      ? adminDb.collection('users').limit(MAX_ROSTER_ROWS)
-      : adminDb.collection('users').where('partnerCohortId', '==', cohortFilter).limit(MAX_ROSTER_ROWS);
-  const userSnaps = await usersQuery.get();
-  const allRows = userSnaps.docs
+      ? adminDb.collection('users').limit(MAX_ROSTER_ROWS).get()
+      : adminDb.collection('users').where('partnerCohortId', '==', cohortFilter).limit(MAX_ROSTER_ROWS).get(),
+    cohortFilter === 'ALL'
+      ? Promise.resolve(null)
+      : adminDb.collection('users').where('cohortIds', 'array-contains', cohortFilter).limit(MAX_ROSTER_ROWS).get(),
+  ]);
+  const seen = new Set<string>();
+  const allRows = [...userSnaps.docs, ...(extraSnaps?.docs ?? [])]
+    .filter((doc) => (seen.has(doc.id) ? false : (seen.add(doc.id), true)))
     .map((doc) => toRosterRow(doc.id, doc.data()))
     .filter((row): row is RosterRow => row !== null);
   const rows = allRows
@@ -268,6 +296,9 @@ export default async function RosterPage({
                       </span>
                     )}
                   </div>
+                  {canAssignTrainings ? (
+                    <CohortTrainingsDialog cohortId={cohort.id} cohortName={cohort.name} trainings={trainingsFor(cohort.id)} />
+                  ) : null}
                   {!cohort.isInternal && canEditCohorts ? (
                     <CohortCardActions
                       cohortId={cohort.id}
@@ -414,6 +445,14 @@ export default async function RosterPage({
                       </td>
                       <td className="px-3 py-2 text-pulse-secondary">
                         {cohortNames.get(row.partnerCohortId) ?? row.partnerCohortId}
+                        {row.cohortIds.length > 0 ? (
+                          <span
+                            className="block text-[11px] text-pulse-muted"
+                            title={row.cohortIds.map((id) => cohortNames.get(id) ?? id).join(', ')}
+                          >
+                            Also: {row.cohortIds.map((id) => cohortNames.get(id) ?? id).join(', ')}
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1">

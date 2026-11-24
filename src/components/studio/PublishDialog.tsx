@@ -5,8 +5,17 @@ import { useRouter } from 'next/navigation';
 import { Check, Copy, LoaderCircle, Send, TriangleAlert, X } from 'lucide-react';
 import { ALL_COHORTS_ID } from '@/lib/schemas/constants';
 import { cn } from '@/lib/utils';
-import { PublicationGatesError, publishTrack } from './api-client';
+import { PublicationGatesError, publishTrack, saveTrackAssignment } from './api-client';
 import type { PublicationGateReport } from '@/lib/schemas/source-truth';
+
+export interface PublishPersonOption {
+  uid: string;
+  name: string;
+  /** LC number or email, and home Cohort. */
+  detail: string;
+}
+
+const PEOPLE_SHOWN = 40;
 
 export interface PublishCohortOption {
   id: string;
@@ -24,6 +33,9 @@ export function PublishDialog({
   trackTitle,
   cohorts,
   initialCohortIds,
+  people = [],
+  initialUserIds = [],
+  published: alreadyPublished = false,
   divisionLabel,
   beforePublish,
   onOpenSourceReview,
@@ -34,6 +46,11 @@ export function PublishDialog({
   trackTitle: string;
   cohorts: PublishCohortOption[];
   initialCohortIds: string[];
+  /** Active agents who can be assigned one by one (Connor 2026-11-24). */
+  people?: PublishPersonOption[];
+  initialUserIds?: string[];
+  /** Already published: offer "Save assignment" without publishing a new version. */
+  published?: boolean;
   /** The Track's Division, for "Cohorts with Telehealth agents". */
   divisionLabel: string;
   /** Saves pending edits. Return false to stop the publish. */
@@ -46,6 +63,9 @@ export function PublishDialog({
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set(initialCohortIds));
+  const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set(initialUserIds));
+  const [personQuery, setPersonQuery] = useState('');
+  const [assignmentSaved, setAssignmentSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gateReport, setGateReport] = useState<PublicationGateReport | null>(null);
@@ -62,6 +82,9 @@ export function PublishDialog({
 
   function open() {
     setSelected(new Set(initialCohortIds));
+    setSelectedPeople(new Set(initialUserIds));
+    setPersonQuery('');
+    setAssignmentSaved(false);
     setError(null);
     setGateReport(null);
     setPublished(null);
@@ -83,9 +106,36 @@ export function PublishDialog({
     });
   }
 
+  function togglePerson(uid: string) {
+    setSelectedPeople((prev) => {
+      const next = new Set(prev);
+      if (next.has(uid)) next.delete(uid);
+      else next.add(uid);
+      return next;
+    });
+  }
+
+  async function onSaveAssignment() {
+    if (selected.size === 0 && selectedPeople.size === 0) {
+      setError('Pick at least one Cohort or person.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await saveTrackAssignment(trackId, [...selected], [...selectedPeople]);
+      setAssignmentSaved(true);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The assignment was not saved.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onPublish() {
-    if (selected.size === 0) {
-      setError('Select one or more Cohorts.');
+    if (selected.size === 0 && selectedPeople.size === 0) {
+      setError('Pick at least one Cohort or person.');
       return;
     }
     setBusy(true);
@@ -97,7 +147,7 @@ export function PublishDialog({
         setError('Fix the problems in the draft before you publish.');
         return;
       }
-      const versionId = await publishTrack(trackId, [...selected]);
+      const versionId = await publishTrack(trackId, [...selected], [...selectedPeople]);
       setPublished({ versionId, link: `${window.location.origin}/learn/${encodeURIComponent(trackId)}` });
       router.refresh();
     } catch (err) {
@@ -170,7 +220,7 @@ export function PublishDialog({
         ) : (
           <div className="flex flex-col gap-4 px-5 py-5">
             <p className="text-sm text-pulse-secondary">
-              Select the Cohorts that must take this Track. Only agents with the {divisionLabel} Division see it. Publishing freezes
+              Pick the Cohorts and people who must take this Track. Only agents with the {divisionLabel} Division see it. Publishing freezes
               the current draft as a new TrackVersion; earlier records stay intact.
             </p>
             {reviewItems.length > 0 ? (
@@ -217,9 +267,73 @@ export function PublishDialog({
                 </p>
               ) : null}
             </fieldset>
+            <fieldset className="flex flex-col gap-1.5">
+              <legend className="pulse-label mb-2">Specific people</legend>
+              <p className="text-xs text-pulse-muted">
+                Assign someone outside these Cohorts, or one person only. Only {divisionLabel} agents are listed.
+              </p>
+              {selectedPeople.size > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {[...selectedPeople].map((uid) => {
+                    const person = people.find((option) => option.uid === uid);
+                    return (
+                      <button
+                        key={uid}
+                        type="button"
+                        className="pulse-pill pulse-pill-indigo flex items-center gap-1"
+                        onClick={() => togglePerson(uid)}
+                        aria-label={`Remove ${person?.name ?? uid}`}
+                      >
+                        {person?.name ?? uid}
+                        <X aria-hidden className="size-3" />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {people.length > 0 ? (
+                <>
+                  <input
+                    type="search"
+                    className="pulse-input"
+                    placeholder="Search by name, LC number or Cohort"
+                    aria-label="Search people"
+                    value={personQuery}
+                    onChange={(e) => setPersonQuery(e.target.value)}
+                  />
+                  {personQuery.trim() ? (
+                    <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+                      {people
+                        .filter((person) => `${person.name} ${person.detail}`.toLowerCase().includes(personQuery.trim().toLowerCase()))
+                        .slice(0, PEOPLE_SHOWN)
+                        .map((person) => (
+                          <CohortCheckbox
+                            key={person.uid}
+                            id={person.uid}
+                            label={person.name}
+                            hint={person.detail}
+                            checked={selectedPeople.has(person.uid)}
+                            onToggle={togglePerson}
+                          />
+                        ))}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-xs text-pulse-muted">No active {divisionLabel} agents yet.</p>
+              )}
+            </fieldset>
             <p className="text-sm font-medium text-pulse-secondary" aria-live="polite">
-              {selected.size === 0 ? 'Pick at least one Cohort.' : `Reaches ${reach} agent${reach === 1 ? '' : 's'}.`}
+              {selected.size === 0 && selectedPeople.size === 0
+                ? 'Pick at least one Cohort or person.'
+                : `Reaches ${reach} agent${reach === 1 ? '' : 's'} in the Cohorts${selectedPeople.size > 0 ? `, plus ${selectedPeople.size} named ${selectedPeople.size === 1 ? 'person' : 'people'}` : ''}.`}
             </p>
+            {assignmentSaved ? (
+              <p className="flex items-center gap-2 text-sm font-semibold text-pulse-emerald" role="status">
+                <Check aria-hidden className="size-4" />
+                Assignment saved. Agents keep the same published version.
+              </p>
+            ) : null}
             {error ? (
               <p role="alert" className="rounded-pulse-md border border-pulse-crimson/40 bg-pulse-crimson/10 px-3 py-2 text-sm text-pulse-crimson">
                 {error}
@@ -245,7 +359,12 @@ export function PublishDialog({
               <button type="button" className="pulse-btn pulse-btn-ghost" onClick={close} disabled={busy}>
                 Cancel
               </button>
-              <button type="button" className="pulse-btn pulse-btn-success" onClick={onPublish} disabled={busy || selected.size === 0}>
+              {alreadyPublished ? (
+                <button type="button" className="pulse-btn" onClick={onSaveAssignment} disabled={busy}>
+                  Save assignment only
+                </button>
+              ) : null}
+              <button type="button" className="pulse-btn pulse-btn-success" onClick={onPublish} disabled={busy || (selected.size === 0 && selectedPeople.size === 0)}>
                 {busy ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <Send aria-hidden className="size-4" />}
                 {busy ? 'Publishing…' : 'Publish Track'}
               </button>
