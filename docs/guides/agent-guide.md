@@ -81,7 +81,7 @@ You use Pulse to learn each campaign before you take its calls: read short Brief
 
 **Tips:**
 
-- You only see Tracks assigned to your Cohort and to your Division (for example Telehealth). If a Track you expect is missing, ask your supervisor to check your Cohort and Divisions.
+- You see a Track when it is assigned to one of your Cohorts or to you by name, and it is in one of your Divisions (for example Telehealth). If a Track you expect is missing, ask your supervisor.
 - The progress bar reaches 100% only after every Checkpoint and every Verbal Practice scenario is passed.
 
 **Open in Pulse:** **Go to Home** (`/`)

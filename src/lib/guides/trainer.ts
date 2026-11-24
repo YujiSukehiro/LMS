@@ -1,6 +1,6 @@
 import type { GuideChapter, GuideSection, RoleGuide } from './types';
 import { accountMenuSection, forgotPasswordSection, signInSection } from './shared';
-import { editAccessSection, publishAssignSection, whoSeesTrackSection } from './cohort-sections';
+import { assignTrainingsSection, editAccessSection, publishAssignSection, whoSeesTrackSection } from './cohort-sections';
 import {
   aiStatusSection,
   analyticsSection,
@@ -29,6 +29,7 @@ export const BUILDING_CHAPTER: GuideChapter = {
     editTrackSection,
     sourceReviewSection,
     publishAssignSection,
+    assignTrainingsSection,
     revisedPlaybookSection,
   ],
 };
@@ -116,10 +117,9 @@ export const TRAINER_GUIDE: RoleGuide = {
         {
           id: 'cohorts-admin-only',
           title: 'Cohorts and join codes',
-          what: 'Creating, editing and deleting Cohorts, and managing join codes, is for Admins only. You can see each Cohort on the Roster.',
+          what: 'Creating, editing and deleting Cohorts, and managing join codes, is for Admins only. You can still choose each Cohort\'s trainings with **Trainings** on its card, and add people to extra Cohorts with **Access**.',
           when: 'When a new partner team needs a Cohort or a join code.',
           steps: ['Ask a LogiCall Admin to create the Cohort or turn on its join code.'],
-          maintainerNote: 'Multi-Cohort work: if Trainers get Cohort membership or assignment controls, describe them here.',
         },
       ],
     },

@@ -25,12 +25,10 @@ export const AGENT_GUIDE: RoleGuide = {
             'If the **Knowledge Retention** card says reviews are due, select **Start Keep-Sharp Review**.',
           ],
           tips: [
-            'You only see Tracks assigned to your Cohort and to your Division (for example Telehealth). If a Track you expect is missing, ask your supervisor to check your Cohort and Divisions.',
+            'You see a Track when it is assigned to one of your Cohorts or to you by name, and it is in one of your Divisions (for example Telehealth). If a Track you expect is missing, ask your supervisor.',
             'The progress bar reaches 100% only after every Checkpoint and every Verbal Practice scenario is passed.',
           ],
           links: [{ label: 'Go to Home', href: '/' }],
-          maintainerNote:
-            'Multi-Cohort work: once Tracks can be assigned to several Cohorts per user and to individuals, update the first tip ("assigned to your Cohort") to "assigned to one of your Cohorts or to you".',
         },
       ],
     },

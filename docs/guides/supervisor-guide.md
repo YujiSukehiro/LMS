@@ -110,6 +110,7 @@ You use Pulse to see which agents in your Cohort are ready to take calls, coach 
 - "Ready for calls" on this board means certified on the selected Track. On Home it means certified on every assigned Track.
 - Ready = every Checkpoint done and every Verbal Practice scenario passed. Keep-Sharp reviews do not count toward it.
 - Certification shows training is done; the decision to put someone on live calls is still yours.
+- Agents are listed under their home Cohort only. Someone from another team who is "also in" your Cohort shows on their own team's board, not yours.
 
 **Open in Pulse:** **Open Team Progress** (`/progress`)
 
@@ -179,7 +180,7 @@ You use Pulse to see which agents in your Cohort are ready to take calls, coach 
 
 ### Adding or changing agents
 
-**What it is.** Supervisors do not open the Roster. LogiCall Trainers and Admins create accounts and change Cohorts, roles and Divisions.
+**What it is.** Supervisors do not open the Roster. LogiCall Trainers and Admins create accounts, change Cohorts, roles and Divisions, and assign trainings to your Cohort or to single agents.
 
 **When to use it.** When new agents start, an agent moves team, or someone leaves.
 
@@ -187,30 +188,32 @@ You use Pulse to see which agents in your Cohort are ready to take calls, coach 
 
 1. New agents: ask your LogiCall Trainer or Admin to bulk-import them, or for your Cohort's join code, which agents type on the sign-in page under **Have a Team Join Code? Claim Access**.
 2. Moves, wrong Divisions and leavers: send the agent's name and LC Number to your LogiCall Trainer or Admin.
+3. A training for one agent only, or for your whole Cohort: ask your Trainer. They can assign it to the Cohort or to the agent by name.
 
 **Tips:**
 
 - An agent who joins with a code lands in your Cohort with its default Divisions.
+- Agents from another team who are only "also in" your Cohort take its trainings, but stay under their own home Cohort and supervisor. They do not appear on your Home or Team Progress.
 
 <a id="who-sees-a-track"></a>
 
 ### Who sees which Track
 
-**What it is.** An agent sees a published Track only when the Track is assigned to their Cohort (or to every Cohort) and the agent has the Track's Division, for example Telehealth.
+**What it is.** An agent sees a published Track when it is assigned to every Cohort, to any of their Cohorts (their home Cohort or one they are also in), or to them by name, and they have the Track's Division, for example Telehealth.
 
 **When to use it.** When an agent says a Track is missing, or Team Progress shows "Not assigned" for someone.
 
 **How to:**
 
 1. Open the agent's Readiness Passport and check their Cohort and Division pills.
-2. If the Division or Cohort is wrong, ask your LogiCall Trainer or Admin to fix it. They change it with **Access** on the Roster.
-3. If the Track is not assigned to your Cohort at all, ask your Trainer to add your Cohort when they publish.
+2. If the Division is wrong, or the agent should also be in another Cohort, ask your LogiCall Trainer or Admin. They change it with **Access** on the Roster.
+3. If the Track is not assigned to your Cohort or to the agent, ask your Trainer to assign it.
 
 **Tips:**
 
-- A user with no Divisions sees no Tracks.
+- The Division rule always applies: someone assigned by name or through a Cohort still needs the Track's Division. A user with no Divisions sees no Tracks.
 - On Team Progress and Analytics, a Track the agent cannot see shows as "Not assigned" for them.
-- Changing someone's Divisions changes which Tracks they see and are counted on, straight away.
+- Changes to Cohorts, Divisions and assignments apply straight away. Nobody has to sign out.
 
 ## More
 

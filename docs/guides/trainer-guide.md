@@ -16,6 +16,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
   - [Review, test-play and edit a draft](#edit-a-track)
   - [Source Review: check content against the PDF](#source-review)
   - [Publish and assign a Track](#publish-assign)
+  - [Assign trainings to Cohorts or people](#assign-trainings)
   - [Update a Track from a revised PDF](#revised-playbook)
 - Progress and coaching
   - [Team Progress](#team-progress)
@@ -192,7 +193,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 ### Publish and assign a Track
 
-**What it is.** Publishing freezes the draft as a new version (v1, v2…) and assigns it to Cohorts. Agents in those Cohorts who have the Track's Division see it on their Home page.
+**What it is.** Publishing freezes the draft as a new version (v1, v2…) and sets who must take it: Cohorts, specific people, or both. They see it on their Home page if they have the Track's Division.
 
 **When to use it.** When the Track has been reviewed and test-played, and each time you want learners to get your latest edits.
 
@@ -201,17 +202,42 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 1. Open the Track in **Track Studio** and select **Publish & Assign**.
 2. Read **Suggested review before going live**. It is advice only: you can still publish.
 3. Under **Target Cohorts**, tick each Cohort that must take the Track, or tick **Every Cohort, including ones added later**.
-4. Check the total ("Reaches N agents.") and select **Publish Track**.
-5. On **Published as TrackVersion vN**, select **Copy** to share the Track link, then **Done**.
+4. To add one person (for example someone outside those Cohorts), type their name or LC Number under **Specific people** and tick them.
+5. Check the total ("Reaches N agents in the Cohorts, plus N named people.") and select **Publish Track**.
+6. On **Published as TrackVersion vN**, select **Copy** to share the Track link, then **Done**.
 
 **Tips:**
 
 - Only real problems block publishing (for example a claim the Playbook does not support, or a thin Checkpoint). They are listed with an **Open Source Review** button. Evidence sign-off is a suggestion, not a blocker.
-- Cohorts with no agents in the Track's Division are hidden from the list.
-- A republish keeps the current Cohorts ticked. Agents keep their progress; only changes to what is assessed send certified agents back to recertify.
+- Already published and only changing who takes it? Select **Save assignment only**. No new version is made and agents keep the same content.
+- Cohorts with no agents in the Track's Division are hidden from the list, and only agents with the Division appear under **Specific people**.
+- A republish keeps the current Cohorts and people ticked. Agents keep their progress; only changes to what is assessed send certified agents back to recertify.
 - The Track's Division is set when you create it and cannot be changed later.
 
 **Open in Pulse:** **Open Track Studio** (`/studio`)
+
+<a id="assign-trainings"></a>
+
+### Assign trainings to Cohorts or people
+
+**What it is.** You can assign published trainings from either side: from a Cohort (which trainings this team takes) or from a Track (which Cohorts and people take this training). Both change the same assignment.
+
+**When to use it.** From the Cohort when a team starts or changes campaign and needs several trainings at once. From the Track when one training goes to several Cohorts, or to a few named people.
+
+**How to:**
+
+1. Cohort side: open **Roster**, find the Cohort card and select **Trainings (N)**.
+2. Tick each training this Cohort must take and select **Save trainings**.
+3. Training side: open the Track in **Track Studio** and select **Publish & Assign**.
+4. Tick Cohorts under **Target Cohorts** and add people under **Specific people**, then select **Save assignment only** (or **Publish Track** if you also want to publish your latest draft).
+
+**Tips:**
+
+- A Cohort's trainings reach everyone in it, including people who are only "also in" that Cohort.
+- Trainings published to **Every Cohort** show ticked and locked in a Cohort's **Trainings** list. Change those from the Track.
+- Only published trainings can be assigned. Agents still need the training's Division to see it.
+
+**Open in Pulse:** **Open Roster** (`/roster`) · **Open Track Studio** (`/studio`)
 
 <a id="revised-playbook"></a>
 
@@ -255,6 +281,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 - "Ready for calls" on this board means certified on the selected Track. On Home it means certified on every assigned Track.
 - Ready = every Checkpoint done and every Verbal Practice scenario passed. Keep-Sharp reviews do not count toward it.
 - Certification shows training is done; the decision to put someone on live calls is still yours.
+- Agents are grouped by their home Cohort. The **Cohort** filter shows each agent under their home Cohort only, even if they are also in other Cohorts.
 
 **Open in Pulse:** **Open Team Progress** (`/progress`)
 
@@ -337,6 +364,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 - Rows you cannot manage show "Your account", "Higher role" or "View only".
 - Open **Roles & permissions** to see exactly what each role can do.
+- Filtering by **Cohort** also lists people who are only "also in" that Cohort, not just its home members.
 
 **Open in Pulse:** **Open Roster** (`/roster`)
 
@@ -395,21 +423,23 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 ### Change role, Cohort and Divisions
 
-**What it is.** The **Access** button on a Roster row changes a person's name, role, Cohort and Divisions. Their Cohort and Divisions decide which Tracks they see.
+**What it is.** The **Access** button on a Roster row changes a person's name, role, home Cohort, the other Cohorts they are also in, and their Divisions. Together these decide which Tracks they see.
 
-**When to use it.** When someone moves team, changes campaign, gets promoted, or cannot see a Track they should.
+**When to use it.** When someone moves team, also works for another team, changes campaign, gets promoted, or cannot see a Track they should.
 
 **How to:**
 
 1. Open **Roster** and find the person (filter by **Cohort** or **Status** if needed).
 2. Select **Access** on their row.
-3. Change **Role**, **Cohort** or **Divisions** as needed.
-4. Select **Save access**. Their old sessions end, so they sign in again.
+3. Change **Role**, **Home Cohort** or **Divisions** as needed.
+4. Under **Also in these Cohorts**, tick any other Cohort whose trainings they should also take.
+5. Select **Save access**. A role or home Cohort change ends their old sessions, so they sign in again.
 
 **Tips:**
 
 - Trainers manage Partner Supervisors and Agents. Other Trainers and Admins show "Higher role".
 - Trainer, Admin and Super Admin accounts must stay in the LogiCall Internal Cohort. Move the person to the Internal Cohort first, then change the role.
+- The home Cohort decides who supervises them and where they show on Team Progress. Extra Cohorts only add trainings.
 - Nobody can change their own access.
 
 **Open in Pulse:** **Open Roster** (`/roster`)
@@ -461,27 +491,27 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 ### Who sees which Track
 
-**What it is.** An agent sees a published Track only when the Track is assigned to their Cohort (or to every Cohort) and the agent has the Track's Division, for example Telehealth.
+**What it is.** An agent sees a published Track when it is assigned to every Cohort, to any of their Cohorts (their home Cohort or one they are also in), or to them by name, and they have the Track's Division, for example Telehealth.
 
 **When to use it.** Before you publish, and when an agent says a Track is missing.
 
 **How to:**
 
-1. On the Roster, check the agent's **Cohort** and **Divisions** columns.
-2. Fix a wrong Cohort or Division with **Access** (see "Change role, Cohort and Divisions").
-3. Fix a missing Cohort on the Track with **Publish & Assign** (see "Publish and assign a Track").
+1. On the Roster, check the agent's **Cohort** and **Divisions** columns. Select **Access** to see the Cohorts they are also in.
+2. Wrong Division, or they should also be in another team's Cohort: fix it with **Access** (see "Change role, Cohort and Divisions").
+3. Track not assigned to them: assign it from the Cohort card (**Trainings**) or from the Track (**Publish & Assign**). See "Assign trainings to Cohorts or people".
 
 **Tips:**
 
-- A user with no Divisions sees no Tracks.
+- The Division rule always applies: someone assigned by name or through a Cohort still needs the Track's Division. A user with no Divisions sees no Tracks.
 - On Team Progress and Analytics, a Track the agent cannot see shows as "Not assigned" for them.
-- Changing someone's Divisions changes which Tracks they see and are counted on, straight away.
+- Changes to Cohorts, Divisions and assignments apply straight away. Nobody has to sign out.
 
 <a id="cohorts-admin-only"></a>
 
 ### Cohorts and join codes
 
-**What it is.** Creating, editing and deleting Cohorts, and managing join codes, is for Admins only. You can see each Cohort on the Roster.
+**What it is.** Creating, editing and deleting Cohorts, and managing join codes, is for Admins only. You can still choose each Cohort's trainings with **Trainings** on its card, and add people to extra Cohorts with **Access**.
 
 **When to use it.** When a new partner team needs a Cohort or a join code.
 

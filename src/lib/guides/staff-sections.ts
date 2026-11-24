@@ -124,6 +124,9 @@ export const teamProgressSection = (audience: 'supervisor' | 'staff'): GuideSect
     '"Ready for calls" on this board means certified on the selected Track. On Home it means certified on every assigned Track.',
     'Ready = every Checkpoint done and every Verbal Practice scenario passed. Keep-Sharp reviews do not count toward it.',
     'Certification shows training is done; the decision to put someone on live calls is still yours.',
+    audience === 'supervisor'
+      ? 'Agents are listed under their home Cohort only. Someone from another team who is "also in" your Cohort shows on their own team\'s board, not yours.'
+      : 'Agents are grouped by their home Cohort. The **Cohort** filter shows each agent under their home Cohort only, even if they are also in other Cohorts.',
   ],
   links: [{ label: 'Open Team Progress', href: '/progress' }],
   requires: ['progress.view'],
@@ -204,6 +207,7 @@ export const rosterSection = (audience: 'trainer' | 'admin'): GuideSection => ({
   tips: [
     'Rows you cannot manage show "Your account", "Higher role" or "View only".',
     'Open **Roles & permissions** to see exactly what each role can do.',
+    'Filtering by **Cohort** also lists people who are only "also in" that Cohort, not just its home members.',
   ],
   links: [{ label: 'Open Roster', href: '/roster' }],
   requires: ['roster.view'],

@@ -43,15 +43,17 @@ export const SUPERVISOR_GUIDE: RoleGuide = {
         {
           id: 'add-agents',
           title: 'Adding or changing agents',
-          what: 'Supervisors do not open the Roster. LogiCall Trainers and Admins create accounts and change Cohorts, roles and Divisions.',
+          what: 'Supervisors do not open the Roster. LogiCall Trainers and Admins create accounts, change Cohorts, roles and Divisions, and assign trainings to your Cohort or to single agents.',
           when: 'When new agents start, an agent moves team, or someone leaves.',
           steps: [
             'New agents: ask your LogiCall Trainer or Admin to bulk-import them, or for your Cohort\'s join code, which agents type on the sign-in page under **Have a Team Join Code? Claim Access**.',
             'Moves, wrong Divisions and leavers: send the agent\'s name and LC Number to your LogiCall Trainer or Admin.',
+            'A training for one agent only, or for your whole Cohort: ask your Trainer. They can assign it to the Cohort or to the agent by name.',
           ],
-          tips: ['An agent who joins with a code lands in your Cohort with its default Divisions.'],
-          maintainerNote:
-            'Multi-Cohort work: if supervisors get any assignment controls (for example assigning a Track to one agent), add them here.',
+          tips: [
+            'An agent who joins with a code lands in your Cohort with its default Divisions.',
+            'Agents from another team who are only "also in" your Cohort take its trainings, but stay under their own home Cohort and supervisor. They do not appear on your Home or Team Progress.',
+          ],
         },
         whoSeesTrackSection('supervisor'),
       ],

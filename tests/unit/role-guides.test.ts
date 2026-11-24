@@ -166,6 +166,31 @@ describe('role guides', () => {
     }
   });
 
+  it('teaches multi-Cohort assignment with the labels the app really shows', () => {
+    const read = (rel: string) => readFileSync(path.join(ROOT, 'src', rel), 'utf8');
+    const ui = {
+      'Also in these Cohorts': read('app/(dashboard)/roster/_components/EditUserPermissionsDialog.tsx'),
+      'Save trainings': read('app/(dashboard)/roster/_components/CohortTrainingsDialog.tsx'),
+      'Specific people': read('components/studio/PublishDialog.tsx'),
+      'Save assignment only': read('components/studio/PublishDialog.tsx'),
+    };
+    for (const role of ['TRAINER', 'ADMIN'] as const) {
+      const text = guideToMarkdown(GUIDES[role]);
+      expect(text).toContain('### Assign trainings to Cohorts or people');
+      for (const [label, source] of Object.entries(ui)) {
+        expect(source, `UI still shows "${label}"`).toContain(label);
+        expect(text, `${role} guide mentions "${label}"`).toContain(`**${label}**`);
+      }
+    }
+    // Every guide states the any-Cohort-or-by-name rule; no section is left flagged for a later update.
+    expect(guideToMarkdown(GUIDES.AGENT)).toContain('one of your Cohorts or to you by name');
+    for (const role of GUIDE_ROLES) {
+      for (const section of GUIDES[role].chapters.flatMap((c) => c.sections)) {
+        expect(section.maintainerNote, `${role}/${section.id}`).toBeUndefined();
+      }
+    }
+  });
+
   it('remembers the "New here?" banner per user', () => {
     expect(shouldShowGuideBanner(undefined, 'a')).toBe(true);
     const afterA = dismissedCookieValue(undefined, 'a');
