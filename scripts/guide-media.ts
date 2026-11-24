@@ -4,11 +4,12 @@
  *   npm run guides:media            (reads docs/guides/videos/, writes public/guide-media/ and the chapter data)
  *   npm run guides:media -- --from=/path/to/videos
  *
- * Input per role: <role>.mp4 and <role>.chapters.json ([{ id, title, start, guideSections: [...] }]) from the
- * recording run. Output:
+ * Input per role: <role>.mp4, <role>.vtt and <role>.chapters.json ([{ id, title, start, guideSections: [...] }]) from
+ * the recording run. Output:
  * - src/lib/guides/media-chapters.generated.ts: chapter start per guide section (committed; generated, never edit).
- * - public/guide-media/ (gitignored): <role>-<hash>.mp4, a WebP poster per video, 2 WebP screenshots per chapter
- *   (frames from the recording, about 1000 px wide) and manifest.json listing them.
+ * - guide-media/ (gitignored, never public): one folder per role (agent/, supervisor/, trainer/, admin/) with
+ *   <role>-<hash>.mp4, <role>-<hash>.vtt, a WebP poster and 2 WebP screenshots per chapter (frames from the recording,
+ *   about 1000 px wide), plus manifest.json. The app serves them only through the role-checked /api/guide-media.
  * Needs ffmpeg and ffprobe on PATH, and sharp (installed with Next.js) for WebP.
  */
 import { execFileSync } from 'node:child_process';
@@ -30,7 +31,7 @@ interface Chapter {
 const ROOT = process.cwd();
 const fromArg = process.argv.find((a) => a.startsWith('--from='));
 const SRC = path.resolve(fromArg ? fromArg.slice('--from='.length) : path.join(ROOT, 'docs', 'guides', 'videos'));
-const OUT = path.join(ROOT, 'public', 'guide-media');
+const OUT = path.join(ROOT, 'guide-media');
 const GENERATED = path.join(ROOT, 'src', 'lib', 'guides', 'media-chapters.generated.ts');
 const SHOTS_PER_CHAPTER = 2;
 
@@ -46,12 +47,12 @@ async function toWebp(png: string, out: string) {
   await sharp(png).resize({ width: 1000 }).webp({ quality: 62 }).toFile(out);
 }
 
-async function frame(video: string, at: number, prefix: string): Promise<string> {
+async function frame(video: string, at: number, folder: string, prefix: string): Promise<string> {
   const png = path.join(tmpdir(), `guide-frame-${process.pid}.png`);
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-ss', at.toFixed(2), '-i', video, '-frames:v', '1', png]);
   const tmp = path.join(tmpdir(), `guide-frame-${process.pid}.webp`);
   await toWebp(png, tmp);
-  const name = `${prefix}-${hash(tmp)}.webp`;
+  const name = `${folder}/${prefix}-${hash(tmp)}.webp`;
   copyFileSync(tmp, path.join(OUT, name));
   return name;
 }
@@ -104,23 +105,27 @@ async function main() {
   // Media files.
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
-  const manifest: GuideMediaManifest = { version: 1, videos: {}, screenshots: {} };
+  const manifest: GuideMediaManifest = { version: 2, videos: {}, screenshots: {} };
   const shotsByChapter = new Map<string, string[]>();
   for (const role of VIDEO_ROLES) {
     const list = chapters[role];
     if (!list) continue;
     const mp4 = path.join(SRC, `${role}.mp4`);
-    const file = `${role}-${hash(mp4)}.mp4`;
+    mkdirSync(path.join(OUT, role), { recursive: true });
+    const file = `${role}/${role}-${hash(mp4)}.mp4`;
     copyFileSync(mp4, path.join(OUT, file));
-    const poster = await frame(mp4, Math.min((list[1]?.start ?? 0) + 3, (durations[role] ?? 10) - 1), `${role}-poster`);
-    manifest.videos[role] = { file, poster, duration: durations[role]! };
+    const vttSrc = path.join(SRC, `${role}.vtt`);
+    const vtt = existsSync(vttSrc) ? `${role}/${role}-${hash(vttSrc)}.vtt` : undefined;
+    if (vtt) copyFileSync(vttSrc, path.join(OUT, vtt));
+    const poster = await frame(mp4, Math.min((list[1]?.start ?? 0) + 3, (durations[role] ?? 10) - 1), role, `${role}-poster`);
+    manifest.videos[role] = { file, poster, duration: durations[role]!, ...(vtt ? { vtt } : {}) };
     for (const [index, chapter] of list.entries()) {
       const end = list[index + 1]?.start ?? durations[role]!;
       const len = Math.max(1, end - chapter.start);
       const shots: string[] = [];
       for (let k = 0; k < SHOTS_PER_CHAPTER; k++) {
         const at = chapter.start + len * (k === 0 ? 0.35 : 0.75);
-        shots.push(await frame(mp4, at, `${role}-${chapter.id}-${k + 1}`));
+        shots.push(await frame(mp4, at, role, `${role}-${chapter.id}-${k + 1}`));
       }
       shotsByChapter.set(`${role}:${chapter.id}`, shots);
     }
@@ -131,11 +136,13 @@ async function main() {
   }
   writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 1));
 
-  const files = readdirSync(OUT);
-  const total = files.reduce((sum, f) => sum + readFileSync(path.join(OUT, f)).length, 0);
+  const files = readdirSync(OUT, { recursive: true }).map(String).filter((f) => /\.(mp4|webp|vtt|json)$/.test(f));
+  const size = (f: string) => readFileSync(path.join(OUT, f)).length;
+  const total = files.reduce((sum, f) => sum + size(f), 0);
   const webp = files.filter((f) => f.endsWith('.webp'));
-  const webpBytes = webp.reduce((sum, f) => sum + readFileSync(path.join(OUT, f)).length, 0);
-  console.log(`public/guide-media: ${files.length} files, ${(total / 1e6).toFixed(1)} MB (${webp.length} WebP, ${(webpBytes / 1e6).toFixed(2)} MB)`);
+  const webpBytes = webp.reduce((sum, f) => sum + size(f), 0);
+  console.log(`guide-media: ${files.length} files, ${(total / 1e6).toFixed(1)} MB (${webp.length} WebP, ${(webpBytes / 1e6).toFixed(2)} MB)`);
+  for (const role of VIDEO_ROLES) console.log(`  ${role}: ${webp.filter((f) => f.startsWith(`${role}/`) && !f.includes('-poster-')).length} screenshots`);
 }
 
 await main();

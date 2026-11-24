@@ -1,12 +1,8 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // How To videos, posters and screenshots: readable by any signed-in user, never written by clients
-    // (uploaded with the Admin SDK by `npm run guides:media:upload`; the app serves them via /api/guide-media).
-    match /guide-media/{file} {
-      allow read: if request.auth != null;
-      allow write: if false;
-    }
+    // How To media (guide-media/) is read only by the server with the Admin SDK and served through
+    // /api/guide-media, which checks the viewer's role. Browsers never read or write Storage directly.
     match /{allPaths=**} {
       allow read, write: if false;
     }

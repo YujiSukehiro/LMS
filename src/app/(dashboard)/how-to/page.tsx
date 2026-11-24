@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { requirePageUser } from '@/lib/firebase/auth-guard';
-import { resolveGuideRole, visibleGuideRoles } from '@/lib/guides/access';
-import { guideMediaBaseUrl } from '@/lib/guides/media';
+import { buildHowToPage } from '@/lib/guides/how-to-data';
 import { loadGuideMediaManifest } from '@/lib/guides/media-manifest.server';
 import { HowToView } from '@/components/guide/HowToView';
 
@@ -9,8 +8,8 @@ export const metadata: Metadata = { title: 'How To' };
 export const dynamic = 'force-dynamic';
 
 /**
- * How To: every signed-in user, own role's guide first plus the roles they manage, with a click-to-play video per
- * role and screenshots per section when media is published. Deep links: /how-to?role=trainer#publish-assign[&play=1].
+ * How To: the reader's own guide and video open at the top, the roles below theirs folded underneath, roles above
+ * never sent. Deep links: /how-to?role=trainer#publish-assign[&play=1].
  */
 export default async function HowToPage({
   searchParams,
@@ -20,17 +19,7 @@ export default async function HowToPage({
   const user = await requirePageUser();
   const sp = await searchParams;
   const param = Array.isArray(sp.role) ? sp.role[0] : sp.role;
-  const initialRole = resolveGuideRole(user.role, param);
-  const manifest = await loadGuideMediaManifest();
-  // key: a link to another tab (?role=…) remounts the view on that tab.
-  return (
-    <HowToView
-      key={initialRole}
-      uid={user.uid}
-      roles={visibleGuideRoles(user.role)}
-      initialRole={initialRole}
-      manifest={manifest}
-      mediaBase={guideMediaBaseUrl()}
-    />
-  );
+  const data = buildHowToPage(user.role, param, await loadGuideMediaManifest());
+  // key: a link to another role (?role=…) remounts the view with that role open.
+  return <HowToView key={data.focus} uid={user.uid} blocks={data.blocks} focus={data.focus} />;
 }

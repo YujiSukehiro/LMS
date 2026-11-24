@@ -231,7 +231,7 @@ You use Pulse to see which agents in your Cohort are ready to take calls, coach 
 
 **How to:**
 
-1. Select the **Agent** tab at the top of this page.
+1. Open **Agent guide** at the bottom of this page.
 
 **Open in Pulse:** **Open the Agent guide** (`/how-to?role=agent`)
 

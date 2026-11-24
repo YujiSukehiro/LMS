@@ -6,43 +6,43 @@ export const GUIDE_SECTION_MEDIA: Record<GuideRoleId, Record<string, SectionMedi
   "AGENT": {
     "sign-in": {
       "video": "agent",
-      "start": 0.1
+      "start": 0
     },
     "forgot-password": {
       "video": "agent",
-      "start": 0.1
+      "start": 0
     },
     "home": {
       "video": "agent",
-      "start": 19.2
+      "start": 20
     },
     "track-map": {
       "video": "agent",
-      "start": 36.1
+      "start": 38.3
     },
     "checkpoints": {
       "video": "agent",
-      "start": 52
+      "start": 53.7
     },
     "verbal-practice": {
       "video": "agent",
-      "start": 86.8
+      "start": 88.4
     },
     "certification": {
       "video": "agent",
-      "start": 117.9
+      "start": 117.5
     },
     "keep-sharp-review": {
       "video": "agent",
-      "start": 134.3
+      "start": 133.6
     },
     "readiness-passport": {
       "video": "agent",
-      "start": 153.7
+      "start": 150.5
     },
     "account-menu": {
       "video": "agent",
-      "start": 167.5
+      "start": 164.2
     }
   },
   "SUPERVISOR": {
@@ -56,35 +56,35 @@ export const GUIDE_SECTION_MEDIA: Record<GuideRoleId, Record<string, SectionMedi
     },
     "team-progress": {
       "video": "supervisor",
-      "start": 16.1
+      "start": 15.6
     },
     "analytics": {
       "video": "supervisor",
-      "start": 36.7
+      "start": 36.5
     },
     "readiness-passport": {
       "video": "supervisor",
-      "start": 50.1
+      "start": 50.4
     },
     "reset-password": {
       "video": "supervisor",
-      "start": 62.6
+      "start": 62.9
     },
     "forgot-password": {
       "video": "supervisor",
-      "start": 62.6
+      "start": 62.9
     },
     "add-agents": {
       "video": "supervisor",
-      "start": 79.7
+      "start": 80.5
     },
     "who-sees-a-track": {
       "video": "supervisor",
-      "start": 79.7
+      "start": 80.5
     },
     "agent-experience": {
       "video": "supervisor",
-      "start": 79.7
+      "start": 80.5
     }
   },
   "TRAINER": {
@@ -98,79 +98,79 @@ export const GUIDE_SECTION_MEDIA: Record<GuideRoleId, Record<string, SectionMedi
     },
     "track-studio": {
       "video": "trainer",
-      "start": 15.5
+      "start": 14.7
     },
     "build-a-track": {
       "video": "trainer",
-      "start": 24.4
+      "start": 22.5
     },
     "edit-a-track": {
       "video": "trainer",
-      "start": 46.3
+      "start": 45.5
     },
     "source-review": {
       "video": "trainer",
-      "start": 69.2
+      "start": 68.3
     },
     "revised-playbook": {
       "video": "trainer",
-      "start": 69.2
+      "start": 68.3
     },
     "publish-assign": {
       "video": "trainer",
-      "start": 85.5
+      "start": 84.3
     },
     "assign-trainings": {
       "video": "trainer",
-      "start": 103.2
+      "start": 101.5
     },
     "team-progress": {
       "video": "trainer",
-      "start": 117
+      "start": 114.9
     },
     "score-by-hand": {
       "video": "trainer",
-      "start": 117
+      "start": 114.9
     },
     "analytics": {
       "video": "trainer",
-      "start": 132.3
+      "start": 129.4
     },
     "revoke-certification": {
       "video": "trainer",
-      "start": 143.2
+      "start": 139.3
     },
     "readiness-passport": {
       "video": "trainer",
-      "start": 143.2
+      "start": 139.3
     },
     "roster": {
       "video": "trainer",
-      "start": 160.3
+      "start": 155.9
     },
     "invite-staff": {
       "video": "trainer",
-      "start": 160.3
+      "start": 155.9
     },
     "bulk-import": {
       "video": "trainer",
-      "start": 177.9
+      "start": 173.4
     },
     "edit-access": {
       "video": "trainer",
-      "start": 194.5
+      "start": 189.9
     },
     "reset-password": {
       "video": "trainer",
-      "start": 194.5
+      "start": 189.9
     },
     "deactivate": {
       "video": "trainer",
-      "start": 194.5
+      "start": 189.9
     },
     "who-sees-a-track": {
       "video": "trainer",
-      "start": 194.5
+      "start": 189.9
     }
   },
   "ADMIN": {
@@ -184,98 +184,98 @@ export const GUIDE_SECTION_MEDIA: Record<GuideRoleId, Record<string, SectionMedi
     },
     "cohorts": {
       "video": "admin",
-      "start": 16.8
+      "start": 16.5
     },
     "join-codes": {
       "video": "admin",
-      "start": 37.1
+      "start": 36.8
     },
     "roles-permissions": {
       "video": "admin",
-      "start": 69.6
+      "start": 70.7
     },
     "track-studio": {
       "video": "trainer",
-      "start": 15.5
+      "start": 14.7
     },
     "build-a-track": {
       "video": "trainer",
-      "start": 24.4
+      "start": 22.5
     },
     "edit-a-track": {
       "video": "trainer",
-      "start": 46.3
+      "start": 45.5
     },
     "source-review": {
       "video": "trainer",
-      "start": 69.2
+      "start": 68.3
     },
     "revised-playbook": {
       "video": "trainer",
-      "start": 69.2
+      "start": 68.3
     },
     "publish-assign": {
       "video": "trainer",
-      "start": 85.5
+      "start": 84.3
     },
     "assign-trainings": {
       "video": "trainer",
-      "start": 103.2
+      "start": 101.5
     },
     "team-progress": {
       "video": "trainer",
-      "start": 117
+      "start": 114.9
     },
     "score-by-hand": {
       "video": "trainer",
-      "start": 117
+      "start": 114.9
     },
     "analytics": {
       "video": "trainer",
-      "start": 132.3
+      "start": 129.4
     },
     "revoke-certification": {
       "video": "trainer",
-      "start": 143.2
+      "start": 139.3
     },
     "readiness-passport": {
       "video": "trainer",
-      "start": 143.2
+      "start": 139.3
     },
     "roster": {
       "video": "trainer",
-      "start": 160.3
+      "start": 155.9
     },
     "invite-staff": {
       "video": "trainer",
-      "start": 160.3
+      "start": 155.9
     },
     "bulk-import": {
       "video": "trainer",
-      "start": 177.9
+      "start": 173.4
     },
     "edit-access": {
       "video": "trainer",
-      "start": 194.5
+      "start": 189.9
     },
     "reset-password": {
       "video": "trainer",
-      "start": 194.5
+      "start": 189.9
     },
     "deactivate": {
       "video": "trainer",
-      "start": 194.5
+      "start": 189.9
     },
     "who-sees-a-track": {
       "video": "trainer",
-      "start": 194.5
+      "start": 189.9
     }
   }
 };
 
 export const GUIDE_VIDEO_DURATIONS: Partial<Record<VideoRole, number>> = {
-  "agent": 177.3,
-  "supervisor": 97,
-  "trainer": 217.3,
-  "admin": 91.7
+  "agent": 173.7,
+  "supervisor": 99,
+  "trainer": 214.3,
+  "admin": 94.3
 };

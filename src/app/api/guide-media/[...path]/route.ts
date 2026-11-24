@@ -1,50 +1,47 @@
 /**
- * GET /api/guide-media/<file> — How To videos, posters and screenshots for signed-in users.
+ * GET /api/guide-media/<role folder>/<file> — How To videos, posters, subtitles and screenshots.
  *
- * Streams from Firebase Storage `guide-media/` (uploaded by `npm run guides:media:upload`), with Range support so
- * the video player can seek. Set NEXT_PUBLIC_GUIDE_MEDIA_BASE_URL=/api/guide-media to use it. File names carry a
- * content hash, so responses are cached privately for a year.
+ * The only way media reaches a browser: the file must be in a role folder (agent/, supervisor/, trainer/, admin/) the
+ * viewer may see (their own role and below), else 403. Files come from the local guide-media/ folder in development or
+ * from Firebase Storage guide-media/ (Admin SDK; client reads are denied by storage.rules). Range requests are
+ * supported so the player can seek. File names are content-hashed, so responses are cached privately for a year.
  */
-import { Readable } from 'node:stream';
 import { requireAuth } from '@/lib/firebase/auth-guard';
-import { getAdminBucket } from '@/lib/firebase/admin';
-import { GUIDE_MEDIA_STORAGE_PREFIX } from '@/lib/guides/media-manifest.server';
+import { allowedVideoRoles, isGuideMediaPath, type VideoRole } from '@/lib/guides/media';
+import { openGuideMediaFile } from '@/lib/guides/media-manifest.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const SAFE_NAME = /^[a-z0-9][a-z0-9._-]{0,120}$/i;
-const TYPES: Record<string, string> = { mp4: 'video/mp4', webp: 'image/webp', jpg: 'image/jpeg', json: 'application/json' };
+const TYPES: Record<string, string> = { mp4: 'video/mp4', webp: 'image/webp', vtt: 'text/vtt; charset=utf-8' };
 
 export async function GET(req: Request, { params }: { params: Promise<{ path: string[] }> }): Promise<Response> {
   const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
-  const { path } = await params;
-  const name = path.join('/');
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  if (path.length !== 1 || !SAFE_NAME.test(name) || !TYPES[ext]) return new Response('Not found', { status: 404 });
+  const rel = (await params).path.join('/');
+  const ext = rel.split('.').pop()?.toLowerCase() ?? '';
+  if (!isGuideMediaPath(rel) || !TYPES[ext]) return new Response('Not found', { status: 404 });
+  const folder = rel.split('/')[0] as VideoRole;
+  if (!allowedVideoRoles(auth.user.role).includes(folder)) return new Response('Forbidden', { status: 403 });
 
-  const file = getAdminBucket().file(`${GUIDE_MEDIA_STORAGE_PREFIX}${name}`);
-  const [exists] = await file.exists();
-  if (!exists) return new Response('Not found', { status: 404 });
-  const [meta] = await file.getMetadata();
-  const size = Number(meta.size);
-  const cache = ext === 'json' ? 'private, max-age=300' : 'private, max-age=31536000, immutable';
-  const headers: Record<string, string> = { 'Content-Type': TYPES[ext], 'Accept-Ranges': 'bytes', 'Cache-Control': cache };
-
+  const file = await openGuideMediaFile(rel);
+  if (!file) return new Response('Not found', { status: 404 });
+  const headers: Record<string, string> = {
+    'Content-Type': TYPES[ext],
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'private, max-age=31536000, immutable',
+  };
   const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get('range') ?? '');
-  if (range && size > 0) {
-    let start = range[1] ? Number(range[1]) : size - Number(range[2]);
-    let end = range[1] && range[2] ? Number(range[2]) : size - 1;
+  if (range && file.size > 0 && (range[1] || range[2])) {
+    let start = range[1] ? Number(range[1]) : file.size - Number(range[2]);
+    let end = range[1] && range[2] ? Number(range[2]) : file.size - 1;
     start = Math.max(0, start);
-    end = Math.min(size - 1, end);
-    if (start > end) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
-    const stream = Readable.toWeb(file.createReadStream({ start, end })) as ReadableStream;
-    return new Response(stream, {
+    end = Math.min(file.size - 1, end);
+    if (start > end) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${file.size}` } });
+    return new Response(file.stream({ start, end }), {
       status: 206,
-      headers: { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1) },
+      headers: { ...headers, 'Content-Range': `bytes ${start}-${end}/${file.size}`, 'Content-Length': String(end - start + 1) },
     });
   }
-  const stream = Readable.toWeb(file.createReadStream()) as ReadableStream;
-  return new Response(stream, { status: 200, headers: { ...headers, 'Content-Length': String(size) } });
+  return new Response(file.stream(), { status: 200, headers: { ...headers, 'Content-Length': String(file.size) } });
 }

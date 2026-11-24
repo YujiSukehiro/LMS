@@ -1,6 +1,6 @@
 /**
- * Upload public/guide-media/ (made by `npm run guides:media`) to Firebase Storage `guide-media/`, for the
- * signed-in-only proxy /api/guide-media. Then set NEXT_PUBLIC_GUIDE_MEDIA_BASE_URL=/api/guide-media.
+ * Upload guide-media/ (made by `npm run guides:media`) to Firebase Storage `guide-media/`, for the role-checked
+ * /api/guide-media route. Then set GUIDE_MEDIA_SOURCE=storage (the default when there is no local folder).
  *
  * This writes to a real project's Storage. It does nothing without both flags:
  *   npm run guides:media:upload -- --project=<firebase-project-id> --bucket=<bucket> --yes
@@ -24,11 +24,11 @@ if (process.env.FIREBASE_STORAGE_EMULATOR_HOST) {
   process.exit(2);
 }
 
-const SRC = path.join(process.cwd(), 'public', 'guide-media');
-const TYPES: Record<string, string> = { '.mp4': 'video/mp4', '.webp': 'image/webp', '.json': 'application/json' };
+const SRC = path.join(process.cwd(), 'guide-media');
+const TYPES: Record<string, string> = { '.mp4': 'video/mp4', '.webp': 'image/webp', '.vtt': 'text/vtt', '.json': 'application/json' };
 const bucket = getStorage(initializeApp({ credential: applicationDefault(), projectId: project, storageBucket: bucketName })).bucket();
 
-const files = readdirSync(SRC).filter((f) => TYPES[path.extname(f)]);
+const files = readdirSync(SRC, { recursive: true }).map(String).filter((f) => TYPES[path.extname(f)]);
 // Upload media first and the manifest last, so the manifest never lists a file that is not there yet.
 files.sort((a, b) => Number(a === 'manifest.json') - Number(b === 'manifest.json'));
 for (const name of files) {

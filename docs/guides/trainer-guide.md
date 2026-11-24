@@ -559,7 +559,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 **How to:**
 
-1. Select the **Supervisor** tab at the top of this page.
+1. Open **Supervisor guide** at the bottom of this page.
 
 **Open in Pulse:** **Open the Supervisor guide** (`/how-to?role=supervisor`)
 
@@ -573,7 +573,7 @@ You use Pulse to turn campaign Playbook PDFs into Tracks, publish them to Cohort
 
 **How to:**
 
-1. Select the **Agent** tab at the top of this page, or test-play a Track with **Play** in Track Studio.
+1. Open **Agent guide** at the bottom of this page, or test-play a Track with **Play** in Track Studio.
 
 **Open in Pulse:** **Open the Agent guide** (`/how-to?role=agent`)
 
