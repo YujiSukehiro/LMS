@@ -179,7 +179,8 @@ service cloud.firestore {
       return trackData.status == 'PUBLISHED' &&
         trackData.assignedCohortIds is list &&
         ('ALL' in trackData.assignedCohortIds ||
-         (hasPartnerCohort() && request.auth.token.partnerCohortId in trackData.assignedCohortIds));
+         (hasPartnerCohort() && request.auth.token.partnerCohortId in trackData.assignedCohortIds) ||
+         request.auth.uid in trackData.get('assignedUserIds', []));
     }
 
     // Evaluate whether the parent `/tracks/{trackId}` document exists, is published, and is assigned.

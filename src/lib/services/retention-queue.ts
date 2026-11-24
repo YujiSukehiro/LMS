@@ -1,5 +1,6 @@
 import { adminDb } from '@/lib/firebase/admin';
-import { loadPublishedTracksForCohort, loadTrackVersion } from '@/components/analytics/server-data';
+import { loadPublishedTracks, loadTrackVersion } from '@/components/analytics/server-data';
+import { withCohortMemberships } from './memberships';
 import type { SessionUser } from '@/lib/schemas/domain';
 import { ReviewScheduleDocSchema, type ReviewScheduleDoc } from '@/lib/schemas/learning';
 import type { TrackDoc, TrackVersionDoc } from '@/lib/schemas/curriculum';
@@ -17,9 +18,8 @@ export async function loadRetentionQueueForUser(
   options?: { trackId?: string; nowMs?: number },
 ): Promise<RetentionQueueResult> {
   const nowMs = options?.nowMs ?? Date.now();
-  const visibleTracks = (await loadPublishedTracksForCohort(user.partnerCohortId)).filter((track) =>
-    isTrackVisibleToLearner(track, user),
-  );
+  const [published, scope] = await Promise.all([loadPublishedTracks(), withCohortMemberships(user)]);
+  const visibleTracks = published.filter((track) => track.publishedVersionId && isTrackVisibleToLearner(track, scope));
 
   const [versions, schedulesSnap] = await Promise.all([
     Promise.all(

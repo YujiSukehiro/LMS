@@ -6,6 +6,7 @@ import { recordRetentionReviewCompletion } from '@/lib/services/analytics-rollup
 import { ServiceError } from '@/lib/services/errors';
 import { errorResponse, parseJsonBody } from '@/lib/services/route-helpers';
 import { isTrackVisibleToLearner, loadTrack, loadVersion } from '@/lib/services/track-loader';
+import { withCohortMemberships } from '@/lib/services/memberships';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,10 +26,11 @@ export async function POST(req: Request): Promise<NextResponse> {
       return jsonError(400, 'VALIDATION_FAILED', 'Select at least one Track for retention review.');
     }
 
+    const scope = await withCohortMemberships(user);
     const loaded = await Promise.all(
       uniqueTrackIds.map(async (trackId) => {
         const track = await loadTrack(trackId);
-        if (!track || !isTrackVisibleToLearner(track, user) || !track.publishedVersionId) {
+        if (!track || !isTrackVisibleToLearner(track, scope) || !track.publishedVersionId) {
           throw new ServiceError(404, 'TRACK_NOT_AVAILABLE', 'One of the reviewed Tracks is not currently available.');
         }
         const version = await loadVersion(track.id, track.publishedVersionId);

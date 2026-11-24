@@ -133,11 +133,21 @@ export async function addDrill(trackId: string, unitId: string, trainerHint?: st
   return { drill: drill.data, unit: unit.data };
 }
 
-export async function publishTrack(trackId: string, assignedCohortIds: string[]): Promise<string> {
+/** PATCH /api/tracks/{trackId}/assignment — change who takes a published Track (no new version). */
+export async function saveTrackAssignment(trackId: string, assignedCohortIds: string[], assignedUserIds: string[]): Promise<void> {
+  const response = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/assignment`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assignedCohortIds, assignedUserIds }),
+  });
+  if (!response.ok) throw await errorFrom(response, 'The assignment was not saved.');
+}
+
+export async function publishTrack(trackId: string, assignedCohortIds: string[], assignedUserIds: string[] = []): Promise<string> {
   const response = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/publish`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ assignedCohortIds }),
+    body: JSON.stringify({ assignedCohortIds, assignedUserIds }),
   });
   if (!response.ok) {
     try {

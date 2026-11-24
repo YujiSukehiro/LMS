@@ -71,6 +71,11 @@ export const UserDocSchema = z.object({
   displayName: z.string().min(1).max(100),
   role: UserRoleSchema,
   partnerCohortId: z.string(), // e.g., "INTERNAL", "THS", "DOZ"
+  /**
+   * Extra Cohorts the user also belongs to (Connor 2026-11-24). partnerCohortId stays the home Cohort that sets
+   * access scope; memberships here add the Trainings assigned to those Cohorts.
+   */
+  cohortIds: z.array(z.string()).optional(),
   divisionIds: z.array(DivisionIdSchema),
   active: z.boolean(), // false immediately blocks login while keeping history
   deactivatedAt: z.number().nullable(),

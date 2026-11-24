@@ -41,6 +41,7 @@ export const UserSummarySchema = UserDocSchema.pick({
   displayName: true,
   role: true,
   partnerCohortId: true,
+  cohortIds: true,
   divisionIds: true,
   active: true,
   stats: true,

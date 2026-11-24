@@ -16,6 +16,7 @@ import {
   type TrackVersionDoc,
 } from '@/lib/schemas/curriculum';
 import { isTrackVisibleToLearner } from '@/lib/services/track-loader';
+import { withCohortMemberships } from '@/lib/services/memberships';
 import type { SessionUser } from '@/lib/schemas/domain';
 
 export interface LearnContext {
@@ -39,7 +40,7 @@ export function readVersionParam(value: SearchParamValue): string | undefined {
 
 /** Decides which TrackVersion the user may load, or null when the Track is not visible to them. */
 export function resolveVersionAccess(
-  user: SessionUser,
+  user: SessionUser & { cohortIds?: readonly string[] },
   track: TrackDoc,
   requestedVersion: string | undefined,
 ): { versionId: string; isPreview: boolean } | null {
@@ -70,7 +71,7 @@ export async function loadLearnContext(trackId: string, requestedVersion: string
   }
   const track = trackParsed.data;
 
-  const access = resolveVersionAccess(user, track, requestedVersion);
+  const access = resolveVersionAccess(await withCohortMemberships(user), track, requestedVersion);
   if (!access) notFound();
 
   const versionSnap = await adminDb
