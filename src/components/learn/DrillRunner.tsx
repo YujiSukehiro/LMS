@@ -16,6 +16,7 @@ import type { DrillAnswer, LearnerDrill, LearnerDrillKind } from '@/lib/schemas/
 import { XP_RULES } from '@/lib/schemas/constants';
 import { cn } from '@/lib/utils';
 import { describeApiError, describeNetworkError } from '@/app/(dashboard)/learn/_lib/api-errors';
+import { learnerDrillView } from '@/lib/services/drill-grader';
 import { FeedbackDrawer, type FeedbackStatus } from './FeedbackDrawer';
 import { FillBlankChoiceDrill } from './FillBlankChoiceDrill';
 import { MatchPairsDrill } from './MatchPairsDrill';
@@ -53,34 +54,23 @@ export interface DrillRunnerProps {
   hideProgress?: boolean;
 }
 
-function toLearnerDrill(drill: LearnerDrill | DrillItem): LearnerDrill {
-  const base = {
-    id: drill.id,
-    competencyPillarId: drill.competencyPillarId,
-    prompt: drill.prompt,
-    ruleIds: drill.ruleIds ?? [],
-    variationOfDrillId: drill.variationOfDrillId,
-  };
+/**
+ * Learner pages already receive server-sanitized Drills. Studio test-play passes raw Drills, which must get the
+ * same aliased option ids (`right-N`, `step-N`) the server grades against, or every Match Pairs and Call-Flow
+ * Order answer comes back wrong.
+ */
+export function toLearnerDrill(drill: LearnerDrill | DrillItem): LearnerDrill {
   switch (drill.kind) {
-    case 'MULTIPLE_CHOICE':
-      return { ...base, kind: drill.kind, options: drill.options };
-    case 'TRUE_FALSE_SPOT':
-      return { ...base, kind: drill.kind, statement: drill.statement };
     case 'SEQUENCE_ORDER':
-      return { ...base, kind: drill.kind, steps: 'steps' in drill ? drill.steps : drill.orderedSteps };
+      return 'steps' in drill ? drill : learnerDrillView(drill);
     case 'MATCH_PAIRS':
-      return {
-        ...base,
-        kind: drill.kind,
-        leftOptions: 'leftOptions' in drill
-          ? drill.leftOptions
-          : drill.pairs.map((pair) => ({ id: pair.id, text: pair.leftPrompt })),
-        rightOptions: 'rightOptions' in drill
-          ? drill.rightOptions
-          : drill.pairs.map((pair) => ({ id: pair.id, text: pair.rightMatch })),
-      };
+      return 'leftOptions' in drill ? drill : learnerDrillView(drill);
+    case 'MULTIPLE_CHOICE':
+      return 'correctOptionId' in drill ? learnerDrillView(drill) : drill;
+    case 'TRUE_FALSE_SPOT':
+      return 'isCompliant' in drill ? learnerDrillView(drill) : drill;
     case 'FILL_BLANK_CHOICE':
-      return { ...base, kind: drill.kind, sentenceTemplate: drill.sentenceTemplate, wordBank: drill.wordBank };
+      return 'correctWord' in drill ? learnerDrillView(drill) : drill;
   }
 }
 
