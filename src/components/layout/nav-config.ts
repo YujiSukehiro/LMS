@@ -1,7 +1,7 @@
 import type { UserRole } from '@/lib/schemas/domain';
 import { ALL_ROLES, can } from '@/lib/auth/rbac';
 
-export type NavIconName = 'home' | 'retention' | 'studio' | 'progress' | 'analytics' | 'roster';
+export type NavIconName = 'home' | 'retention' | 'studio' | 'progress' | 'analytics' | 'roster' | 'guide';
 
 export interface NavItem {
   href: string;
@@ -31,3 +31,6 @@ function navFor(role: UserRole): NavItem[] {
 export const NAV_BY_ROLE: Record<UserRole, NavItem[]> = Object.fromEntries(
   ALL_ROLES.map((role) => [role, navFor(role)]),
 ) as Record<UserRole, NavItem[]>;
+
+/** The how-to Guide: every signed-in role, shown at the foot of the sidebar and in the account menu. */
+export const GUIDE_NAV_ITEM: NavItem = { href: '/guide', label: 'Guide', icon: 'guide' };

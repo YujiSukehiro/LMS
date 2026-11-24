@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Brain, ChartColumn, LayoutDashboard, Layers, ListChecks, Users, type LucideIcon } from 'lucide-react';
+import { BookOpen, Brain, ChartColumn, LayoutDashboard, Layers, ListChecks, Users, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { NavIconName } from './nav-config';
 
@@ -13,6 +13,7 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   progress: ListChecks,
   analytics: ChartColumn,
   roster: Users,
+  guide: BookOpen,
 };
 
 export function isNavActive(pathname: string, href: string): boolean {
