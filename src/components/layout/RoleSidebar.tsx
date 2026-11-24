@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Activity } from 'lucide-react';
 import type { UserRole } from '@/lib/schemas/domain';
-import { NAV_BY_ROLE } from './nav-config';
+import { GUIDE_NAV_ITEM, NAV_BY_ROLE } from './nav-config';
 import { NavLink } from './NavLink';
 
 export function RoleSidebar({ role }: { role: UserRole }) {
@@ -25,6 +25,9 @@ export function RoleSidebar({ role }: { role: UserRole }) {
         {items.map((item) => (
           <NavLink key={item.href} href={item.href} label={item.label} icon={item.icon} />
         ))}
+        <div className="mt-auto border-t border-pulse-border-subtle pt-2">
+          <NavLink href={GUIDE_NAV_ITEM.href} label={GUIDE_NAV_ITEM.label} icon={GUIDE_NAV_ITEM.icon} />
+        </div>
       </nav>
       <p className="hidden px-4 pb-4 text-[0.68rem] text-pulse-muted lg:block">LogiCall Services Inc.</p>
     </aside>

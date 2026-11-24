@@ -3,7 +3,8 @@
 import { emailToLcNumber } from '@/lib/firebase/lc-id';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, LoaderCircle, LogOut } from 'lucide-react';
+import Link from 'next/link';
+import { BookOpen, ChevronDown, LoaderCircle, LogOut } from 'lucide-react';
 import { signOutEverywhere } from '@/lib/firebase/client';
 import { AnchoredPopover } from './AnchoredPopover';
 import { ThemeSwitcher } from './ThemeSwitcher';
@@ -48,7 +49,7 @@ export function UserMenu({ uid, displayName, email }: { uid: string; displayName
       }
       panelClassName="w-72"
     >
-      {() => (
+      {(close) => (
         <div className="flex flex-col gap-1">
           <div className="border-b border-pulse-border px-2.5 pb-2 pt-1.5">
             <p className="truncate text-sm font-semibold">{displayName}</p>
@@ -56,6 +57,14 @@ export function UserMenu({ uid, displayName, email }: { uid: string; displayName
             <p className="pulse-metric truncate text-xs text-pulse-muted">{emailToLcNumber(email) ?? email}</p>
           </div>
           <ThemeSwitcher uid={uid} className="border-b border-pulse-border pb-2 pt-1" />
+          <Link
+            href="/guide"
+            onClick={close}
+            className="flex items-center gap-2 rounded-pulse-sm px-2.5 py-2 text-sm text-pulse-secondary hover:bg-pulse-elevated"
+          >
+            <BookOpen aria-hidden className="size-4" />
+            How-to guide
+          </Link>
           <button
             type="button"
             onClick={handleSignOut}
