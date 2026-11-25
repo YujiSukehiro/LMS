@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ArrowRight, Award, BookOpen, ChartColumn, Gauge, Headset, Layers, Trophy, Users } from 'lucide-react';
 import type { SessionUser } from '@/lib/schemas/domain';
+import { MyTrainingsCallout } from '@/components/learn/MyTrainingsCallout';
 import { SIM_COPY, TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { DivisionIdSchema } from '@/lib/schemas/domain';
 import {
@@ -54,6 +55,8 @@ export async function AdminHome({ user }: { user: SessionUser }) {
           </Link>
         </nav>
       </div>
+
+      <MyTrainingsCallout user={user} />
 
       <KpiStrip
         items={[

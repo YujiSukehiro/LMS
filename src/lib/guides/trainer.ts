@@ -1,5 +1,5 @@
 import type { GuideChapter, GuideSection, RoleGuide } from './types';
-import { accountMenuSection, forgotPasswordSection, signInSection } from './shared';
+import { accountMenuSection, forgotPasswordSection, signInSection, myTrainingsSection } from './shared';
 import { assignTrainingsSection, editAccessSection, publishAssignSection, whoSeesTrackSection } from './cohort-sections';
 import {
   aiStatusSection,
@@ -94,6 +94,7 @@ export const TRAINER_GUIDE: RoleGuide = {
       sections: [
         signInSection('staff'),
         forgotPasswordSection('staff'),
+        myTrainingsSection('internal'),
         {
           id: 'home',
           title: 'Your Home page',

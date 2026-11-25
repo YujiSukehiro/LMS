@@ -67,10 +67,10 @@ describe('RBAC matrix', () => {
   });
 
   it('derives navigation from permissions', () => {
-    expect(NAV_BY_ROLE.AGENT.map((item) => item.href)).toEqual(['/', '/learn/review']);
-    expect(NAV_BY_ROLE.PARTNER_SUPERVISOR.map((item) => item.href)).toEqual(['/', '/progress', '/analytics']);
-    expect(NAV_BY_ROLE.TRAINER.map((item) => item.href)).toEqual(['/', '/studio', '/progress', '/analytics', '/roster']);
-    expect(NAV_BY_ROLE.ADMIN.map((item) => item.href)).toEqual(['/', '/studio', '/progress', '/analytics', '/roster']);
+    expect(NAV_BY_ROLE.AGENT.map((item) => item.href)).toEqual(['/', '/learn', '/learn/review']);
+    expect(NAV_BY_ROLE.PARTNER_SUPERVISOR.map((item) => item.href)).toEqual(['/', '/learn', '/progress', '/analytics']);
+    expect(NAV_BY_ROLE.TRAINER.map((item) => item.href)).toEqual(['/', '/learn', '/studio', '/progress', '/analytics', '/roster']);
+    expect(NAV_BY_ROLE.ADMIN.map((item) => item.href)).toEqual(['/', '/learn', '/studio', '/progress', '/analytics', '/roster']);
     expect(NAV_BY_ROLE.SUPER_ADMIN).toEqual(NAV_BY_ROLE.ADMIN);
   });
 });

@@ -1,44 +1,24 @@
 import Link from 'next/link';
-import { computeProgressPct } from '@/lib/services/scoring';
-import { ArrowRight, Award, BookOpen, Brain, Clock, Flame, Gauge, Layers, Radar, Sparkles, Zap } from 'lucide-react';
+import { ArrowRight, Award, Brain, Flame, Gauge, Layers, Radar, Sparkles, Zap } from 'lucide-react';
 import type { SessionUser } from '@/lib/schemas/domain';
-import type { EnrollmentDoc } from '@/lib/schemas/analytics';
-import type { TrackDoc } from '@/lib/schemas/curriculum';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { loadRetentionQueueForUser } from '@/lib/services/retention-queue';
-import { isTrackVisibleToLearner } from '@/lib/services/track-loader';
-import { withCohortMemberships } from '@/lib/services/memberships';
 import { cn } from '@/lib/utils';
-import {
-  loadEnrollmentsForUser,
-  loadPublishedTracks,
-  loadUser,
-} from '@/components/analytics/server-data';
-import { EmptyState, KpiStrip, ProgressBar, SectionHeader } from '@/components/analytics/KpiStrip';
+import { loadUser } from '@/components/analytics/server-data';
+import { EmptyState, KpiStrip, SectionHeader } from '@/components/analytics/KpiStrip';
 import { formatPct } from '@/components/analytics/strength';
-import { DivisionPill } from '../DivisionPill';
+import { AssignedTrackCard } from '@/components/learn/AssignedTrackCard';
+import { loadMyTrainings } from '@/components/learn/my-trainings-data';
 
 export async function AgentHome({ user }: { user: SessionUser }) {
-  const [profile, rawTracks, enrollments, retention, scope] = await Promise.all([
+  const [profile, mine, retention] = await Promise.all([
     loadUser(user.uid),
-    // Every published Track: extra Cohorts and one-by-one assignments decide visibility, not the home Cohort alone.
-    loadPublishedTracks(),
-    loadEnrollmentsForUser(user.uid),
+    loadMyTrainings(user),
     loadRetentionQueueForUser(user),
-    withCohortMemberships(user),
   ]);
-  const tracks = rawTracks.filter((track) => track.publishedVersionId && isTrackVisibleToLearner(track, scope));
-  const enrollmentByTrack = new Map(enrollments.map((e) => [e.trackId, e]));
+  const { tracks, enrollmentByTrack, certifiedCount } = mine;
   const stats = profile?.stats;
   const firstName = user.displayName.split(/\s+/)[0] ?? user.displayName;
-  const certifiedCount = enrollments.filter((e) => e.status === 'CERTIFIED').length;
-
-  // In-progress first, then not started, then certified.
-  const order = (track: TrackDoc) => {
-    const status = enrollmentByTrack.get(track.id)?.status ?? 'NOT_STARTED';
-    return status === 'IN_PROGRESS' ? 0 : status === 'NOT_STARTED' ? 1 : 2;
-  };
-  const sorted = [...tracks].sort((a, b) => order(a) - order(b));
 
   return (
     <div className="flex flex-col gap-4">
@@ -132,8 +112,8 @@ export async function AgentHome({ user }: { user: SessionUser }) {
       </section>
 
       <section className="flex flex-col gap-3">
-        <SectionHeader title="Assigned Tracks" description="Tracks assigned to your Cohort." />
-        {sorted.length === 0 ? (
+        <SectionHeader title="Assigned Tracks" description="Tracks assigned to your Cohort or to you." />
+        {tracks.length === 0 ? (
           <EmptyState
             icon={<Layers aria-hidden className="size-6" />}
             title="No Tracks are assigned to your Cohort yet"
@@ -141,78 +121,14 @@ export async function AgentHome({ user }: { user: SessionUser }) {
           />
         ) : (
           <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {sorted.map((track) => (
+            {tracks.map((track) => (
               <li key={track.id}>
-                <AgentTrackCard track={track} enrollment={enrollmentByTrack.get(track.id) ?? null} />
+                <AssignedTrackCard track={track} enrollment={enrollmentByTrack.get(track.id) ?? null} />
               </li>
             ))}
           </ul>
         )}
       </section>
     </div>
-  );
-}
-
-function AgentTrackCard({ track, enrollment }: { track: TrackDoc; enrollment: EnrollmentDoc | null }) {
-  const status = enrollment?.status ?? 'NOT_STARTED';
-  // Recomputed from the counts, not the stored progressPct, so older enrollments use the current formula.
-  const checkpointsDone = Math.min(enrollment?.completedUnitIds.length ?? 0, track.unitCount);
-  const progress = computeProgressPct({
-    completedUnitCount: checkpointsDone,
-    unitCount: track.unitCount,
-    passedScenarioCount: Math.min(enrollment?.passedScenarioIds.length ?? 0, track.simScenarioCount),
-    scenarioCount: track.simScenarioCount,
-  });
-  const cta = status === 'CERTIFIED' ? 'Practice Again' : status === 'IN_PROGRESS' ? 'Continue' : 'Start Track';
-  return (
-    <Link
-      href={`/learn/${encodeURIComponent(track.id)}`}
-      className={cn(
-        'pulse-card group flex h-full flex-col gap-3 p-4 transition-colors hover:border-pulse-border',
-        status === 'CERTIFIED' && 'border-pulse-emerald/30',
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <DivisionPill divisionId={track.divisionId} short />
-        {status === 'CERTIFIED' ? (
-          <span className="pulse-pill pulse-pill-emerald">
-            <Award aria-hidden className="size-3.5" />
-            Certified
-          </span>
-        ) : status === 'IN_PROGRESS' ? (
-          <span className="pulse-pill pulse-pill-amber pulse-metric">
-            {checkpointsDone} of {track.unitCount} Checkpoints
-          </span>
-        ) : (
-          <span className="pulse-pill">Not Started</span>
-        )}
-      </div>
-      <div className="min-w-0">
-        <h3 className="line-clamp-2 font-semibold leading-snug">{track.title}</h3>
-        {track.campaignCode ? <p className="pulse-metric mt-0.5 text-xs text-pulse-muted">{track.campaignCode}</p> : null}
-      </div>
-      <div className="flex items-center gap-3 text-xs text-pulse-muted">
-        <span className="flex items-center gap-1">
-          <BookOpen aria-hidden className="size-3.5" />
-          {track.unitCount} Checkpoints
-        </span>
-        <span className="flex items-center gap-1">
-          <Clock aria-hidden className="size-3.5" />~{track.estimatedTotalMinutes} min
-        </span>
-        {enrollment && enrollment.xpEarned > 0 ? (
-          <span className="pulse-metric flex items-center gap-1 text-pulse-indigo-text">
-            <Zap aria-hidden className="size-3.5" />
-            {enrollment.xpEarned} XP
-          </span>
-        ) : null}
-      </div>
-      <div className="mt-auto flex flex-col gap-2">
-        <ProgressBar value={progress} tone={status === 'CERTIFIED' ? 'emerald' : 'indigo'} label={`${track.title} progress`} />
-        <span className="flex items-center justify-end gap-1 text-sm font-semibold text-pulse-indigo-text group-hover:text-pulse-primary">
-          {cta}
-          <ArrowRight aria-hidden className="size-4 transition-transform group-hover:translate-x-0.5" />
-        </span>
-      </div>
-    </Link>
   );
 }

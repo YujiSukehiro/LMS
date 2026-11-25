@@ -9,6 +9,7 @@ You can do everything a Trainer does, and you also run Cohorts, join codes and T
 - Getting started
   - [Sign in](#sign-in)
   - [Forgot your password](#forgot-password)
+  - [Take your own trainings](#my-trainings)
   - [Your Home page](#home)
 - Cohorts and people
   - [The Roster](#roster)
@@ -87,6 +88,22 @@ You can do everything a Trainer does, and you also run Cohorts, join codes and T
 - You cannot skip the new-password step: every page sends you back to it until you save.
 - Google sign-in accounts have no Pulse password. Reset it with Google.
 - To issue a temporary password to someone else, see "Reset a password".
+
+<a id="my-trainings"></a>
+
+### Take your own trainings
+
+**What it is.** Some trainings (for example compliance) are assigned to everyone, staff included. **My Trainings** lists the Tracks assigned to you through **Every Cohort**, the LogiCall Internal Cohort, or by name. Your Checkpoints, Verbal Practice and certification are recorded like any learner's. Track Studio test-play is a preview and does not count.
+
+**When to use it.** When Home shows trainings still to finish, or a Trainer tells you a new training is assigned.
+
+**How to:**
+
+1. Select **My Trainings** in the side menu, or **Open My Trainings** on Home.
+2. Select a Track card, then work through its Checkpoints in order.
+3. Pass Verbal Practice at the end of the Track to get certified.
+
+**Open in Pulse:** **Go to My Trainings** (`/learn`)
 
 <a id="home"></a>
 

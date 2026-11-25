@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, Brain, ChartColumn, LayoutDashboard, Layers, ListChecks, Users, type LucideIcon } from 'lucide-react';
+import { BookOpen, Brain, ChartColumn, GraduationCap, LayoutDashboard, Layers, ListChecks, Users, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { NavIconName } from './nav-config';
 
 const ICONS: Record<NavIconName, LucideIcon> = {
   home: LayoutDashboard,
+  trainings: GraduationCap,
   retention: Brain,
   studio: Layers,
   progress: ListChecks,
@@ -18,6 +19,8 @@ const ICONS: Record<NavIconName, LucideIcon> = {
 
 export function isNavActive(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/';
+  // Retention has its own nav item under /learn, so My Trainings stays unlit there.
+  if (href === '/learn' && (pathname === '/learn/review' || pathname.startsWith('/learn/review/'))) return false;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

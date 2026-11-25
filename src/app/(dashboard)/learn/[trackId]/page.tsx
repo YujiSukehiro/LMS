@@ -85,9 +85,12 @@ export default async function TrackMapPage({ params, searchParams }: PageProps) 
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 pb-12">
-      <Link href="/" className="inline-flex w-fit items-center gap-1.5 text-xs text-pulse-muted hover:text-pulse-primary">
+      <Link
+        href={isPreview ? `/studio/${encodeURIComponent(trackId)}` : '/learn'}
+        className="inline-flex w-fit items-center gap-1.5 text-xs text-pulse-muted hover:text-pulse-primary"
+      >
         <ArrowLeft aria-hidden className="size-4" />
-        All Tracks
+        {isPreview ? 'Back to Track Studio' : 'My Trainings'}
       </Link>
 
       <TrackHeader

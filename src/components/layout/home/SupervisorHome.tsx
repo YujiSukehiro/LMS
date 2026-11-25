@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ChartColumn, Headset, ShieldCheck, Users } from 'lucide-react';
 import type { SessionUser } from '@/lib/schemas/domain';
+import { MyTrainingsCallout } from '@/components/learn/MyTrainingsCallout';
 import { SIM_COPY } from '@/lib/policy/training-policy';
 import {
   loadCohortRollup,
@@ -67,6 +68,8 @@ export async function SupervisorHome({ user, showOffboarded = false }: { user: S
           Open Cohort Analytics
         </Link>
       </div>
+
+      <MyTrainingsCallout user={user} />
 
       <KpiStrip
         items={[

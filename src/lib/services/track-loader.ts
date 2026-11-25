@@ -18,6 +18,7 @@ import {
 import { ALL_COHORTS_ID } from '@/lib/schemas/constants';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import type { SessionUser } from '@/lib/schemas/domain';
+import { STAFF_ROLES } from '@/lib/auth/rbac';
 import { ServiceError } from './errors';
 import { withCohortMemberships } from './memberships';
 
@@ -129,6 +130,21 @@ export function isTrackVisibleToLearner(
   user: AssignmentScope & { divisionIds?: readonly string[] },
 ): boolean {
   return track.status === 'PUBLISHED' && Boolean(track.publishedVersionId) && isTrackAssignedToLearner(track, user);
+}
+
+/**
+ * True when the published Track belongs on the user's "My Trainings" list (every role takes assigned trainings).
+ * Learners (Agents, Partner Supervisors) follow isTrackVisibleToLearner, Division gate included. Internal staff
+ * (Trainer, Admin, Super Admin) can open any published Track, so the Division gate is not applied to them: a
+ * compliance Track for "Every Cohort", their internal Cohort or them by name is on their list.
+ */
+export function isTrackOnMyTrainings(
+  track: Pick<TrackDoc, 'status' | 'publishedVersionId' | 'assignedCohortIds' | 'assignedUserIds' | 'divisionId'>,
+  user: AssignmentScope & { role: SessionUser['role']; divisionIds?: readonly string[] },
+): boolean {
+  if (track.status !== 'PUBLISHED' || !track.publishedVersionId) return false;
+  if (STAFF_ROLES.includes(user.role)) return isTrackAssignedToUser(track, user);
+  return isTrackVisibleToLearner(track, user);
 }
 
 export type ResolveVersionResult =
