@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isTrackAssignedToUser } from '@/lib/services/track-loader';
+import { isTrackAssignedToUser, isTrackOnMyTrainings } from '@/lib/services/track-loader';
 import { normalizeExtraCohorts } from '@/lib/services/memberships';
 import { PublishTrackRequestSchema } from '@/lib/schemas/api';
 
@@ -12,6 +12,16 @@ describe('Track assignment to Cohorts and people (2026-11-24)', () => {
     expect(isTrackAssignedToUser(track, { partnerCohortId: 'DOZ', uid: 'u-named' })).toBe(true);
     expect(isTrackAssignedToUser(track, { partnerCohortId: 'DOZ', uid: 'c', cohortIds: ['NGA'] })).toBe(false);
     expect(isTrackAssignedToUser({ assignedCohortIds: ['ALL'] }, { partnerCohortId: 'DOZ' })).toBe(true);
+  });
+
+  it('reaches people who join a Cohort after it was assigned (no snapshot at assign time, 2026-11-25)', () => {
+    // A Track assigned to a Cohort while it had no members.
+    const preset = { status: 'PUBLISHED' as const, publishedVersionId: 'v1', assignedCohortIds: ['NEW'], assignedUserIds: [], divisionId: 'TELEHEALTH' as const };
+    const joinedLater = { role: 'AGENT' as const, uid: 'late', partnerCohortId: 'NEW', divisionIds: ['TELEHEALTH'] };
+    const addedAsExtra = { role: 'AGENT' as const, uid: 'extra', partnerCohortId: 'THS', cohortIds: ['NEW'], divisionIds: ['TELEHEALTH'] };
+    expect(isTrackOnMyTrainings(preset, joinedLater)).toBe(true);
+    expect(isTrackOnMyTrainings(preset, addedAsExtra)).toBe(true);
+    expect(isTrackOnMyTrainings(preset, { ...joinedLater, partnerCohortId: 'THS' })).toBe(false);
   });
 
   it('keeps extra Cohorts unique and never the home Cohort', () => {
