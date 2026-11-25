@@ -69,3 +69,20 @@ export const accountMenuSection: GuideSection = {
   ],
   links: [{ label: 'Open How To', href: '/how-to' }],
 };
+
+/** Staff (Supervisor, Trainer, Admin) take the trainings assigned to them too: compliance applies to everyone. */
+export const myTrainingsSection = (audience: 'supervisor' | 'internal'): GuideSection => ({
+  id: 'my-trainings',
+  title: 'Take your own trainings',
+  what:
+    audience === 'internal'
+      ? 'Some trainings (for example compliance) are assigned to everyone, staff included. **My Trainings** lists the Tracks assigned to you through **Every Cohort**, the LogiCall Internal Cohort, or by name. Your Checkpoints, Verbal Practice and certification are recorded like any learner\'s. Track Studio test-play is a preview and does not count.'
+      : 'Some trainings (for example compliance) are assigned to you as well as your agents. **My Trainings** lists the Tracks assigned to you through **Every Cohort**, your Cohort, or by name. Your progress and certification are recorded like any learner\'s.',
+  when: 'When Home shows trainings still to finish, or a Trainer tells you a new training is assigned.',
+  steps: [
+    'Select **My Trainings** in the side menu, or **Open My Trainings** on Home.',
+    'Select a Track card, then work through its Checkpoints in order.',
+    'Pass Verbal Practice at the end of the Track to get certified.',
+  ],
+  links: [{ label: 'Go to My Trainings', href: '/learn' }],
+});

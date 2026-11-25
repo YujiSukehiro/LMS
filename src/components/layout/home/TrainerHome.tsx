@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ChartColumn, CircleAlert, CircleCheck, Layers, LoaderCircle, Pencil, Plus } from 'lucide-react';
 import type { SessionUser } from '@/lib/schemas/domain';
+import { MyTrainingsCallout } from '@/components/learn/MyTrainingsCallout';
 import { loadAllTracks, loadRollup, rankMissedItems, relabelMissedItems } from '@/components/analytics/server-data';
 import { rollupIdForGlobal } from '@/lib/schemas/analytics';
 import { EmptyState, KpiStrip, SectionHeader } from '@/components/analytics/KpiStrip';
@@ -39,6 +40,8 @@ export async function TrainerHome({ user }: { user: SessionUser }) {
           </Link>
         </div>
       </div>
+
+      <MyTrainingsCallout user={user} />
 
       <KpiStrip
         // Five tiles when a build failed: keep them on one row on wide screens instead of orphaning one.

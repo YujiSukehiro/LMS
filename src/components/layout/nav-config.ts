@@ -1,7 +1,7 @@
 import type { UserRole } from '@/lib/schemas/domain';
 import { ALL_ROLES, can } from '@/lib/auth/rbac';
 
-export type NavIconName = 'home' | 'retention' | 'studio' | 'progress' | 'analytics' | 'roster' | 'guide';
+export type NavIconName = 'home' | 'trainings' | 'retention' | 'studio' | 'progress' | 'analytics' | 'roster' | 'guide';
 
 export interface NavItem {
   href: string;
@@ -10,6 +10,8 @@ export interface NavItem {
 }
 
 const HOME: NavItem = { href: '/', label: 'Home', icon: 'home' };
+/** Every role takes the trainings assigned to them (compliance), so every role gets this item. */
+const MY_TRAININGS: NavItem = { href: '/learn', label: 'My Trainings', icon: 'trainings' };
 const RETENTION: NavItem = { href: '/learn/review', label: 'Retention', icon: 'retention' };
 const STUDIO: NavItem = { href: '/studio', label: 'Track Studio', icon: 'studio' };
 const PROGRESS: NavItem = { href: '/progress', label: 'Team Progress', icon: 'progress' };
@@ -18,6 +20,7 @@ const ROSTER: NavItem = { href: '/roster', label: 'Roster', icon: 'roster' };
 
 function navFor(role: UserRole): NavItem[] {
   const items: NavItem[] = [HOME];
+  if (can(role, 'learn.take')) items.push(MY_TRAININGS);
   // Agents get the Retention shortcut; staff can still open /learn/review directly.
   if (role === 'AGENT') items.push(RETENTION);
   if (can(role, 'tracks.author')) items.push(STUDIO);
