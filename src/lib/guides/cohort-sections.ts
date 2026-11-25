@@ -52,7 +52,7 @@ export const publishAssignSection: GuideSection = {
   tips: [
     'Only real problems block publishing (for example a claim the Playbook does not support, or a thin Checkpoint). They are listed with an **Open Source Review** button. Evidence sign-off is a suggestion, not a blocker.',
     'Already published and only changing who takes it? Select **Save assignment only**. No new version is made and agents keep the same content.',
-    'Cohorts with no agents in the Track\'s Division are hidden from the list, and only agents with the Division appear under **Specific people**.',
+    'Every Cohort is listed, even one with no agents yet: set a new Cohort up with its trainings first, and people who join it later get them automatically. Only agents with the Track\'s Division appear under **Specific people**.',
     'A republish keeps the current Cohorts and people ticked. Agents keep their progress; only changes to what is assessed send certified agents back to recertify.',
     'The Track\'s Division is set when you create it and cannot be changed later.',
   ],

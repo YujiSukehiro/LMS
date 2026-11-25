@@ -82,9 +82,10 @@ export function PublishDialog({
   const [copied, setCopied] = useState(false);
 
   const allSelected = selected.has(ALL_COHORTS_ID);
-  // Only Cohorts with agents in this Division are listed; ones already assigned stay listed so they can be removed.
-  const listed = cohorts.filter((cohort) => cohort.reach > 0 || selected.has(cohort.id));
-  const hiddenCount = cohorts.length - listed.length;
+  // Every Cohort is listed, empty ones too (Connor 2026-11-25): a Cohort can be set up with its trainings before
+  // anyone joins. Assignment is checked when a person opens My Trainings, so people who join later get the Track.
+  // Cohorts that already reach agents come first.
+  const listed = [...cohorts].sort((a, b) => Number(b.reach > 0) - Number(a.reach > 0));
   const reach = allSelected
     ? cohorts.reduce((sum, cohort) => sum + cohort.reach, 0)
     : cohorts.filter((cohort) => selected.has(cohort.id)).reduce((sum, cohort) => sum + cohort.reach, 0);
@@ -273,25 +274,24 @@ export function PublishDialog({
                     key={cohort.id}
                     id={cohort.id}
                     label={cohort.name}
-                    hint={`${cohort.reach} agent${cohort.reach === 1 ? '' : 's'}`}
+                    hint={cohort.reach > 0 ? `${cohort.reach} agent${cohort.reach === 1 ? '' : 's'}` : `No ${divisionLabel} agents yet`}
                     checked={allSelected || selected.has(cohort.id)}
                     disabled={allSelected}
                     onToggle={toggle}
                   />
                 ))}
               </div>
-              {listed.length === 0 ? (
-                <p className="text-xs text-pulse-muted">No Cohort has active {divisionLabel} agents yet.</p>
-              ) : null}
+              {listed.length === 0 ? <p className="text-xs text-pulse-muted">No Cohorts exist yet.</p> : null}
               <CohortCheckbox
                 id={ALL_COHORTS_ID}
                 label="Every Cohort, including ones added later"
                 checked={allSelected}
                 onToggle={toggle}
               />
-              {hiddenCount > 0 ? (
+              {listed.some((cohort) => cohort.reach === 0) ? (
                 <p className="text-xs text-pulse-muted">
-                  {hiddenCount} Cohort{hiddenCount === 1 ? ' has' : 's have'} no {divisionLabel} agents and {hiddenCount === 1 ? 'is' : 'are'} not listed.
+                  You can assign a Cohort that has no {divisionLabel} agents yet. People who join it later get this Track
+                  automatically.
                 </p>
               ) : null}
             </fieldset>
