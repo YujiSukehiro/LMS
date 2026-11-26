@@ -1,7 +1,7 @@
 import type { RoleGuide } from './types';
 import { accountMenuSection, forgotPasswordSection, signInSection, myTrainingsSection } from './shared';
 import { whoSeesTrackSection } from './cohort-sections';
-import { analyticsSection, passportSection, resetPasswordSection, teamProgressSection } from './staff-sections';
+import { analyticsSection, passportSection, resetPasswordSection, staffPageSection, teamProgressSection } from './staff-sections';
 
 export const SUPERVISOR_GUIDE: RoleGuide = {
   role: 'SUPERVISOR',
@@ -40,6 +40,7 @@ export const SUPERVISOR_GUIDE: RoleGuide = {
         teamProgressSection('supervisor'),
         analyticsSection('supervisor'),
         passportSection('supervisor'),
+        staffPageSection('supervisor'),
         resetPasswordSection('supervisor'),
         {
           id: 'add-agents',

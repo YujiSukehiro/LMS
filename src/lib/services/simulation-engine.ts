@@ -153,6 +153,41 @@ export async function dailySimUsage(uid: string, partnerCohortId: string, nowMs:
 }
 
 /**
+ * Today's practice usage for many learners at once (Staff page, supervisor Home). `cohortScope` limits the session
+ * query to one Cohort (partner supervisors, same index as dailySimUsage); null reads every session started today
+ * (internal ops; single-field range on startedAt).
+ */
+export async function dailySimUsageForUsers(uids: readonly string[], cohortScope: string | null, nowMs: number): Promise<Map<string, DailySimUsage>> {
+  const result = new Map<string, DailySimUsage>();
+  if (uids.length === 0) return result;
+  const dayStart = startOfUtcDay(nowMs);
+  const resetRefs = uids.map((uid) => simLimitResetsCollection().doc(uid));
+  const resetSnaps: FirebaseFirestore.DocumentSnapshot[] = [];
+  for (let i = 0; i < resetRefs.length; i += 300) resetSnaps.push(...(await adminDb.getAll(...resetRefs.slice(i, i + 300))));
+  const resets = new Map(
+    resetSnaps.map((snap) => {
+      const raw = snap.exists ? snap.get('resetAt') : null;
+      return [snap.id, typeof raw === 'number' && raw >= dayStart ? raw : null] as const;
+    }),
+  );
+  let query: FirebaseFirestore.Query = simSessionsCollection();
+  if (cohortScope) query = query.where('partnerCohortId', '==', cohortScope);
+  const snap = await query.where('startedAt', '>=', dayStart).orderBy('startedAt', 'desc').select('userId', 'status', 'turnCount', 'startedAt').get();
+  const docs = snap.docs.map((d) => ({ userId: d.get('userId'), status: d.get('status'), turnCount: d.get('turnCount'), startedAt: d.get('startedAt') }));
+  const wanted = new Set(uids);
+  const byUser = new Map<string, typeof docs>();
+  for (const doc of docs) {
+    if (typeof doc.userId !== 'string' || !wanted.has(doc.userId)) continue;
+    byUser.set(doc.userId, [...(byUser.get(doc.userId) ?? []), doc]);
+  }
+  for (const uid of uids) {
+    const resetAt = resets.get(uid) ?? null;
+    result.set(uid, summarizeDailySimUsage(byUser.get(uid) ?? [], uid, dailyWindowStart(nowMs, resetAt), resetAt));
+  }
+  return result;
+}
+
+/**
  * Load `simSessions/{sessionId}` and check that the user owns it.
  * Throws 404 when it does not exist or belongs to a different user (no information leak).
  */

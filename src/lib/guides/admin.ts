@@ -7,6 +7,7 @@ import {
   deactivateSection,
   inviteSection,
   resetPasswordSection,
+  staffPageSection,
   rosterSection,
 } from './staff-sections';
 import { BUILDING_CHAPTER, TEAM_CHAPTER, seeAlsoSections } from './trainer';
@@ -49,6 +50,7 @@ export const ADMIN_GUIDE: RoleGuide = {
         inviteSection('admin'),
         bulkImportSection,
         editAccessSection('admin'),
+        staffPageSection('admin'),
         resetPasswordSection('admin'),
         deactivateSection('admin'),
         whoSeesTrackSection('staff'),

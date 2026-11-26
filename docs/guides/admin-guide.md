@@ -18,6 +18,7 @@ You can do everything a Trainer does, and you also run Cohorts, join codes and T
   - [Invite someone by email](#invite-staff)
   - [Bulk import agents from a CSV](#bulk-import)
   - [Change role, Cohort and Divisions](#edit-access)
+  - [Check on your people (Staff page)](#staff-page)
   - [Reset a password](#reset-password)
   - [Deactivate or reactivate someone](#deactivate)
   - [Who sees which Track](#who-sees-a-track)
@@ -266,6 +267,28 @@ You can do everything a Trainer does, and you also run Cohorts, join codes and T
 
 **Open in Pulse:** **Open Roster** (`/roster`)
 
+<a id="staff-page"></a>
+
+### Check on your people (Staff page)
+
+**What it is.** The **Staff** page lists the people you look after, with their trainings, how many Verbal Practice calls they used today and when they were last active. Open a person to see all their numbers and the actions you can take for them.
+
+**When to use it.** When someone needs help, says they are blocked, or you want to see who is behind.
+
+**How to:**
+
+1. Select **Staff** in the menu.
+2. Search by name, LC Number, email or Cohort, or use a filter: **Hit practice limit today**, **Stuck** or **Not started**.
+3. Select **Reset** next to "Practice today" to give someone their practice calls back for today.
+4. Select a name to open their page: trainings, recent practice scores, **Reset today's count** and **Reset password**.
+
+**Tips:**
+
+- Each person gets a set number of Verbal Practice calls per day. Calls with fewer than 2 replies do not count, and the count resets at midnight UTC on its own.
+- You see Trainers, Partner Supervisors and Agents in every Cohort.
+
+**Open in Pulse:** **Open Staff** (`/staff`)
+
 <a id="reset-password"></a>
 
 ### Reset a password
@@ -276,7 +299,7 @@ You can do everything a Trainer does, and you also run Cohorts, join codes and T
 
 **How to:**
 
-1. On the **Roster**, select the key icon on the person's row.
+1. On the **Roster**, select the key icon on the person's row. It is also on their page under **Staff**.
 2. Select **Issue Temporary Password**.
 3. Select **Copy credentials** and give the login ID and temporary password to the person privately.
 4. They sign in and Pulse asks them to choose a new password.
