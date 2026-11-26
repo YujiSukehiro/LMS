@@ -15,7 +15,8 @@ import {
   evaluateDeterministicGates,
   type CustomerDialoguePolicy,
 } from '@/lib/services/scenario-state';
-import { TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { SIM_COPY, TRAINING_POLICY } from '@/lib/policy/training-policy';
+import { MIN_REPLIES_TO_COUNT, uncountedRunCap } from '@/lib/services/sim-session-limits';
 import {
   createVerbalScenarioState,
   evaluateVerbalPracticeGates,
@@ -33,7 +34,7 @@ import { findStoredTurn, type StoredTurn } from '@/lib/services/sim-message-idem
 import { createSimEndStreamFilter } from '@/lib/services/sim-end-filter';
 import { createStreamWatchdog } from '@/lib/services/stream-watchdog';
 import {
-  countSimSessionsTowardLimitToday,
+  dailySimUsage,
   createSimulationProvenance,
   loadOwnedSimSession,
   maxSimSessionsPerDay,
@@ -137,13 +138,16 @@ export async function POST(
     assertSimAiAvailable();
 
     const now = Date.now();
-    // The first learner turn is what makes a run count toward the daily limit, so check the limit here too:
-    // otherwise zero-turn runs started in several scenarios could all go on to use the AI caller.
-    if (session.turnCount === 0) {
+    // A run starts counting toward the daily limit at its second learner reply (MIN_REPLIES_TO_COUNT), so check the
+    // limit before that reply. Before the first reply, check the cost guard for uncounted runs, so zero- and
+    // one-reply runs started in several scenarios cannot use the AI caller without bound.
+    if (session.turnCount < MIN_REPLIES_TO_COUNT) {
       const limit = maxSimSessionsPerDay();
-      const counted = await countSimSessionsTowardLimitToday(user.uid, user.partnerCohortId, now);
-      if (counted >= limit) {
-        return jsonError(429, 'SIM_DAILY_LIMIT', `You used the maximum of ${limit} Simulations today. Try again tomorrow (UTC).`);
+      const usage = await dailySimUsage(user.uid, user.partnerCohortId, now);
+      const overLimit = session.turnCount === MIN_REPLIES_TO_COUNT - 1 && usage.counted >= limit;
+      const overGuard = session.turnCount === 0 && usage.withDialogue >= uncountedRunCap(limit);
+      if (overLimit || overGuard) {
+        return jsonError(429, 'SIM_DAILY_LIMIT', `You used the maximum of ${limit} ${SIM_COPY.plural} today. A supervisor or Trainer can reset your count. The limit resets at midnight UTC.`);
       }
     }
     const agentMessage: SimMessage = { id: randomUUID(), role: 'agent', content, createdAt: now, ...(idempotencyKey ? { idempotencyKey } : {}) };

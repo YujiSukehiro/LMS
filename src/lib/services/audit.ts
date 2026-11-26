@@ -5,7 +5,7 @@
 import { adminDb } from '@/lib/firebase/admin';
 import type { UserRole } from '@/lib/schemas/domain';
 
-export type AuditEventType = 'password.reset_by_staff' | 'password.changed_by_user';
+export type AuditEventType = 'password.reset_by_staff' | 'password.changed_by_user' | 'sims.daily_limit_reset_by_staff';
 
 export interface AuditEvent {
   type: AuditEventType;

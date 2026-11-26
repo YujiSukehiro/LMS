@@ -15,6 +15,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import type { SimEvaluation } from '@/lib/schemas/analytics';
+import type { EvaluateSimResponse } from '@/lib/schemas/api';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
 import { isEchoOf } from '@/lib/services/feedback-text';
 import { cn } from '@/lib/utils';
@@ -32,6 +33,8 @@ export interface ScorecardViewProps {
   onRetry?: () => void;
   backHref?: string;
   backLabel?: string;
+  /** After several failed tries in a row on this practice: the rule the learner keeps missing. */
+  repeatMissHint?: EvaluateSimResponse['repeatMissHint'];
 }
 
 function scoreChipClass(score: number): string {
@@ -51,6 +54,7 @@ export function ScorecardView({
   onRetry,
   backHref,
   backLabel = 'Back to Track Map',
+  repeatMissHint,
 }: ScorecardViewProps) {
   const score = Math.round(evaluation.overallScorePct);
   const eligibilityReasons =
@@ -151,6 +155,27 @@ export function ScorecardView({
         </div>
         {actions}
       </div>
+
+      {repeatMissHint && !evaluation.passed ? (
+        <div role="note" className="flex gap-3 rounded-pulse-lg border border-pulse-indigo/40 bg-pulse-indigo/10 p-4">
+          <Lightbulb aria-hidden className="mt-0.5 size-5 shrink-0 text-pulse-indigo" />
+          <div className="min-w-0">
+            <p className="font-bold">
+              {repeatMissHint.criterionLabel
+                ? `Tip after ${repeatMissHint.failedTries} tries: this is what keeps costing you points`
+                : `Tip after ${repeatMissHint.failedTries} tries`}
+            </p>
+            {repeatMissHint.criterionLabel ? <p className="mt-1 text-sm font-semibold text-pulse-primary">{repeatMissHint.criterionLabel}</p> : null}
+            {repeatMissHint.coachingNote ? <p className="mt-1 text-sm text-pulse-secondary">{repeatMissHint.coachingNote}</p> : null}
+            {repeatMissHint.betterResponseExample ? (
+              <p className="mt-2 text-sm text-pulse-secondary">
+                <span className="font-semibold text-pulse-primary">Try saying: </span>“{repeatMissHint.betterResponseExample}”
+              </p>
+            ) : null}
+            <p className="mt-2 text-xs text-pulse-muted">Fix this one thing on your next try before anything else.</p>
+          </div>
+        </div>
+      ) : null}
 
       {hostedNotCounted ? (
         <p role="note" className="flex items-start gap-2 rounded-pulse-md border border-pulse-border bg-pulse-surface-2 px-3 py-2 text-sm text-pulse-secondary">

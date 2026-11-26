@@ -30,6 +30,7 @@ export type Permission =
   | 'users.editAccess'
   | 'users.resetPassword'
   | 'users.deactivate'
+  | 'sims.resetDailyLimit'
   | 'cohorts.create'
   | 'cohorts.edit'
   | 'cohorts.delete';
@@ -65,6 +66,13 @@ export const PERMISSIONS: Record<Permission, PermissionInfo> = {
     roles: [...ADMINS, 'TRAINER', 'PARTNER_SUPERVISOR'],
   },
   'users.deactivate': { label: 'Deactivate and reactivate users', group: 'People', roles: [...ADMINS, 'TRAINER'] },
+  // Connor 2026-11-26: staff clear an agent's daily practice count so nobody waits for the midnight-UTC reset.
+  // canManageUser scopes it like password resets (supervisors: active agents in their own Cohort).
+  'sims.resetDailyLimit': {
+    label: "Reset an agent's daily Verbal Practice count (supervisors: active agents in their own Cohort)",
+    group: 'People',
+    roles: [...ADMINS, 'TRAINER', 'PARTNER_SUPERVISOR'],
+  },
   'cohorts.create': { label: 'Create Cohorts', group: 'Cohorts', roles: ADMINS },
   'cohorts.edit': { label: 'Rename, set Divisions, manage join codes', group: 'Cohorts', roles: ADMINS },
   'cohorts.delete': { label: 'Delete empty Cohorts', group: 'Cohorts', roles: ADMINS },

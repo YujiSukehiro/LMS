@@ -5,7 +5,7 @@ import { SimEvaluationSchema, SimSessionDocSchema, type SimMessage, type SimSess
 import { TrackDocSchema, TrackVersionDocSchema, type PublicSimScenario, type SecretSimScenarioConfig } from '@/lib/schemas/curriculum';
 import type { SessionUser } from '@/lib/schemas/domain';
 import { createInitialScenarioState } from '@/lib/services/scenario-state';
-import { countsTowardDailySimLimit } from '@/lib/services/sim-session-limits';
+import { summarizeDailySimUsage } from '@/lib/services/sim-session-limits';
 
 const h = vi.hoisted(() => ({
   requireAuth: vi.fn(),
@@ -42,7 +42,7 @@ vi.mock('@/lib/services/simulation-engine', async (importOriginal) => ({
   evaluateSimulation: h.evaluate,
   loadOwnedSimSession: h.loadOwned,
   simSessionsCollection: h.collection,
-  countSimSessionsTowardLimitToday: h.countToday,
+  dailySimUsage: h.countToday,
 }));
 vi.mock('@/lib/services/learning-evidence', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/services/learning-evidence')>()),
@@ -303,7 +303,7 @@ beforeEach(() => {
     return query;
   });
   h.countToday.mockImplementation(async (uid: string) =>
-    queryDocs.today.filter((d) => d.get('userId') === uid && countsTowardDailySimLimit({ status: d.get('status'), turnCount: d.get('turnCount') })).length);
+    summarizeDailySimUsage(queryDocs.today.map((d) => ({ userId: d.get('userId'), status: d.get('status'), turnCount: d.get('turnCount') })), uid, 0, null));
   txDoc = session();
   h.runTransaction.mockImplementation(async (callback) =>
     callback({
@@ -361,11 +361,26 @@ describe('POST /api/simulations/start', () => {
     expect(response.status).toBe(201);
   });
 
-  it('does not count zero-turn sessions toward the daily limit', async () => {
+  it('does not count zero-turn or one-reply sessions toward the daily limit', async () => {
     vi.stubEnv('MAX_SIM_SESSIONS_PER_USER_PER_DAY', '2');
-    queryDocs.today = [doc(session({ id: 'a', status: 'ABANDONED', turnCount: 0 })), doc(session({ id: 'b', status: 'ACTIVE', turnCount: 0, scenarioId: 'other' })), doc(session({ id: 'c', status: 'EVALUATED', turnCount: 4 }))];
+    queryDocs.today = [
+      doc(session({ id: 'a', status: 'ABANDONED', turnCount: 0 })),
+      doc(session({ id: 'b', status: 'ACTIVE', turnCount: 0, scenarioId: 'other' })),
+      doc(session({ id: 'one', status: 'EVALUATED', turnCount: 1 })),
+      doc(session({ id: 'c', status: 'EVALUATED', turnCount: 4 })),
+    ];
     expect((await startPOST(request('/api/simulations/start', body))).status).toBe(201);
     queryDocs.today.push(doc(session({ id: 'd', status: 'ABANDONED', turnCount: 2 })));
+    const refused = await startPOST(request('/api/simulations/start', body));
+    expect(refused.status).toBe(429);
+    expect((await refused.json()).message).toContain('A supervisor or Trainer can reset your count.');
+  });
+
+  it('refuses a start once uncounted one-reply runs reach the cost guard (3x the limit)', async () => {
+    vi.stubEnv('MAX_SIM_SESSIONS_PER_USER_PER_DAY', '2');
+    queryDocs.today = Array.from({ length: 5 }, (_, i) => doc(session({ id: `one-${i}`, status: 'EVALUATED', turnCount: 1 })));
+    expect((await startPOST(request('/api/simulations/start', body))).status).toBe(201);
+    queryDocs.today.push(doc(session({ id: 'one-5', status: 'EVALUATED', turnCount: 1 })));
     expect((await startPOST(request('/api/simulations/start', body))).status).toBe(429);
   });
 
@@ -387,22 +402,39 @@ describe('POST /api/simulations/start', () => {
   });
 });
 
-describe('daily limit at the first learner message', () => {
-  it('refuses the first message of a zero-turn run once the day\'s counted runs reach the limit', async () => {
+describe('daily limit at the learner messages', () => {
+  it('lets the first reply through at the limit (a one-reply run does not count)', async () => {
     vi.stubEnv('MAX_SIM_SESSIONS_PER_USER_PER_DAY', '1');
     queryDocs.today = [doc(session({ id: 'used', status: 'EVALUATED', turnCount: 3 }))];
     h.loadOwned.mockResolvedValue(session({ turnCount: 0 }));
-    const response = await messagePOST(request('/api/simulations/session-1/message', { content: 'Hello.' }), params);
+    const stream = await (await messagePOST(request('/api/simulations/session-1/message', { content: 'Hello.' }), params)).text();
+    expect(stream).toContain('event: done');
+  });
+
+  it('refuses the second reply once the day\'s counted runs reach the limit', async () => {
+    vi.stubEnv('MAX_SIM_SESSIONS_PER_USER_PER_DAY', '1');
+    queryDocs.today = [doc(session({ id: 'used', status: 'EVALUATED', turnCount: 3 })), doc(session({ id: 'session-1', status: 'ACTIVE', turnCount: 1 }))];
+    h.loadOwned.mockResolvedValue(session({ turnCount: 1 }));
+    const response = await messagePOST(request('/api/simulations/session-1/message', { content: 'Hello again.' }), params);
     expect(response.status).toBe(429);
     expect((await response.json()).error).toBe('SIM_DAILY_LIMIT');
     expect(h.streamChat).not.toHaveBeenCalled();
   });
 
-  it('lets a run that already has dialogue continue past the limit', async () => {
+  it('refuses the first reply once runs that used the AI caller reach the cost guard', async () => {
     vi.stubEnv('MAX_SIM_SESSIONS_PER_USER_PER_DAY', '1');
-    queryDocs.today = [doc(session({ id: 'session-1', status: 'ACTIVE', turnCount: 1 }))];
-    h.loadOwned.mockResolvedValue(session({ turnCount: 1 }));
-    txDoc = session({ turnCount: 1 });
+    queryDocs.today = Array.from({ length: 3 }, (_, i) => doc(session({ id: `one-${i}`, status: 'EVALUATED', turnCount: 1 })));
+    h.loadOwned.mockResolvedValue(session({ turnCount: 0 }));
+    const response = await messagePOST(request('/api/simulations/session-1/message', { content: 'Hello.' }), params);
+    expect(response.status).toBe(429);
+    expect(h.streamChat).not.toHaveBeenCalled();
+  });
+
+  it('lets a run with two or more replies continue past the limit', async () => {
+    vi.stubEnv('MAX_SIM_SESSIONS_PER_USER_PER_DAY', '1');
+    queryDocs.today = [doc(session({ id: 'session-1', status: 'ACTIVE', turnCount: 2 }))];
+    h.loadOwned.mockResolvedValue(session({ turnCount: 2 }));
+    txDoc = session({ turnCount: 2 });
     const stream = await (await messagePOST(request('/api/simulations/session-1/message', { content: 'Hello again.' }), params)).text();
     expect(stream).toContain('event: done');
   });
