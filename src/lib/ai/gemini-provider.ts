@@ -234,7 +234,7 @@ export class GeminiProvider implements LLMGateway {
   async generateStructured<T extends z.ZodTypeAny>(opts: GenerateStructuredOptions<T>): Promise<z.infer<T>> {
     const ai = this.getClient();
     const planning = opts.purpose === 'planning';
-    const model = planning ? this.planningModel : this.modelFor(opts.tier);
+    const model = opts.modelOverride ?? (planning ? this.planningModel : this.modelFor(opts.tier));
     const budget = planning ? this.planningThinkingBudget : this.thinkingBudget;
     const fullSchema = toGeminiJsonSchema(toJsonSchema(opts.schema));
     const fallbackKey = `${model}:${opts.schemaName ?? 'structured'}`;
@@ -255,6 +255,16 @@ export class GeminiProvider implements LLMGateway {
         const contents: Content[] = messages
           .filter((turn) => turn.role !== 'system')
           .map((turn) => textContent(turn.role === 'assistant' ? 'model' : 'user', turn.content));
+        if (opts.audioParts?.length && contents[0]) {
+          // Audio rides on the first user turn, after the text prompt; repair turns stay text only.
+          contents[0] = {
+            role: 'user',
+            parts: [
+              ...(contents[0].parts ?? []),
+              ...opts.audioParts.flatMap((clip) => [{ text: clip.label }, { inlineData: { mimeType: clip.mimeType, data: clip.base64 } }]),
+            ],
+          };
+        }
         let level: 0 | 1 | 2 = this.schemaFallback.get(fallbackKey) ?? 0;
         // The cache holds the system prompt and the shared prefix; JSON mode (level 2) changes the system prompt.
         let cacheName = prefix && level < 2 ? await this.contextCacheFor(model, opts.systemPrompt, prefix) : null;

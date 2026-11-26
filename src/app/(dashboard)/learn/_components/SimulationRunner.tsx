@@ -19,7 +19,9 @@ import { CallTicketHeader } from '@/components/simulation/CallTicketHeader';
 import { DifficultyBadge } from '@/components/simulation/DifficultyBadge';
 import { DispositionPicker } from '@/components/simulation/DispositionPicker';
 import { ScorecardView } from '@/components/simulation/ScorecardView';
-import { TranscriptChat, type TranscriptMessage } from '@/components/simulation/TranscriptChat';
+import { TranscriptChat, type SpokenTurnAudio, type TranscriptMessage } from '@/components/simulation/TranscriptChat';
+import { DeliveryCoachCard, type DeliveryCoachState } from '@/components/simulation/DeliveryCoachCard';
+import { DeliveryAssessmentSchema } from '@/lib/schemas/delivery';
 import { DIVISION_PILL_CLASS, VERBAL_CHANNEL_LABELS, verbalStartLabel } from '@/components/simulation/labels';
 import { createIdempotencyKey } from '@/components/learn/drill-shared';
 import { TRAINING_POLICY } from '@/lib/policy/training-policy';
@@ -119,6 +121,12 @@ export function SimulationRunner({
   const startInFlightRef = useRef(false);
   const evaluateInFlightRef = useRef(false);
   const sessionRef = useRef<SimSessionDoc | null>(null);
+  /** Spoken replies recorded in this browser, by agent turn index. Sent once to the delivery coach, never stored. */
+  const spokenClipsRef = useRef<Map<number, SpokenTurnAudio>>(new Map());
+  const messagesRef = useRef<TranscriptMessage[]>([]);
+  messagesRef.current = messages;
+  const [delivery, setDelivery] = useState<DeliveryCoachState | null>(null);
+  const deliveryRequestedRef = useRef<string | null>(null);
 
   useEffect(() => () => abortRef.current?.abort(), []);
   useEffect(() => {
@@ -172,6 +180,9 @@ export function SimulationRunner({
     setPickerOpen(false);
     setStreamingText(null);
     setRestoreDraft(null);
+    setDelivery(null);
+    spokenClipsRef.current = new Map();
+    deliveryRequestedRef.current = null;
     try {
       const response = await fetch('/api/simulations/start', {
         method: 'POST',
@@ -304,9 +315,11 @@ export function SimulationRunner({
   const unconfirmedSendRef = useRef<{ content: string; key: string } | null>(null);
 
   const send = useCallback(
-    async (content: string) => {
+    async (content: string, audio?: SpokenTurnAudio | null) => {
       if (sendInFlightRef.current) return;
       if (!sessionId || streamingText !== null || simEnded || phase !== 'live') return;
+      const agentTurnIndex = messagesRef.current.filter((m) => m.role === 'agent').length;
+      if (audio) spokenClipsRef.current.set(agentTurnIndex, audio);
       sendInFlightRef.current = true;
       setRetryAction(null);
       const idempotencyKey = unconfirmedSendRef.current?.content === content ? unconfirmedSendRef.current.key : createIdempotencyKey();
@@ -318,6 +331,7 @@ export function SimulationRunner({
       const controller = new AbortController();
       abortRef.current = controller;
       const rollback = () => {
+        spokenClipsRef.current.delete(agentTurnIndex);
         setMessages((prev) => prev.filter((m) => m.id !== agentMessage.id));
         setRestoreDraft({ text: content, restoreKey: Date.now() });
         setStreamingText(null);
@@ -403,6 +417,36 @@ export function SimulationRunner({
     sendRef.current = send;
   }, [send]);
 
+  // After the scorecard, send the spoken replies once to the delivery coach (coaching only, never pass/fail).
+  useEffect(() => {
+    if (phase !== 'scored' || !sessionId || demoReplay || deliveryRequestedRef.current === sessionId) return;
+    const clips = [...spokenClipsRef.current.entries()].sort(([a], [b]) => a - b);
+    if (clips.length === 0) return;
+    deliveryRequestedRef.current = sessionId;
+    setDelivery({ status: 'loading' });
+    const form = new FormData();
+    form.append('meta', JSON.stringify({ clips: clips.map(([agentTurnIndex, clip]) => ({ agentTurnIndex, durationMs: Math.round(clip.durationMs) })) }));
+    for (const [index, clip] of clips) form.append('clip', clip.blob, `reply-${index + 1}`);
+    void (async () => {
+      try {
+        const response = await fetch(`/api/simulations/${encodeURIComponent(sessionId)}/delivery`, { method: 'POST', body: form });
+        if (!response.ok) {
+          setDelivery({ status: 'error', message: await describeApiError(response, 'evaluation') });
+          return;
+        }
+        const body = z.object({ delivery: DeliveryAssessmentSchema }).safeParse(await response.json());
+        setDelivery(
+          body.success
+            ? { status: 'ready', delivery: body.data.delivery }
+            : { status: 'error', message: 'The delivery coach answered, but the result was not readable.' },
+        );
+        spokenClipsRef.current = new Map();
+      } catch (caught) {
+        setDelivery({ status: 'error', message: describeNetworkError(caught) });
+      }
+    })();
+  }, [phase, sessionId, demoReplay]);
+
   const closePicker = useCallback(() => setPickerOpen(false), []);
   const isStreaming = streamingText !== null;
 
@@ -479,7 +523,8 @@ export function SimulationRunner({
             messages={messages}
             streamingText={streamingText}
             counterpartyLabel={scenario.counterpartyRoleLabel}
-            onSend={(content) => void send(content)}
+            onSend={(content, audio) => void send(content, audio)}
+            recordSpokenTurns={!demoReplay}
             composerDisabled={isStreaming || simEnded || phase !== 'live'}
             composerNote={
               simEnded
@@ -547,6 +592,7 @@ export function SimulationRunner({
           repeatMissHint={result.repeatMissHint}
         />
       ) : null}
+      {phase === 'scored' && delivery ? <DeliveryCoachCard state={delivery} /> : null}
 
       {requireDisposition ? (
         <DispositionPicker
@@ -617,8 +663,9 @@ function IntroCard({
         <p className="flex items-start gap-2 text-sm text-pulse-secondary">
           <MessageSquareText aria-hidden className="mt-0.5 size-4 shrink-0 text-pulse-indigo" />
           <span>
-            Answer in your own words, typed or dictated with the mic. You are scored on what you say and the Playbook rules you
-            follow.
+            Turn on the mic and talk, or type. The caller speaks their replies aloud (mute it any time). You are scored on what
+            you say and the Playbook rules you follow. Spoken replies also get delivery coaching on tone and pace; the audio is
+            sent once to the AI coach and not saved.
           </span>
         </p>
 
