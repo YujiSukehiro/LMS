@@ -29,7 +29,7 @@ import {
 } from '@/lib/schemas/analytics';
 import { DEFAULT_SIM_PASS_THRESHOLD } from '@/lib/schemas/constants';
 import { startOfUtcDay } from './route-helpers';
-import { countsTowardDailySimLimit } from './sim-session-limits';
+import { dailyWindowStart, summarizeDailySimUsage, type DailySimUsage } from './sim-session-limits';
 import type { CompetencyPillar, PublicSimScenario, SecretSimScenarioConfig } from '@/lib/schemas/curriculum';
 import type { SessionUser } from '@/lib/schemas/domain';
 import type { SimulationEvent } from '@/lib/schemas/simulation-state';
@@ -123,20 +123,33 @@ export function simSessionsCollection() {
   return adminDb.collection('simSessions');
 }
 
+/** Staff resets of a learner's daily practice count: one doc per learner (`simLimitResets/{uid}`), server only. */
+export function simLimitResetsCollection() {
+  return adminDb.collection('simLimitResets');
+}
+
 /**
- * The learner's sessions started today (UTC) that count toward the daily limit (sessions with dialogue).
+ * The learner's practice usage today (UTC day, or since a staff reset made today): runs that count toward the
+ * daily limit (2+ replies) and runs that used the AI caller at all (cost guard).
  * Uses the existing (partnerCohortId ASC, startedAt DESC) composite index and filters by user in memory.
  */
-export async function countSimSessionsTowardLimitToday(uid: string, partnerCohortId: string, nowMs: number): Promise<number> {
+export async function dailySimUsage(uid: string, partnerCohortId: string, nowMs: number): Promise<DailySimUsage> {
+  const resetSnap = await simLimitResetsCollection().doc(uid).get();
+  const rawReset = resetSnap.exists ? resetSnap.get('resetAt') : null;
+  const resetAt = typeof rawReset === 'number' && rawReset >= startOfUtcDay(nowMs) ? rawReset : null;
+  const windowStart = dailyWindowStart(nowMs, resetAt);
   const snap = await simSessionsCollection()
     .where('partnerCohortId', '==', partnerCohortId)
-    .where('startedAt', '>=', startOfUtcDay(nowMs))
+    .where('startedAt', '>=', windowStart)
     .orderBy('startedAt', 'desc')
-    .select('userId', 'status', 'turnCount')
+    .select('userId', 'status', 'turnCount', 'startedAt')
     .get();
-  return snap.docs.filter(
-    (d) => d.get('userId') === uid && countsTowardDailySimLimit({ status: d.get('status'), turnCount: d.get('turnCount') }),
-  ).length;
+  return summarizeDailySimUsage(
+    snap.docs.map((d) => ({ userId: d.get('userId'), status: d.get('status'), turnCount: d.get('turnCount'), startedAt: d.get('startedAt') })),
+    uid,
+    windowStart,
+    resetAt,
+  );
 }
 
 /**

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { loadRepeatMissHint } from '@/lib/services/sim-repeat-hint';
 import { adminDb } from '@/lib/firebase/admin';
 import { jsonError, requireAuth } from '@/lib/firebase/auth-guard';
 import { LLMStructuredOutputError, isLLMOutputTruncatedError } from '@/lib/ai/types';
@@ -373,7 +374,23 @@ export async function POST(
       pillars: sessionVersion.competencyPillars,
       selectedDisposition,
     });
-    const response: EvaluateSimResponse = { evaluation: evaluationForViewer(evaluation, user), certified };
+    // Coaching only: a hint lookup failure must never break the scorecard.
+    const repeatHint = evaluation.passed
+      ? null
+      : await loadRepeatMissHint({
+          uid: user.uid,
+          trackId: session.trackId,
+          scenarioId: session.scenarioId,
+          current: { sessionId: session.id, evaluation },
+        }).catch((error) => {
+          console.warn(`[simulations/evaluate] Repeat-miss hint unavailable for ${session.id}`, error instanceof Error ? error.message : error);
+          return null;
+        });
+    const response: EvaluateSimResponse = {
+      evaluation: evaluationForViewer(evaluation, user),
+      certified,
+      ...(repeatHint ? { repeatMissHint: repeatHint } : {}),
+    };
     return NextResponse.json(response);
   } catch (error) {
     if (isServiceError(error) && error.code === 'ALREADY_EVALUATED') {

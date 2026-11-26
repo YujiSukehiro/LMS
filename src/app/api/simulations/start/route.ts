@@ -7,7 +7,7 @@ import { StartSimRequestSchema } from '@/lib/schemas/api';
 import { ensureEnrollment, hasCompletedAllUnits } from '@/lib/services/analytics-rollup';
 import { errorResponse, parseJsonBody } from '@/lib/services/route-helpers';
 import {
-  countSimSessionsTowardLimitToday,
+  dailySimUsage,
   createSimulationProvenance,
   maxSimSessionsPerDay,
   simSessionsCollection,
@@ -19,6 +19,7 @@ import { createVerbalScenarioState, evaluateVerbalPracticeGates } from '@/lib/se
 import { assertSimAiAvailable } from '@/lib/services/sim-ai-availability';
 import { findResumableSession, isResumableSession, simStartLockId } from '@/lib/services/sim-resume';
 import { sessionForViewer } from '@/lib/services/learner-views';
+import { uncountedRunCap } from '@/lib/services/sim-session-limits';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,13 +62,13 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const now = Date.now();
     const limit = maxSimSessionsPerDay();
-    const startedToday = await countSimSessionsTowardLimitToday(user.uid, user.partnerCohortId, now);
-    if (startedToday >= limit) {
+    const usage = await dailySimUsage(user.uid, user.partnerCohortId, now);
+    if (usage.counted >= limit || usage.withDialogue >= uncountedRunCap(limit)) {
       return jsonError(
         429,
         'SIM_DAILY_LIMIT',
         // The browser rewrites this with the local reset time (QA L17); the limit day is the UTC day.
-        `You started the maximum of ${limit} ${SIM_COPY.plural} today. The limit resets at midnight UTC.`,
+        `You started the maximum of ${limit} ${SIM_COPY.plural} today. A supervisor or Trainer can reset your count. The limit resets at midnight UTC.`,
       );
     }
 

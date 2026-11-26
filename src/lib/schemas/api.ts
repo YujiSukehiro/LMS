@@ -345,6 +345,15 @@ export const EvaluateSimResponseSchema = z.object({
   certified: z.boolean(),
   /** Explicit inspection-only marker for Demo replay; omitted by assessed flows. */
   demoReplay: z.boolean().optional(),
+  /** Set after several failed tries in a row on this practice: the rule the learner keeps missing. */
+  repeatMissHint: z
+    .object({
+      failedTries: z.number().int().min(1),
+      criterionLabel: z.string().nullable(),
+      coachingNote: z.string(),
+      betterResponseExample: z.string().nullable(),
+    })
+    .optional(),
 });
 export type EvaluateSimResponse = z.infer<typeof EvaluateSimResponseSchema>;
 

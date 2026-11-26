@@ -66,7 +66,7 @@ vi.mock('@/lib/services/simulation-engine', async (importOriginal) => {
     evaluateSimulation: mockEvaluateSimulation,
     loadOwnedSimSession: mockLoadOwnedSimSession,
     simSessionsCollection: mockSimSessionsCollection,
-    countSimSessionsTowardLimitToday: async () => 0,
+    dailySimUsage: async () => ({ counted: 0, withDialogue: 0, resetAt: null }),
   };
 });
 vi.mock('@/lib/services/track-loader', () => ({

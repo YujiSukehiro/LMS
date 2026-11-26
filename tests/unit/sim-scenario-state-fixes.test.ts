@@ -102,13 +102,15 @@ describe('applyDeterministicAssessment', () => {
 });
 
 describe('daily Simulation limit counting', () => {
-  it('excludes zero-turn sessions and keeps sessions that used the AI caller', () => {
+  it('counts only sessions with at least 2 learner replies (legacy docs still count)', () => {
     expect(countsTowardDailySimLimit({ status: 'ACTIVE', turnCount: 0 })).toBe(false);
     expect(countsTowardDailySimLimit({ status: 'ABANDONED', turnCount: 0 })).toBe(false);
     expect(countsTowardDailySimLimit({ status: 'READY_FOR_EVAL', turnCount: 0 })).toBe(false);
-    expect(countsTowardDailySimLimit({ status: 'EVALUATED', turnCount: 0 })).toBe(true);
+    expect(countsTowardDailySimLimit({ status: 'EVALUATED', turnCount: 0 })).toBe(false);
+    expect(countsTowardDailySimLimit({ status: 'EVALUATED', turnCount: 1 })).toBe(false);
+    expect(countsTowardDailySimLimit({ status: 'ACTIVE', turnCount: 1 })).toBe(false);
+    expect(countsTowardDailySimLimit({ status: 'ACTIVE', turnCount: 2 })).toBe(true);
     expect(countsTowardDailySimLimit({ status: 'ABANDONED', turnCount: 3 })).toBe(true);
-    expect(countsTowardDailySimLimit({ status: 'ACTIVE', turnCount: 1 })).toBe(true);
     expect(countsTowardDailySimLimit({ status: 'ACTIVE' })).toBe(true); // legacy docs
   });
 });

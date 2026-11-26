@@ -341,7 +341,7 @@ export function SimulationRunner({
           if (failure.code === AI_UNAVAILABLE_CODE) {
             setRetryAction({ label: 'Send again', run: () => void sendRef.current(content) });
           }
-          setError(failure.message);
+          setError(failure.code === 'SIM_DAILY_LIMIT' ? dailyLimitMessage(failure.message) : failure.message);
           return;
         }
 
@@ -544,6 +544,7 @@ export function SimulationRunner({
           pillarLabels={pillarLabels}
           onRetry={() => void start()}
           backHref={mapHref}
+          repeatMissHint={result.repeatMissHint}
         />
       ) : null}
 

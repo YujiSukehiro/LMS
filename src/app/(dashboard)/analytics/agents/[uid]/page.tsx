@@ -25,6 +25,8 @@ import { canManageUser } from '@/lib/auth/rbac';
 import { ResetPasswordDialog } from '@/app/(dashboard)/roster/_components/ResetPasswordDialog';
 import { SIM_COPY } from '@/lib/policy/training-policy';
 import { RevokeCertificationButton } from '@/components/analytics/RevokeCertificationButton';
+import { PracticeLimitCard } from '@/components/analytics/PracticeLimitCard';
+import { dailySimUsage, maxSimSessionsPerDay } from '@/lib/services/simulation-engine';
 
 export const metadata: Metadata = { title: 'Agent Learning Evidence' };
 export const dynamic = 'force-dynamic';
@@ -92,6 +94,15 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
     .sort((a, b) => a.title.localeCompare(b.title));
 
   const backHref = viewer.role === 'AGENT' ? '/' : '/analytics';
+  // Staff see today's practice count; the Reset button follows the same hierarchy as password resets.
+  const practiceLimit = maxSimSessionsPerDay();
+  const practiceUsage =
+    viewer.role === 'AGENT'
+      ? null
+      : await dailySimUsage(agent.uid, agent.partnerCohortId, Date.now()).catch((error) => {
+          console.error('[analytics/agents] practice usage unavailable', error);
+          return null;
+        });
 
   return (
     <div className="flex flex-col gap-5">
@@ -120,6 +131,17 @@ export default async function AgentPassportPage({ params }: { params: Promise<{ 
           </div>
         ) : null}
       </header>
+
+      {practiceUsage ? (
+        <PracticeLimitCard
+          uid={agent.uid}
+          displayName={agent.displayName}
+          counted={practiceUsage.counted}
+          limit={practiceLimit}
+          canReset={canManageUser(viewer, agent, 'sims.resetDailyLimit')}
+          resetToday={practiceUsage.resetAt !== null}
+        />
+      ) : null}
 
       <KpiStrip
         items={[
