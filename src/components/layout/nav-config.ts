@@ -1,7 +1,7 @@
 import type { UserRole } from '@/lib/schemas/domain';
 import { ALL_ROLES, can } from '@/lib/auth/rbac';
 
-export type NavIconName = 'home' | 'trainings' | 'retention' | 'studio' | 'progress' | 'analytics' | 'roster' | 'guide';
+export type NavIconName = 'home' | 'trainings' | 'retention' | 'studio' | 'progress' | 'analytics' | 'roster' | 'staff' | 'guide';
 
 export interface NavItem {
   href: string;
@@ -15,6 +15,7 @@ const MY_TRAININGS: NavItem = { href: '/learn', label: 'My Trainings', icon: 'tr
 const RETENTION: NavItem = { href: '/learn/review', label: 'Retention', icon: 'retention' };
 const STUDIO: NavItem = { href: '/studio', label: 'Track Studio', icon: 'studio' };
 const PROGRESS: NavItem = { href: '/progress', label: 'Team Progress', icon: 'progress' };
+const STAFF: NavItem = { href: '/staff', label: 'Staff', icon: 'staff' };
 const ANALYTICS: NavItem = { href: '/analytics', label: 'Analytics', icon: 'analytics' };
 const ROSTER: NavItem = { href: '/roster', label: 'Roster', icon: 'roster' };
 
@@ -24,6 +25,7 @@ function navFor(role: UserRole): NavItem[] {
   // Agents get the Retention shortcut; staff can still open /learn/review directly.
   if (role === 'AGENT') items.push(RETENTION);
   if (can(role, 'tracks.author')) items.push(STUDIO);
+  if (can(role, 'staff.view')) items.push(STAFF);
   if (can(role, 'progress.view')) items.push(PROGRESS);
   if (can(role, 'analytics.view')) items.push(ANALYTICS);
   if (can(role, 'roster.view')) items.push(ROSTER);

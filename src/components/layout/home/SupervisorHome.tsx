@@ -17,6 +17,7 @@ import { ProgressStatusChip, isReadyForCalls } from '@/components/progress/Progr
 import { BAND_TEXT_CLASS, bandFor, formatPct } from '@/components/analytics/strength';
 import { cn } from '@/lib/utils';
 import { canManageUser } from '@/lib/auth/rbac';
+import { dailySimUsageForUsers, maxSimSessionsPerDay } from '@/lib/services/simulation-engine';
 import { ResetPasswordDialog } from '@/app/(dashboard)/roster/_components/ResetPasswordDialog';
 import { cohortLabel, relativeTime } from '../labels';
 
@@ -49,6 +50,13 @@ export async function SupervisorHome({ user, showOffboarded = false }: { user: S
     certifications,
     now,
   });
+  // Nudge: agents who used up today's practice calls, so a supervisor can reset them from the Staff page.
+  const practiceLimit = maxSimSessionsPerDay();
+  const practiceUsage = await dailySimUsageForUsers(activeAgents.map((a) => a.uid), cohortId, now).catch((error) => {
+    console.error('[SupervisorHome] practice usage unavailable', error);
+    return new Map<string, { counted: number }>();
+  });
+  const atLimitCount = activeAgents.filter((a) => (practiceUsage.get(a.uid)?.counted ?? 0) >= practiceLimit).length;
   const readyCount = activeAgents.filter((a) => isReadyForCalls(cellsByAgent.get(a.uid) ?? {})).length;
   const skillAverage = rollupReadiness(rollup);
   const passRate = simPassRate(rollup);
@@ -68,6 +76,21 @@ export async function SupervisorHome({ user, showOffboarded = false }: { user: S
           Open Cohort Analytics
         </Link>
       </div>
+
+      {atLimitCount > 0 ? (
+        <div role="status" className="flex flex-wrap items-center gap-3 rounded-pulse-lg border border-pulse-amber/50 bg-pulse-amber/10 p-4">
+          <Headset aria-hidden className="size-5 shrink-0 text-pulse-amber" />
+          <p className="min-w-0 flex-1 text-sm">
+            <span className="font-semibold">
+              {atLimitCount} agent{atLimitCount === 1 ? '' : 's'} hit their practice limit today.
+            </span>{' '}
+            They can&apos;t start another {SIM_COPY.singular} call until you reset their count or the day resets.
+          </p>
+          <Link href="/staff?filter=limit" className="pulse-btn pulse-btn-primary">
+            Review on Staff
+          </Link>
+        </div>
+      ) : null}
 
       <MyTrainingsCallout user={user} />
 

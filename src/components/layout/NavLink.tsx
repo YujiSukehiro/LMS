@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, Brain, ChartColumn, GraduationCap, LayoutDashboard, Layers, ListChecks, Users, type LucideIcon } from 'lucide-react';
+import { BookOpen, Brain, ChartColumn, GraduationCap, LayoutDashboard, Layers, ListChecks, UserRoundSearch, Users, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { NavIconName } from './nav-config';
 
@@ -14,6 +14,7 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   progress: ListChecks,
   analytics: ChartColumn,
   roster: Users,
+  staff: UserRoundSearch,
   guide: BookOpen,
 };
 

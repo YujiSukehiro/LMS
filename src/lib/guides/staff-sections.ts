@@ -284,6 +284,29 @@ export const bulkImportSection: GuideSection = {
   requires: ['users.invite'],
 };
 
+export const staffPageSection = (audience: 'supervisor' | 'trainer' | 'admin'): GuideSection => ({
+  id: 'staff-page',
+  title: 'Check on your people (Staff page)',
+  what: 'The **Staff** page lists the people you look after, with their trainings, how many Verbal Practice calls they used today and when they were last active. Open a person to see all their numbers and the actions you can take for them.',
+  when: 'When someone needs help, says they are blocked, or you want to see who is behind.',
+  steps: [
+    'Select **Staff** in the menu.',
+    'Search by name, LC Number, email or Cohort, or use a filter: **Hit practice limit today**, **Stuck** or **Not started**.',
+    'Select **Reset** next to "Practice today" to give someone their practice calls back for today.',
+    'Select a name to open their page: trainings, recent practice scores, **Reset today\'s count** and **Reset password**.',
+  ],
+  tips: [
+    'Each person gets a set number of Verbal Practice calls per day. Calls with fewer than 2 replies do not count, and the count resets at midnight UTC on its own.',
+    audience === 'supervisor'
+      ? 'You see the agents in your own Cohort. Home shows a notice when any of them hit their practice limit.'
+      : audience === 'trainer'
+        ? 'You see Partner Supervisors and Agents in every Cohort.'
+        : 'You see Trainers, Partner Supervisors and Agents in every Cohort.',
+  ],
+  links: [{ label: 'Open Staff', href: '/staff' }],
+  requires: ['staff.view', 'sims.resetDailyLimit'],
+});
+
 export const resetPasswordSection = (audience: 'supervisor' | 'trainer' | 'admin'): GuideSection => ({
   id: 'reset-password',
   title: 'Reset a password',
@@ -291,8 +314,8 @@ export const resetPasswordSection = (audience: 'supervisor' | 'trainer' | 'admin
   when: 'When an agent tells you they forgot their password. LC Number agents have no reset email, so they rely on you.',
   steps: [
     audience === 'supervisor'
-      ? 'Find the agent on Home and select the key icon (**Reset password**) next to their LC Number. It is also next to their name on their Readiness Passport.'
-      : 'On the **Roster**, select the key icon on the person\'s row.',
+      ? 'Open **Staff**, select the agent, then select the key icon (**Reset password**). It is also next to their LC Number on Home.'
+      : 'On the **Roster**, select the key icon on the person\'s row. It is also on their page under **Staff**.',
     'Select **Issue Temporary Password**.',
     'Select **Copy credentials** and give the login ID and temporary password to the person privately.',
     'They sign in and Pulse asks them to choose a new password.',

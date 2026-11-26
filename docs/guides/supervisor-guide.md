@@ -15,6 +15,7 @@ You use Pulse to see which agents in your Cohort are ready to take calls, coach 
   - [Team Progress](#team-progress)
   - [Analytics](#analytics)
   - [An agent's Readiness Passport](#readiness-passport)
+  - [Check on your people (Staff page)](#staff-page)
   - [Reset a password](#reset-password)
   - [Adding or changing agents](#add-agents)
   - [Who sees which Track](#who-sees-a-track)
@@ -174,6 +175,28 @@ You use Pulse to see which agents in your Cohort are ready to take calls, coach 
 - You can open Passports for agents in your own Cohort.
 - A certification a Trainer withdrew shows as **Revoked**. Ask your Trainer about the reason and what happens next.
 
+<a id="staff-page"></a>
+
+### Check on your people (Staff page)
+
+**What it is.** The **Staff** page lists the people you look after, with their trainings, how many Verbal Practice calls they used today and when they were last active. Open a person to see all their numbers and the actions you can take for them.
+
+**When to use it.** When someone needs help, says they are blocked, or you want to see who is behind.
+
+**How to:**
+
+1. Select **Staff** in the menu.
+2. Search by name, LC Number, email or Cohort, or use a filter: **Hit practice limit today**, **Stuck** or **Not started**.
+3. Select **Reset** next to "Practice today" to give someone their practice calls back for today.
+4. Select a name to open their page: trainings, recent practice scores, **Reset today's count** and **Reset password**.
+
+**Tips:**
+
+- Each person gets a set number of Verbal Practice calls per day. Calls with fewer than 2 replies do not count, and the count resets at midnight UTC on its own.
+- You see the agents in your own Cohort. Home shows a notice when any of them hit their practice limit.
+
+**Open in Pulse:** **Open Staff** (`/staff`)
+
 <a id="reset-password"></a>
 
 ### Reset a password
@@ -184,7 +207,7 @@ You use Pulse to see which agents in your Cohort are ready to take calls, coach 
 
 **How to:**
 
-1. Find the agent on Home and select the key icon (**Reset password**) next to their LC Number. It is also next to their name on their Readiness Passport.
+1. Open **Staff**, select the agent, then select the key icon (**Reset password**). It is also next to their LC Number on Home.
 2. Select **Issue Temporary Password**.
 3. Select **Copy credentials** and give the login ID and temporary password to the person privately.
 4. They sign in and Pulse asks them to choose a new password.

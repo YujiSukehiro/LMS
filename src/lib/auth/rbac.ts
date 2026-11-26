@@ -31,6 +31,7 @@ export type Permission =
   | 'users.resetPassword'
   | 'users.deactivate'
   | 'sims.resetDailyLimit'
+  | 'staff.view'
   | 'cohorts.create'
   | 'cohorts.edit'
   | 'cohorts.delete';
@@ -68,6 +69,12 @@ export const PERMISSIONS: Record<Permission, PermissionInfo> = {
   'users.deactivate': { label: 'Deactivate and reactivate users', group: 'People', roles: [...ADMINS, 'TRAINER'] },
   // Connor 2026-11-26: staff clear an agent's daily practice count so nobody waits for the midnight-UTC reset.
   // canManageUser scopes it like password resets (supervisors: active agents in their own Cohort).
+  // Connor 2026-11-26: one Staff page listing the people you look after, with per-person metrics and actions.
+  'staff.view': {
+    label: 'Open the Staff page (supervisors: agents in their own Cohort)',
+    group: 'People',
+    roles: [...ADMINS, 'TRAINER', 'PARTNER_SUPERVISOR'],
+  },
   'sims.resetDailyLimit': {
     label: "Reset an agent's daily Verbal Practice count (supervisors: active agents in their own Cohort)",
     group: 'People',
@@ -113,6 +120,21 @@ export function canManageUser(
     );
   }
   return true;
+}
+
+/**
+ * Who appears on the viewer's Staff page: Super Admins see everyone; Partner Supervisors see the agents in their own
+ * Cohort (active or not); everyone else sees roles ranked below their own. Never the viewer themself.
+ */
+export function canSeeOnStaffPage(
+  viewer: { uid: string; role: UserRole; partnerCohortId?: string },
+  target: { uid: string; role: UserRole; partnerCohortId?: string },
+): boolean {
+  if (viewer.uid === target.uid || !can(viewer.role, 'staff.view')) return false;
+  if (viewer.role === 'PARTNER_SUPERVISOR') {
+    return target.role === 'AGENT' && typeof viewer.partnerCohortId === 'string' && target.partnerCohortId === viewer.partnerCohortId;
+  }
+  return canManageRole(viewer.role, target.role);
 }
 
 /** Roles this actor may change an existing user to. */
