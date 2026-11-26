@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PERMISSIONS, canSeeOnStaffPage } from '@/lib/auth/rbac';
+import { ALL_ROLES, PERMISSIONS, canManageUser, canSeeOnStaffPage } from '@/lib/auth/rbac';
 import { NAV_BY_ROLE } from '@/components/layout/nav-config';
 import type { UserRole } from '@/lib/schemas/domain';
 import { matchesStaffFilter, matchesStaffSearch, parseStaffFilter, staffFlags, visibleEmail } from '@/lib/services/staff-rules';
@@ -82,5 +82,34 @@ describe('Staff filters', () => {
     expect(matchesStaffSearch(person, 'julio')).toBe(false);
     expect(visibleEmail('lc-1042@roster.logicall.internal')).toBeNull();
     expect(visibleEmail('jordan@logicall.io')).toBe('jordan@logicall.io');
+  });
+});
+
+describe('password reset: who may reset whom (same rule as the reset-password API)', () => {
+  // viewer role -> target roles they may reset (same Cohort, active target)
+  const expected: Record<UserRole, UserRole[]> = {
+    AGENT: [],
+    PARTNER_SUPERVISOR: ['AGENT'],
+    TRAINER: ['PARTNER_SUPERVISOR', 'AGENT'],
+    ADMIN: ['TRAINER', 'PARTNER_SUPERVISOR', 'AGENT'],
+    SUPER_ADMIN: ['SUPER_ADMIN', 'ADMIN', 'TRAINER', 'PARTNER_SUPERVISOR', 'AGENT'],
+  };
+  for (const viewerRole of ALL_ROLES) {
+    it(`${viewerRole} can reset only ${expected[viewerRole].join(', ') || 'nobody'}`, () => {
+      const viewer = { uid: 'viewer', role: viewerRole, partnerCohortId: 'THS' };
+      const allowed = ALL_ROLES.filter((targetRole) =>
+        canManageUser(viewer, { uid: 'target', role: targetRole, partnerCohortId: 'THS', active: true }, 'users.resetPassword'),
+      );
+      expect(allowed).toEqual(expected[viewerRole]);
+    });
+  }
+
+  it('never lets anyone reset their own password from here, and supervisors only reach active agents in their Cohort', () => {
+    for (const role of ALL_ROLES) {
+      expect(canManageUser({ uid: 'me', role, partnerCohortId: 'THS' }, { uid: 'me', role, partnerCohortId: 'THS', active: true }, 'users.resetPassword')).toBe(false);
+    }
+    const sup = { uid: 'sup', role: 'PARTNER_SUPERVISOR' as const, partnerCohortId: 'THS' };
+    expect(canManageUser(sup, { uid: 'a', role: 'AGENT', partnerCohortId: 'DOZ', active: true }, 'users.resetPassword')).toBe(false);
+    expect(canManageUser(sup, { uid: 'a', role: 'AGENT', partnerCohortId: 'THS', active: false }, 'users.resetPassword')).toBe(false);
   });
 });

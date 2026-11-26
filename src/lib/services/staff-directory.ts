@@ -152,7 +152,8 @@ export async function loadStaffPeople(viewer: SessionUser, options: { onlyUid?: 
           now,
         }),
         canResetPractice: canManageUser(viewer, person, 'sims.resetDailyLimit'),
-        canResetPassword: canManageUser(viewer, person, 'users.resetPassword'),
+        // Same rule as POST /api/roster/{uid}/reset-password; deactivated people cannot sign in, so no button.
+        canResetPassword: person.active && canManageUser(viewer, person, 'users.resetPassword'),
       };
     })
     .sort((a, b) => Number(b.active) - Number(a.active) || a.displayName.localeCompare(b.displayName));
